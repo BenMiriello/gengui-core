@@ -7,8 +7,10 @@ import {
   boolean,
   pgEnum,
   primaryKey,
+  index,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
-import { relations } from 'drizzle-orm';
+import { relations, sql } from 'drizzle-orm';
 
 export const modelTypeEnum = pgEnum('model_type', ['lora', 'checkpoint', 'other']);
 
@@ -30,7 +32,23 @@ export const media = pgTable('media', {
   hash: varchar('hash', { length: 64 }).notNull(),
   generated: boolean('generated').default(false).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-});
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  deletedAt: timestamp('deleted_at'),
+}, (table) => ({
+  userIdIdx: index('media_user_id_idx').on(table.userId),
+  createdAtIdx: index('media_created_at_idx').on(table.createdAt),
+  hashIdx: index('media_hash_idx').on(table.hash),
+  userCreatedIdx: index('media_user_created_idx').on(table.userId, table.createdAt),
+  userHashActiveIdx: index('media_user_hash_active_idx')
+    .on(table.userId, table.hash)
+    .where(sql`deleted_at IS NULL`),
+  userCreatedActiveIdx: index('media_user_created_active_idx')
+    .on(table.userId, table.createdAt)
+    .where(sql`deleted_at IS NULL`),
+  uniqueUserHash: uniqueIndex('media_user_hash_unique')
+    .on(table.userId, table.hash)
+    .where(sql`deleted_at IS NULL`),
+}));
 
 export const tags = pgTable('tags', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -39,6 +57,7 @@ export const tags = pgTable('tags', {
     .references(() => users.id, { onDelete: 'cascade' }),
   name: varchar('name', { length: 100 }).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
 export const mediaTags = pgTable(
@@ -53,6 +72,7 @@ export const mediaTags = pgTable(
   },
   (table) => ({
     pk: primaryKey({ columns: [table.mediaId, table.tagId] }),
+    tagIdIdx: index('media_tags_tag_id_idx').on(table.tagId),
   })
 );
 
@@ -65,7 +85,13 @@ export const models = pgTable('models', {
   type: modelTypeEnum('type').notNull(),
   filePath: varchar('file_path', { length: 512 }).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-});
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  deletedAt: timestamp('deleted_at'),
+}, (table) => ({
+  userActiveIdx: index('models_user_active_idx')
+    .on(table.userId)
+    .where(sql`deleted_at IS NULL`),
+}));
 
 export const modelInputs = pgTable(
   'model_inputs',
@@ -79,6 +105,7 @@ export const modelInputs = pgTable(
   },
   (table) => ({
     pk: primaryKey({ columns: [table.modelId, table.mediaId] }),
+    modelIdIdx: index('model_inputs_model_id_idx').on(table.modelId),
   })
 );
 
