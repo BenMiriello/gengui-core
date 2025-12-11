@@ -4,6 +4,7 @@ import cors from 'cors';
 import { env } from './config/env';
 import { logger } from './utils/logger';
 import { errorHandler } from './middleware/errorHandler';
+import mediaRoutes from './routes/media';
 
 export function createApp() {
   const app = express();
@@ -28,6 +29,8 @@ export function createApp() {
     logger.info({ method: req.method, path: req.path }, 'Request');
     next();
   });
+
+  app.use('/api/media', mediaRoutes);
 
   app.use(errorHandler);
 
