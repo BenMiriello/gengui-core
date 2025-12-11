@@ -22,7 +22,7 @@ export function errorHandler(
       error: {
         message: 'Validation error',
         code: 'VALIDATION_ERROR',
-        details: err.errors,
+        details: err.issues,
       },
     };
     logger.warn({ err, path: req.path }, 'Validation error');

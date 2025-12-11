@@ -1,8 +1,9 @@
 import { env } from './config/env';
 import { createApp } from './app';
+import { logger } from './utils/logger';
 
 const app = createApp();
 
 app.listen(env.PORT, () => {
-  console.log(`Server running on port ${env.PORT} in ${env.NODE_ENV} mode`);
+  logger.info(`Server running on port ${env.PORT} in ${env.NODE_ENV} mode`);
 });

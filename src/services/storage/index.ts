@@ -1,4 +1,3 @@
-import { env } from '../../config/env';
 import { StorageProvider } from './interface';
 import { MinIOStorageProvider } from './minio';
 
