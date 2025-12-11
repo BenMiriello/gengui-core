@@ -1,31 +1,51 @@
-import type { Request, Response, NextFunction } from 'express';
+import { Request, Response, NextFunction } from 'express';
+import { ZodError } from 'zod';
+import { AppError } from '../utils/errors';
+import { logger } from '../utils/logger';
 
-export class ApiError extends Error {
-  constructor(
-    public statusCode: number,
-    message: string
-  ) {
-    super(message);
-    this.name = 'ApiError';
-  }
+export interface ErrorResponse {
+  error: {
+    message: string;
+    code?: string;
+    details?: unknown;
+  };
 }
 
-export function errorHandler(err: Error, _req: Request, res: Response, _next: NextFunction) {
-  if (err instanceof ApiError) {
-    res.status(err.statusCode).json({
+export function errorHandler(
+  err: Error,
+  req: Request,
+  res: Response,
+  _next: NextFunction
+) {
+  if (err instanceof ZodError) {
+    const response: ErrorResponse = {
       error: {
-        message: err.message,
-        status: err.statusCode,
+        message: 'Validation error',
+        code: 'VALIDATION_ERROR',
+        details: err.errors,
       },
-    });
-    return;
+    };
+    logger.warn({ err, path: req.path }, 'Validation error');
+    return res.status(400).json(response);
   }
 
-  console.error('Unexpected error:', err);
-  res.status(500).json({
+  if (err instanceof AppError) {
+    const response: ErrorResponse = {
+      error: {
+        message: err.message,
+        code: err.code,
+      },
+    };
+    logger.warn({ err, path: req.path }, `AppError: ${err.message}`);
+    return res.status(err.statusCode).json(response);
+  }
+
+  const response: ErrorResponse = {
     error: {
       message: 'Internal server error',
-      status: 500,
+      code: 'INTERNAL_ERROR',
     },
-  });
+  };
+  logger.error({ err, path: req.path }, 'Unhandled error');
+  return res.status(500).json(response);
 }
