@@ -1,8 +1,8 @@
 import { StorageProvider } from './interface';
-import { MinIOStorageProvider } from './minio';
+import { S3StorageProvider } from './s3Provider';
 
 export function createStorageProvider(): StorageProvider {
-  return new MinIOStorageProvider();
+  return new S3StorageProvider();
 }
 
 export const storageProvider = createStorageProvider();

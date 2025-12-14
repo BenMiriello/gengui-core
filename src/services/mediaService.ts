@@ -21,9 +21,13 @@ export class MediaService {
       .limit(1);
 
     if (existing.length > 0) {
-      const url = await storageProvider.getSignedUrl(existing[0].storageKey);
-      logger.info({ mediaId: existing[0].id, hash }, 'Duplicate upload detected, returning existing');
-      return { id: existing[0].id, storageKey: existing[0].storageKey, url };
+      const existingMedia = existing[0];
+      if (!existingMedia.storageKey) {
+        throw new Error('Media record exists but has no storage key');
+      }
+      const url = await storageProvider.getSignedUrl(existingMedia.storageKey);
+      logger.info({ mediaId: existingMedia.id, hash }, 'Duplicate upload detected, returning existing');
+      return { id: existingMedia.id, storageKey: existingMedia.storageKey, url };
     }
 
     const result = await db.transaction(async (tx) => {
@@ -60,6 +64,10 @@ export class MediaService {
       }
     });
 
+    if (!result.storageKey) {
+      throw new Error('Media upload completed but storage key is missing');
+    }
+
     const url = await storageProvider.getSignedUrl(result.storageKey);
     logger.info({ mediaId: result.id, size: file.size }, 'Media uploaded successfully');
 
@@ -95,7 +103,11 @@ export class MediaService {
 
   async getSignedUrl(id: string, userId: string, expiresIn: number = 900) {
     const mediaItem = await this.getById(id, userId);
-    const url = await storageProvider.getSignedUrl(mediaItem.storageKey, expiresIn);
+    if (!mediaItem.storageKey && !mediaItem.s3Key) {
+      throw new Error('Media has no storage key');
+    }
+    const key = mediaItem.s3Key || mediaItem.storageKey!;
+    const url = await storageProvider.getSignedUrl(key, expiresIn);
     return url;
   }
 
