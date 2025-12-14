@@ -5,11 +5,25 @@ import { env } from './config/env';
 import { logger } from './utils/logger';
 import { errorHandler } from './middleware/errorHandler';
 import mediaRoutes from './routes/media';
+import tagRoutes from './routes/tags';
+import generationsRoutes from './routes/generations';
 
 export function createApp() {
   const app = express();
 
-  app.use(helmet());
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          scriptSrc: ["'self'", "'unsafe-inline'"],
+          styleSrc: ["'self'", "'unsafe-inline'"],
+          imgSrc: ["'self'", 'data:', 'blob:', 'http:', 'https:'],
+          upgradeInsecureRequests: null,
+        },
+      },
+    })
+  );
 
   app.use(
     cors({
@@ -21,6 +35,8 @@ export function createApp() {
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
 
+  app.use(express.static('public'));
+
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok' });
   });
@@ -31,6 +47,8 @@ export function createApp() {
   });
 
   app.use('/api/media', mediaRoutes);
+  app.use('/api/generations', generationsRoutes);
+  app.use('/api', tagRoutes);
 
   app.use(errorHandler);
 
