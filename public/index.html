@@ -157,6 +157,8 @@
     const USER_ID = '00000000-0000-0000-0000-000000000001';
 
     let pollInterval;
+    let lastQueueHash = '';
+    let lastGalleryHash = '';
 
     document.getElementById('generateForm').addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -217,6 +219,10 @@
           g.status === 'queued' || g.status === 'processing'
         );
 
+        const currentHash = JSON.stringify(queuedOrProcessing.map(g => ({id: g.id, status: g.status})));
+        if (currentHash === lastQueueHash) return;
+        lastQueueHash = currentHash;
+
         const queueEl = document.getElementById('queue');
         if (queuedOrProcessing.length === 0) {
           queueEl.innerHTML = '<div class="empty">No active generations</div>';
@@ -244,6 +250,10 @@
         const data = await res.json();
 
         const completed = data.generations.filter(g => g.status === 'completed');
+
+        const currentHash = JSON.stringify(completed.map(g => g.id));
+        if (currentHash === lastGalleryHash) return;
+        lastGalleryHash = currentHash;
 
         const galleryEl = document.getElementById('gallery');
         if (completed.length === 0) {
