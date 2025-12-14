@@ -9,10 +9,13 @@ import {
   primaryKey,
   index,
   uniqueIndex,
+  text,
 } from 'drizzle-orm/pg-core';
 import { relations, sql } from 'drizzle-orm';
 
 export const modelTypeEnum = pgEnum('model_type', ['lora', 'checkpoint', 'other']);
+export const mediaTypeEnum = pgEnum('media_type', ['upload', 'generation']);
+export const mediaStatusEnum = pgEnum('media_status', ['queued', 'processing', 'completed', 'failed']);
 
 export const users = pgTable('users', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -26,10 +29,19 @@ export const media = pgTable('media', {
   userId: uuid('user_id')
     .notNull()
     .references(() => users.id, { onDelete: 'cascade' }),
-  storageKey: varchar('storage_key', { length: 512 }).notNull(),
-  size: integer('size').notNull(),
-  mimeType: varchar('mime_type', { length: 100 }).notNull(),
-  hash: varchar('hash', { length: 64 }).notNull(),
+  type: mediaTypeEnum('type').default('upload').notNull(),
+  status: mediaStatusEnum('status').default('completed').notNull(),
+  storageKey: varchar('storage_key', { length: 512 }),
+  s3Key: varchar('s3_key', { length: 512 }),
+  s3Bucket: varchar('s3_bucket', { length: 255 }),
+  size: integer('size'),
+  mimeType: varchar('mime_type', { length: 100 }),
+  hash: varchar('hash', { length: 64 }),
+  width: integer('width'),
+  height: integer('height'),
+  prompt: text('prompt'),
+  seed: integer('seed'),
+  error: text('error'),
   generated: boolean('generated').default(false).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
@@ -38,6 +50,8 @@ export const media = pgTable('media', {
   userIdIdx: index('media_user_id_idx').on(table.userId),
   createdAtIdx: index('media_created_at_idx').on(table.createdAt),
   hashIdx: index('media_hash_idx').on(table.hash),
+  typeStatusIdx: index('media_type_status_idx').on(table.type, table.status),
+  userTypeIdx: index('media_user_type_idx').on(table.userId, table.type),
   userCreatedIdx: index('media_user_created_idx').on(table.userId, table.createdAt),
   userHashActiveIdx: index('media_user_hash_active_idx')
     .on(table.userId, table.hash)
