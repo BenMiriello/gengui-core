@@ -1,9 +1,11 @@
 import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import { env } from './config/env';
 import { logger } from './utils/logger';
 import { errorHandler } from './middleware/errorHandler';
+import authRoutes from './routes/auth';
 import mediaRoutes from './routes/media';
 import tagRoutes from './routes/tags';
 import generationsRoutes from './routes/generations';
@@ -34,6 +36,7 @@ export function createApp() {
 
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
+  app.use(cookieParser());
 
   app.use(express.static('public'));
 
@@ -46,6 +49,7 @@ export function createApp() {
     next();
   });
 
+  app.use('/api', authRoutes);
   app.use('/api/media', mediaRoutes);
   app.use('/api/generations', generationsRoutes);
   app.use('/api', tagRoutes);

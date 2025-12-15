@@ -19,10 +19,39 @@ export const mediaStatusEnum = pgEnum('media_status', ['queued', 'processing', '
 
 export const users = pgTable('users', {
   id: uuid('id').defaultRandom().primaryKey(),
+  username: varchar('username', { length: 50 }).notNull().unique(),
   email: varchar('email', { length: 255 }).notNull().unique(),
+  passwordHash: varchar('password_hash', { length: 255 }),
+  oauthProvider: varchar('oauth_provider', { length: 50 }),
+  oauthProviderId: varchar('oauth_provider_id', { length: 255 }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
+
+export const sessions = pgTable('sessions', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  token: varchar('token', { length: 255 }).notNull().unique(),
+  expiresAt: timestamp('expires_at').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => ({
+  tokenIdx: index('sessions_token_idx').on(table.token),
+  userExpiresIdx: index('sessions_user_expires_idx').on(table.userId, table.expiresAt),
+}));
+
+export const passwordResetTokens = pgTable('password_reset_tokens', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  token: varchar('token', { length: 255 }).notNull().unique(),
+  expiresAt: timestamp('expires_at').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => ({
+  tokenIdx: index('password_reset_tokens_token_idx').on(table.token),
+}));
 
 export const media = pgTable('media', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -127,6 +156,22 @@ export const usersRelations = relations(users, ({ many }) => ({
   media: many(media),
   tags: many(tags),
   models: many(models),
+  sessions: many(sessions),
+  passwordResetTokens: many(passwordResetTokens),
+}));
+
+export const sessionsRelations = relations(sessions, ({ one }) => ({
+  user: one(users, {
+    fields: [sessions.userId],
+    references: [users.id],
+  }),
+}));
+
+export const passwordResetTokensRelations = relations(passwordResetTokens, ({ one }) => ({
+  user: one(users, {
+    fields: [passwordResetTokens.userId],
+    references: [users.id],
+  }),
 }));
 
 export const mediaRelations = relations(media, ({ one, many }) => ({
