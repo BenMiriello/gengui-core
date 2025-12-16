@@ -47,14 +47,20 @@ router.patch('/documents/:id', requireAuth, async (req: Request, res: Response, 
   try {
     const userId = (req as any).user.id;
     const { id } = req.params;
-    const { content, title, version } = req.body;
+    const { content, title, version, cursorPosition } = req.body;
 
     if (version === undefined) {
       res.status(400).json({ error: { message: 'Version is required', code: 'INVALID_INPUT' } });
       return;
     }
 
-    const document = await documentsService.update(id, userId, { content, title }, version);
+    const document = await documentsService.update(
+      id,
+      userId,
+      { content, title },
+      version,
+      cursorPosition
+    );
     res.json({ document });
   } catch (error) {
     next(error);
@@ -110,6 +116,29 @@ router.post('/documents/:id/restore/:versionId', requireAuth, async (req: Reques
       document.version
     );
     res.json({ document: updated });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/documents/:id/versions/:versionId/children', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = (req as any).user.id;
+    const { id, versionId } = req.params;
+    await documentsService.get(id, userId);
+    const children = await documentVersionsService.getChildren(versionId);
+    res.json({ children });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/documents/:id/set-version/:versionId', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = (req as any).user.id;
+    const { id, versionId } = req.params;
+    const document = await documentsService.setCurrentVersion(id, userId, versionId);
+    res.json({ document });
   } catch (error) {
     next(error);
   }

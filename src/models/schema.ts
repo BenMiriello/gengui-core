@@ -16,6 +16,7 @@ import { relations, sql } from 'drizzle-orm';
 export const modelTypeEnum = pgEnum('model_type', ['lora', 'checkpoint', 'other']);
 export const mediaTypeEnum = pgEnum('media_type', ['upload', 'generation']);
 export const mediaStatusEnum = pgEnum('media_status', ['queued', 'processing', 'completed', 'failed']);
+export const changeTypeEnum = pgEnum('change_type', ['add', 'remove', 'replace']);
 
 export const users = pgTable('users', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -160,12 +161,14 @@ export const documents = pgTable('documents', {
   title: varchar('title', { length: 100 }).notNull(),
   content: text('content').notNull(),
   version: integer('version').default(1).notNull(),
+  currentVersionId: uuid('current_version_id'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),
 }, (table) => ({
   userIdIdx: index('documents_user_id_idx').on(table.userId),
   updatedAtIdx: index('documents_updated_at_idx').on(table.updatedAt),
+  currentVersionIdx: index('documents_current_version_idx').on(table.currentVersionId),
   userActiveIdx: index('documents_user_active_idx')
     .on(table.userId, table.deletedAt)
     .where(sql`deleted_at IS NULL`),
@@ -176,12 +179,17 @@ export const documentVersions = pgTable('document_versions', {
   documentId: uuid('document_id')
     .notNull()
     .references(() => documents.id, { onDelete: 'cascade' }),
+  parentVersionId: uuid('parent_version_id'),
   diff: text('diff').notNull(),
+  lineNumber: integer('line_number'),
+  charPosition: integer('char_position'),
+  changeType: changeTypeEnum('change_type').default('replace').notNull(),
   createdBy: uuid('created_by')
     .references(() => users.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 }, (table) => ({
   documentIdIdx: index('document_versions_document_id_idx').on(table.documentId),
+  parentVersionIdx: index('document_versions_parent_version_idx').on(table.parentVersionId),
   createdAtIdx: index('document_versions_created_at_idx').on(table.createdAt),
 }));
 
@@ -262,9 +270,13 @@ export const documentsRelations = relations(documents, ({ one, many }) => ({
     references: [users.id],
   }),
   versions: many(documentVersions),
+  currentVersion: one(documentVersions, {
+    fields: [documents.currentVersionId],
+    references: [documentVersions.id],
+  }),
 }));
 
-export const documentVersionsRelations = relations(documentVersions, ({ one }) => ({
+export const documentVersionsRelations = relations(documentVersions, ({ one, many }) => ({
   document: one(documents, {
     fields: [documentVersions.documentId],
     references: [documents.id],
@@ -272,5 +284,13 @@ export const documentVersionsRelations = relations(documentVersions, ({ one }) =
   createdByUser: one(users, {
     fields: [documentVersions.createdBy],
     references: [users.id],
+  }),
+  parent: one(documentVersions, {
+    fields: [documentVersions.parentVersionId],
+    references: [documentVersions.id],
+    relationName: 'versionTree',
+  }),
+  children: many(documentVersions, {
+    relationName: 'versionTree',
   }),
 }));

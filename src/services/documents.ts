@@ -52,21 +52,34 @@ export class DocumentsService {
         title: generatedTitle,
         content,
         version: 1,
+        currentVersionId: null,
       })
       .returning();
 
-    await documentVersionsService.createVersion(document.id, '', content, userId);
+    const firstVersion = await documentVersionsService.createVersion(
+      document.id,
+      '',
+      content,
+      userId,
+      { parentVersionId: null }
+    );
 
-    logger.info({ userId, documentId: document.id }, 'Document created');
+    await db
+      .update(documents)
+      .set({ currentVersionId: firstVersion.id })
+      .where(eq(documents.id, document.id));
 
-    return document;
+    logger.info({ userId, documentId: document.id, versionId: firstVersion.id }, 'Document created');
+
+    return { ...document, currentVersionId: firstVersion.id };
   }
 
   async update(
     documentId: string,
     userId: string,
     updates: { content?: string; title?: string },
-    expectedVersion: number
+    expectedVersion: number,
+    cursorPosition?: { lineNumber?: number; charPosition?: number }
   ) {
     const document = await this.get(documentId, userId);
 
@@ -74,13 +87,22 @@ export class DocumentsService {
       throw new ConflictError('Document has been modified. Please reload and try again.');
     }
 
+    let newVersionId = document.currentVersionId;
+
     if (updates.content !== undefined && updates.content !== document.content) {
-      await documentVersionsService.createVersion(
+      const newVersion = await documentVersionsService.createVersion(
         documentId,
         document.content,
         updates.content,
-        userId
+        userId,
+        {
+          parentVersionId: document.currentVersionId,
+          lineNumber: cursorPosition?.lineNumber ?? null,
+          charPosition: cursorPosition?.charPosition ?? null,
+          changeType: 'replace',
+        }
       );
+      newVersionId = newVersion.id;
     }
 
     const [updated] = await db
@@ -89,18 +111,40 @@ export class DocumentsService {
         ...(updates.content !== undefined && { content: updates.content }),
         ...(updates.title !== undefined && { title: updates.title }),
         version: document.version + 1,
+        currentVersionId: newVersionId,
         updatedAt: new Date(),
       })
       .where(eq(documents.id, documentId))
       .returning();
 
-    logger.info({ userId, documentId }, 'Document updated');
+    logger.info({ userId, documentId, versionId: newVersionId }, 'Document updated');
+
+    return updated;
+  }
+
+  async setCurrentVersion(documentId: string, userId: string, versionId: string) {
+    const document = await this.get(documentId, userId);
+
+    const content = await documentVersionsService.reconstructContent(documentId, versionId);
+
+    const [updated] = await db
+      .update(documents)
+      .set({
+        content,
+        currentVersionId: versionId,
+        version: document.version + 1,
+        updatedAt: new Date(),
+      })
+      .where(eq(documents.id, documentId))
+      .returning();
+
+    logger.info({ userId, documentId, versionId }, 'Document current version updated');
 
     return updated;
   }
 
   async delete(documentId: string, userId: string) {
-    const document = await this.get(documentId, userId);
+    await this.get(documentId, userId);
 
     await db
       .update(documents)
