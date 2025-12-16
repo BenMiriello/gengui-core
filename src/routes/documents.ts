@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { documentsService } from '../services/documents';
+import { documentVersionsService } from '../services/documentVersions';
 import { requireAuth } from '../middleware/auth';
 
 const router = Router();
@@ -66,6 +67,49 @@ router.delete('/documents/:id', requireAuth, async (req: Request, res: Response,
     const { id } = req.params;
     await documentsService.delete(id, userId);
     res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/documents/:id/versions', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = (req as any).user.id;
+    const { id } = req.params;
+    await documentsService.get(id, userId);
+    const versions = await documentVersionsService.list(id);
+    res.json({ versions });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/documents/:id/versions/:versionId', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = (req as any).user.id;
+    const { id, versionId } = req.params;
+    await documentsService.get(id, userId);
+    const version = await documentVersionsService.get(versionId, id);
+    const content = await documentVersionsService.reconstructContent(id, versionId);
+    res.json({ version: { ...version, content } });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/documents/:id/restore/:versionId', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = (req as any).user.id;
+    const { id, versionId } = req.params;
+    const document = await documentsService.get(id, userId);
+    const content = await documentVersionsService.reconstructContent(id, versionId);
+    const updated = await documentsService.update(
+      id,
+      userId,
+      { content },
+      document.version
+    );
+    res.json({ document: updated });
   } catch (error) {
     next(error);
   }

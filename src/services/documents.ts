@@ -3,6 +3,7 @@ import { documents } from '../models/schema';
 import { eq, and, isNull, desc } from 'drizzle-orm';
 import { NotFoundError, ConflictError, ForbiddenError } from '../utils/errors';
 import { logger } from '../utils/logger';
+import { documentVersionsService } from './documentVersions';
 
 export class DocumentsService {
   async list(userId: string) {
@@ -54,6 +55,8 @@ export class DocumentsService {
       })
       .returning();
 
+    await documentVersionsService.createVersion(document.id, '', content, userId);
+
     logger.info({ userId, documentId: document.id }, 'Document created');
 
     return document;
@@ -69,6 +72,15 @@ export class DocumentsService {
 
     if (document.version !== expectedVersion) {
       throw new ConflictError('Document has been modified. Please reload and try again.');
+    }
+
+    if (updates.content !== undefined && updates.content !== document.content) {
+      await documentVersionsService.createVersion(
+        documentId,
+        document.content,
+        updates.content,
+        userId
+      );
     }
 
     const [updated] = await db
