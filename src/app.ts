@@ -9,6 +9,7 @@ import authRoutes from './routes/auth';
 import mediaRoutes from './routes/media';
 import tagRoutes from './routes/tags';
 import generationsRoutes from './routes/generations';
+import documentsRoutes from './routes/documents';
 
 export function createApp() {
   const app = express();
@@ -53,6 +54,7 @@ export function createApp() {
   app.use('/api/media', mediaRoutes);
   app.use('/api/generations', generationsRoutes);
   app.use('/api', tagRoutes);
+  app.use('/api', documentsRoutes);
 
   app.use(errorHandler);
 
