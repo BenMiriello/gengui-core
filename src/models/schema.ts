@@ -152,12 +152,47 @@ export const modelInputs = pgTable(
   })
 );
 
+export const documents = pgTable('documents', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  title: varchar('title', { length: 100 }).notNull(),
+  content: text('content').notNull(),
+  version: integer('version').default(1).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  deletedAt: timestamp('deleted_at'),
+}, (table) => ({
+  userIdIdx: index('documents_user_id_idx').on(table.userId),
+  updatedAtIdx: index('documents_updated_at_idx').on(table.updatedAt),
+  userActiveIdx: index('documents_user_active_idx')
+    .on(table.userId, table.deletedAt)
+    .where(sql`deleted_at IS NULL`),
+}));
+
+export const documentVersions = pgTable('document_versions', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  documentId: uuid('document_id')
+    .notNull()
+    .references(() => documents.id, { onDelete: 'cascade' }),
+  diff: text('diff').notNull(),
+  createdBy: uuid('created_by')
+    .references(() => users.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => ({
+  documentIdIdx: index('document_versions_document_id_idx').on(table.documentId),
+  createdAtIdx: index('document_versions_created_at_idx').on(table.createdAt),
+}));
+
 export const usersRelations = relations(users, ({ many }) => ({
   media: many(media),
   tags: many(tags),
   models: many(models),
   sessions: many(sessions),
   passwordResetTokens: many(passwordResetTokens),
+  documents: many(documents),
+  documentVersions: many(documentVersions),
 }));
 
 export const sessionsRelations = relations(sessions, ({ one }) => ({
@@ -218,5 +253,24 @@ export const modelInputsRelations = relations(modelInputs, ({ one }) => ({
   media: one(media, {
     fields: [modelInputs.mediaId],
     references: [media.id],
+  }),
+}));
+
+export const documentsRelations = relations(documents, ({ one, many }) => ({
+  user: one(users, {
+    fields: [documents.userId],
+    references: [users.id],
+  }),
+  versions: many(documentVersions),
+}));
+
+export const documentVersionsRelations = relations(documentVersions, ({ one }) => ({
+  document: one(documents, {
+    fields: [documentVersions.documentId],
+    references: [documents.id],
+  }),
+  createdByUser: one(users, {
+    fields: [documentVersions.createdBy],
+    references: [users.id],
   }),
 }));

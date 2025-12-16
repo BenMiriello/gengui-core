@@ -5,7 +5,7 @@ import { generationListener } from './services/generationListener';
 
 const app = createApp();
 
-const server = app.listen(env.PORT, async () => {
+const server = app.listen(env.PORT, '0.0.0.0', async () => {
   logger.info(`Server running on port ${env.PORT} in ${env.NODE_ENV} mode`);
 
   try {
