@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { db } from '../config/database';
-import { media } from '../models/schema';
+import { media, documentMedia } from '../models/schema';
 import { eq, and, desc } from 'drizzle-orm';
 import { notDeleted } from '../utils/db';
 import { storageProvider } from './storage';
@@ -124,6 +124,48 @@ export class MediaService {
 
     logger.info({ mediaId: id }, 'Media soft deleted');
     return result[0];
+  }
+
+  async getDocumentMedia(documentId: string) {
+    const results = await db
+      .select({
+        id: media.id,
+        userId: media.userId,
+        type: media.type,
+        status: media.status,
+        storageKey: media.storageKey,
+        s3Key: media.s3Key,
+        s3KeyThumb: media.s3KeyThumb,
+        s3Bucket: media.s3Bucket,
+        size: media.size,
+        mimeType: media.mimeType,
+        hash: media.hash,
+        width: media.width,
+        height: media.height,
+        prompt: media.prompt,
+        seed: media.seed,
+        error: media.error,
+        generated: media.generated,
+        createdAt: media.createdAt,
+        updatedAt: media.updatedAt,
+        startChar: documentMedia.startChar,
+        endChar: documentMedia.endChar,
+        sourceText: documentMedia.sourceText,
+        requestedPrompt: documentMedia.requestedPrompt,
+        versionId: documentMedia.versionId,
+      })
+      .from(documentMedia)
+      .innerJoin(media, eq(documentMedia.mediaId, media.id))
+      .where(
+        and(
+          eq(documentMedia.documentId, documentId),
+          notDeleted(documentMedia.deletedAt),
+          notDeleted(media.deletedAt)
+        )
+      )
+      .orderBy(desc(documentMedia.createdAt));
+
+    return results;
   }
 
   private computeHash(buffer: Buffer): string {

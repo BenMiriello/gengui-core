@@ -90,6 +90,13 @@ export class DocumentsService {
     let newVersionId = document.currentVersionId;
 
     if (updates.content !== undefined && updates.content !== document.content) {
+      logger.info({
+        oldContentLength: document.content.length,
+        newContentLength: updates.content.length,
+        oldContentPreview: document.content.substring(0, 50),
+        newContentPreview: updates.content.substring(0, 50),
+      }, '[UPDATE] Creating version with diff');
+
       const newVersion = await documentVersionsService.createVersion(
         documentId,
         document.content,

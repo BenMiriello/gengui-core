@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { documentsService } from '../services/documents';
 import { documentVersionsService } from '../services/documentVersions';
+import { mediaService } from '../services/mediaService';
 import { requireAuth } from '../middleware/auth';
 
 const router = Router();
@@ -139,6 +140,18 @@ router.post('/documents/:id/set-version/:versionId', requireAuth, async (req: Re
     const { id, versionId } = req.params;
     const document = await documentsService.setCurrentVersion(id, userId, versionId);
     res.json({ document });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/documents/:id/media', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = (req as any).user.id;
+    const { id } = req.params;
+    await documentsService.get(id, userId);
+    const media = await mediaService.getDocumentMedia(id);
+    res.json({ media });
   } catch (error) {
     next(error);
   }

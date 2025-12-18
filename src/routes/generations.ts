@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { generationsService } from '../services/generationsService';
-import { devAuth } from '../middleware/devAuth';
+import { requireAuth } from '../middleware/auth';
 import { z } from 'zod';
 
 const router = Router();
@@ -10,9 +10,14 @@ const createGenerationSchema = z.object({
   seed: z.number().int().min(0).optional(),
   width: z.number().int().min(256).max(2048).optional(),
   height: z.number().int().min(256).max(2048).optional(),
+  documentId: z.string().uuid().optional(),
+  versionId: z.string().uuid().optional(),
+  startChar: z.number().int().min(0).optional(),
+  endChar: z.number().int().min(0).optional(),
+  sourceText: z.string().optional(),
 });
 
-router.post('/', devAuth, async (req, res, next) => {
+router.post('/', requireAuth, async (req, res, next) => {
   try {
     const validatedData = createGenerationSchema.parse(req.body);
     const result = await generationsService.create(req.user!.id, validatedData);
@@ -35,7 +40,7 @@ router.post('/', devAuth, async (req, res, next) => {
   }
 });
 
-router.get('/', devAuth, async (req, res, next) => {
+router.get('/', requireAuth, async (req, res, next) => {
   try {
     const limit = parseInt(req.query.limit as string) || 50;
     const results = await generationsService.list(req.user!.id, limit);
@@ -46,7 +51,7 @@ router.get('/', devAuth, async (req, res, next) => {
   }
 });
 
-router.get('/:id', devAuth, async (req, res, next) => {
+router.get('/:id', requireAuth, async (req, res, next) => {
   try {
     const generation = await generationsService.getById(req.params.id, req.user!.id);
 

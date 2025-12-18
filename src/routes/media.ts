@@ -1,12 +1,12 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { mediaService } from '../services/mediaService';
-import { devAuth } from '../middleware/devAuth';
+import { requireAuth } from '../middleware/auth';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
-router.post('/', devAuth, upload.single('file'), async (req, res, next) => {
+router.post('/', requireAuth, upload.single('file'), async (req, res, next) => {
   try {
     if (!req.file) {
       res.status(400).json({ error: { message: 'No file provided', code: 'NO_FILE' } });
@@ -27,7 +27,7 @@ router.post('/', devAuth, upload.single('file'), async (req, res, next) => {
   }
 });
 
-router.get('/', devAuth, async (req, res, next) => {
+router.get('/', requireAuth, async (req, res, next) => {
   try {
     const limit = parseInt(req.query.limit as string) || 50;
     const cursor = req.query.cursor as string | undefined;
@@ -40,7 +40,7 @@ router.get('/', devAuth, async (req, res, next) => {
   }
 });
 
-router.get('/:id', devAuth, async (req, res, next) => {
+router.get('/:id', requireAuth, async (req, res, next) => {
   try {
     const mediaItem = await mediaService.getById(req.params.id, req.user!.id);
 
@@ -50,7 +50,7 @@ router.get('/:id', devAuth, async (req, res, next) => {
   }
 });
 
-router.get('/:id/url', devAuth, async (req, res, next) => {
+router.get('/:id/url', requireAuth, async (req, res, next) => {
   try {
     const expiresIn = parseInt(req.query.expiresIn as string) || 900;
     const url = await mediaService.getSignedUrl(req.params.id, req.user!.id, expiresIn);
@@ -61,7 +61,7 @@ router.get('/:id/url', devAuth, async (req, res, next) => {
   }
 });
 
-router.delete('/:id', devAuth, async (req, res, next) => {
+router.delete('/:id', requireAuth, async (req, res, next) => {
   try {
     const result = await mediaService.delete(req.params.id, req.user!.id);
 

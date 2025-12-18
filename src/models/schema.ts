@@ -63,6 +63,7 @@ export const media = pgTable('media', {
   status: mediaStatusEnum('status').default('completed').notNull(),
   storageKey: varchar('storage_key', { length: 512 }),
   s3Key: varchar('s3_key', { length: 512 }),
+  s3KeyThumb: varchar('s3_key_thumb', { length: 512 }),
   s3Bucket: varchar('s3_bucket', { length: 255 }),
   size: integer('size'),
   mimeType: varchar('mime_type', { length: 100 }),
@@ -193,6 +194,32 @@ export const documentVersions = pgTable('document_versions', {
   createdAtIdx: index('document_versions_created_at_idx').on(table.createdAt),
 }));
 
+export const documentMedia = pgTable('document_media', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  documentId: uuid('document_id')
+    .notNull()
+    .references(() => documents.id, { onDelete: 'cascade' }),
+  mediaId: uuid('media_id')
+    .notNull()
+    .references(() => media.id, { onDelete: 'cascade' }),
+  versionId: uuid('version_id')
+    .notNull()
+    .references(() => documentVersions.id, { onDelete: 'cascade' }),
+  startChar: integer('start_char'),
+  endChar: integer('end_char'),
+  sourceText: text('source_text'),
+  requestedPrompt: text('requested_prompt'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  deletedAt: timestamp('deleted_at'),
+}, (table) => ({
+  documentIdIdx: index('document_media_document_id_idx').on(table.documentId),
+  mediaIdIdx: index('document_media_media_id_idx').on(table.mediaId),
+  versionIdIdx: index('document_media_version_id_idx').on(table.versionId),
+  documentActiveIdx: index('document_media_document_active_idx')
+    .on(table.documentId)
+    .where(sql`deleted_at IS NULL`),
+}));
+
 export const usersRelations = relations(users, ({ many }) => ({
   media: many(media),
   tags: many(tags),
@@ -224,6 +251,7 @@ export const mediaRelations = relations(media, ({ one, many }) => ({
   }),
   mediaTags: many(mediaTags),
   modelInputs: many(modelInputs),
+  documentMedia: many(documentMedia),
 }));
 
 export const tagsRelations = relations(tags, ({ one, many }) => ({
@@ -274,6 +302,7 @@ export const documentsRelations = relations(documents, ({ one, many }) => ({
     fields: [documents.currentVersionId],
     references: [documentVersions.id],
   }),
+  documentMedia: many(documentMedia),
 }));
 
 export const documentVersionsRelations = relations(documentVersions, ({ one, many }) => ({
@@ -292,5 +321,21 @@ export const documentVersionsRelations = relations(documentVersions, ({ one, man
   }),
   children: many(documentVersions, {
     relationName: 'versionTree',
+  }),
+  documentMedia: many(documentMedia),
+}));
+
+export const documentMediaRelations = relations(documentMedia, ({ one }) => ({
+  document: one(documents, {
+    fields: [documentMedia.documentId],
+    references: [documents.id],
+  }),
+  media: one(media, {
+    fields: [documentMedia.mediaId],
+    references: [media.id],
+  }),
+  version: one(documentVersions, {
+    fields: [documentMedia.versionId],
+    references: [documentVersions.id],
   }),
 }));

@@ -1,5 +1,5 @@
 import { db } from '../config/database';
-import { media } from '../models/schema';
+import { media, documentMedia } from '../models/schema';
 import { eq, and } from 'drizzle-orm';
 import { notDeleted } from '../utils/db';
 import { redis } from './redis';
@@ -11,6 +11,11 @@ export interface GenerationRequest {
   seed?: number;
   width?: number;
   height?: number;
+  documentId?: string;
+  versionId?: string;
+  startChar?: number;
+  endChar?: number;
+  sourceText?: string;
 }
 
 export class GenerationsService {
@@ -31,6 +36,18 @@ export class GenerationsService {
         height,
       })
       .returning();
+
+    if (request.documentId && request.versionId) {
+      await db.insert(documentMedia).values({
+        documentId: request.documentId,
+        mediaId: newMedia.id,
+        versionId: request.versionId,
+        startChar: request.startChar,
+        endChar: request.endChar,
+        sourceText: request.sourceText,
+        requestedPrompt: request.prompt,
+      });
+    }
 
     try {
       await redis.addJob(newMedia.id, {

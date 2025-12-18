@@ -67,7 +67,17 @@ export class DocumentVersionsService {
       throw new NotFoundError('Version not found');
     }
 
-    return version;
+    const patches = dmp.patch_fromText(version.diff);
+    let changePosition = null;
+
+    if (patches.length > 0) {
+      changePosition = (patches[0] as any).start1;
+    }
+
+    return {
+      ...version,
+      changePosition,
+    };
   }
 
   async getChildren(versionId: string) {
@@ -191,13 +201,37 @@ export class DocumentVersionsService {
 
     const firstVersion = path[0];
     const patches = dmp.patch_fromText(firstVersion.diff);
-    let content = dmp.patch_apply(patches, '')[0];
+    const [content0, results0] = dmp.patch_apply(patches, '');
+    logger.info({
+      versionId: firstVersion.id,
+      patchCount: patches.length,
+      results: results0,
+      allSuccess: results0.every((r: boolean) => r),
+      contentLength: content0.length
+    }, '[RECONSTRUCT] Applied first version');
+
+    let content = content0;
 
     for (let i = 1; i < path.length; i++) {
       const version = path[i];
       const versionPatches = dmp.patch_fromText(version.diff);
-      content = dmp.patch_apply(versionPatches, content)[0];
+      const [newContent, results] = dmp.patch_apply(versionPatches, content);
+      logger.info({
+        versionId: version.id,
+        patchCount: versionPatches.length,
+        results: results,
+        allSuccess: results.every((r: boolean) => r),
+        oldLength: content.length,
+        newLength: newContent.length
+      }, '[RECONSTRUCT] Applied version ' + (i + 1) + '/' + path.length);
+      content = newContent;
     }
+
+    logger.info({
+      targetVersionId,
+      pathLength: path.length,
+      finalLength: content.length
+    }, '[RECONSTRUCT] Complete');
 
     return content;
   }
