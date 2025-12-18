@@ -208,6 +208,8 @@ export const documentMedia = pgTable('document_media', {
   startChar: integer('start_char'),
   endChar: integer('end_char'),
   sourceText: text('source_text'),
+  contextBefore: text('context_before'),
+  contextAfter: text('context_after'),
   requestedPrompt: text('requested_prompt'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),
