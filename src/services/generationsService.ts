@@ -1,5 +1,5 @@
 import { db } from '../config/database';
-import { media, documentMedia } from '../models/schema';
+import { media, documentMedia, documents } from '../models/schema';
 import { eq, and } from 'drizzle-orm';
 import { notDeleted } from '../utils/db';
 import { redis } from './redis';
@@ -38,6 +38,28 @@ export class GenerationsService {
       .returning();
 
     if (request.documentId && request.versionId) {
+      let contextBefore: string | undefined;
+      let contextAfter: string | undefined;
+
+      if (request.startChar !== undefined && request.endChar !== undefined) {
+        const [document] = await db
+          .select()
+          .from(documents)
+          .where(eq(documents.id, request.documentId))
+          .limit(1);
+
+        if (document) {
+          const CONTEXT_LENGTH = 50;
+          const content = document.content;
+
+          const contextBeforeStart = Math.max(0, request.startChar - CONTEXT_LENGTH);
+          contextBefore = content.substring(contextBeforeStart, request.startChar);
+
+          const contextAfterEnd = Math.min(content.length, request.endChar + CONTEXT_LENGTH);
+          contextAfter = content.substring(request.endChar, contextAfterEnd);
+        }
+      }
+
       await db.insert(documentMedia).values({
         documentId: request.documentId,
         mediaId: newMedia.id,
@@ -45,6 +67,8 @@ export class GenerationsService {
         startChar: request.startChar,
         endChar: request.endChar,
         sourceText: request.sourceText,
+        contextBefore,
+        contextAfter,
         requestedPrompt: request.prompt,
       });
     }
