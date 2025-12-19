@@ -1,8 +1,9 @@
 import { db } from '../config/database';
-import { media } from '../models/schema';
+import { media, documentMedia } from '../models/schema';
 import { eq } from 'drizzle-orm';
 import { redis } from './redis';
 import { logger } from '../utils/logger';
+import { sseService } from './sse';
 
 class GenerationListener {
   private isListening = false;
@@ -59,6 +60,8 @@ class GenerationListener {
         .where(eq(media.id, mediaId));
 
       logger.info({ mediaId }, 'Updated generation status to processing');
+
+      await this.broadcastMediaUpdate(mediaId);
     } catch (error) {
       logger.error({ error, mediaId }, 'Failed to update generation to processing');
     }
@@ -81,6 +84,8 @@ class GenerationListener {
         .where(eq(media.id, mediaId));
 
       logger.info({ mediaId, s3Key }, 'Generation completed successfully');
+
+      await this.broadcastMediaUpdate(mediaId);
     } catch (error) {
       logger.error({ error, mediaId, data }, 'Failed to process completion event');
     }
@@ -99,8 +104,28 @@ class GenerationListener {
         .where(eq(media.id, mediaId));
 
       logger.error({ mediaId, error }, 'Generation failed');
+
+      await this.broadcastMediaUpdate(mediaId);
     } catch (err) {
       logger.error({ error: err, mediaId, data }, 'Failed to process failure event');
+    }
+  }
+
+  private async broadcastMediaUpdate(mediaId: string) {
+    try {
+      const docMedia = await db
+        .select({ documentId: documentMedia.documentId })
+        .from(documentMedia)
+        .where(eq(documentMedia.mediaId, mediaId))
+        .limit(1);
+
+      if (docMedia.length > 0) {
+        const documentId = docMedia[0].documentId;
+        sseService.broadcastToDocument(documentId, 'media-update', { mediaId });
+        logger.debug({ mediaId, documentId }, 'Broadcasted media update via SSE');
+      }
+    } catch (error) {
+      logger.error({ error, mediaId }, 'Failed to broadcast media update');
     }
   }
 

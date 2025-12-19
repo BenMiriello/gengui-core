@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { documentsService } from '../services/documents';
 import { documentVersionsService } from '../services/documentVersions';
 import { mediaService } from '../services/mediaService';
+import { sseService } from '../services/sse';
 import { requireAuth } from '../middleware/auth';
 
 const router = Router();
@@ -152,6 +153,19 @@ router.get('/documents/:id/media', requireAuth, async (req: Request, res: Respon
     await documentsService.get(id, userId);
     const media = await mediaService.getDocumentMedia(id);
     res.json({ media });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/documents/:id/media/stream', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = (req as any).user.id;
+    const { id } = req.params;
+    await documentsService.get(id, userId);
+
+    const clientId = `${userId}-${id}-${Date.now()}`;
+    sseService.addClient(clientId, id, res);
   } catch (error) {
     next(error);
   }
