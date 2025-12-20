@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { db } from '../config/database';
 import { media, documents, documentMedia } from '../models/schema';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, getTableColumns, type SQL } from 'drizzle-orm';
 import { notDeleted } from '../utils/db';
 import { storageProvider } from './storage';
 import { NotFoundError } from '../utils/errors';
@@ -101,25 +101,41 @@ export class MediaService {
     return result[0];
   }
 
-  async getDocumentsByMediaId(mediaId: string, userId: string) {
-    const results = await db
-      .select()
-      .from(documents)
-      .innerJoin(documentMedia, eq(documents.id, documentMedia.documentId))
-      .where(and(
-        eq(documentMedia.mediaId, mediaId),
-        eq(documents.userId, userId),
-        notDeleted(documents.deletedAt)
-      ))
-      .orderBy(desc(documents.createdAt))
-      .limit(100);
-    if (results.length === 0) {
-      throw new NotFoundError('No documents found for this media');
-    }
+async getDocumentsByMediaId(mediaId: string, userId: string, requestedFields?: string[]) {
+  const allColumns = getTableColumns(documents);
+  let selection: Record<string, any> = allColumns;
 
-    console.log("Documents fetched in service:", results);
-    return results.map(r => r.documents);
+  if (requestedFields && requestedFields.length > 0) {
+    const pickedFields: Record<string, any> = {};
+    requestedFields.forEach((field) => {
+      if (Object.prototype.hasOwnProperty.call(allColumns, field)) {
+        pickedFields[field] = allColumns[field as keyof typeof allColumns];
+      }
+    });
+
+    if (Object.keys(pickedFields).length > 0) {
+      selection = pickedFields;
+    }
   }
+
+  const results = await db
+    .select(selection)
+    .from(documents)
+    .innerJoin(documentMedia, eq(documents.id, documentMedia.documentId))
+    .where(and(
+      eq(documentMedia.mediaId, mediaId),
+      eq(documents.userId, userId),
+      notDeleted(documents.deletedAt)
+    ))
+    .orderBy(desc(documents.createdAt))
+    .limit(100);
+
+  if (results.length === 0) {
+    throw new NotFoundError('No documents found for this media');
+  }
+
+  return requestedFields ? (results as any[]) : results.map(r => r.documents);
+}
 
   async getSignedUrl(id: string, userId: string, expiresIn: number = 900) {
     const mediaItem = await this.getById(id, userId);

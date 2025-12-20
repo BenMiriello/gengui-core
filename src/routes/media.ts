@@ -65,7 +65,12 @@ router.get('/:id/documents', requireAuth, async (req, res, next) => {
   try {
     const userId = (req as any).user.id;
     const { id } = req.params;
-    const documents = await mediaService.getDocumentsByMediaId(id, userId);
+
+    const fields = req.query.fields
+      ? (req.query.fields as string).split(',')
+      : undefined;
+
+    const documents = await mediaService.getDocumentsByMediaId(id, userId, fields);
     res.json({ documents });
   } catch (error) {
     next(error);
