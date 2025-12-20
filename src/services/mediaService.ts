@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { db } from '../config/database';
-import { media, documentMedia } from '../models/schema';
+import { media, documents, documentMedia } from '../models/schema';
 import { eq, and, desc } from 'drizzle-orm';
 import { notDeleted } from '../utils/db';
 import { storageProvider } from './storage';
@@ -99,6 +99,26 @@ export class MediaService {
     }
 
     return result[0];
+  }
+
+  async getDocumentsByMediaId(mediaId: string, userId: string) {
+    const results = await db
+      .select()
+      .from(documents)
+      .innerJoin(documentMedia, eq(documents.id, documentMedia.documentId))
+      .where(and(
+        eq(documentMedia.mediaId, mediaId),
+        eq(documents.userId, userId),
+        notDeleted(documents.deletedAt)
+      ))
+      .orderBy(desc(documents.createdAt))
+      .limit(100);
+    if (results.length === 0) {
+      throw new NotFoundError('No documents found for this media');
+    }
+
+    console.log("Documents fetched in service:", results);
+    return results.map(r => r.documents);
   }
 
   async getSignedUrl(id: string, userId: string, expiresIn: number = 900) {

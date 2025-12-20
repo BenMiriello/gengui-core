@@ -61,6 +61,17 @@ router.get('/:id/url', requireAuth, async (req, res, next) => {
   }
 });
 
+router.get('/:id/documents', requireAuth, async (req, res, next) => {
+  try {
+    const userId = (req as any).user.id;
+    const { id } = req.params;
+    const documents = await mediaService.getDocumentsByMediaId(id, userId);
+    res.json({ documents });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.delete('/:id', requireAuth, async (req, res, next) => {
   try {
     const result = await mediaService.delete(req.params.id, req.user!.id);
