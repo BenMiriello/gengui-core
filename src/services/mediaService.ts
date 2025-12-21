@@ -131,10 +131,10 @@ async getDocumentsByMediaId(mediaId: string, userId: string, requestedFields?: s
     .limit(100);
 
   if (results.length === 0) {
-    throw new NotFoundError('No documents found for this media');
+    return [];
   }
 
-  return requestedFields ? (results as any[]) : results.map(r => r.documents);
+  return results as any[];
 }
 
   async getSignedUrl(id: string, userId: string, expiresIn: number = 900) {
