@@ -74,6 +74,14 @@ class RedisService {
     return this.client.publish(channel, message);
   }
 
+  async brpop(key: string, timeout: number): Promise<[string, string] | null> {
+    return this.client.brpop(key, timeout);
+  }
+
+  async lpush(key: string, value: string): Promise<number> {
+    return this.client.lpush(key, value);
+  }
+
   async disconnect(): Promise<void> {
     await this.client.quit();
     await this.subscriber.quit();
