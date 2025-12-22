@@ -3,6 +3,7 @@ import { createApp } from './app';
 import { logger } from './utils/logger';
 import { generationListener } from './services/generationListener';
 import { generationQueueConsumer } from './services/generationQueueConsumer';
+import { startReconciliationJob } from './jobs/reconcileGenerations';
 
 const app = createApp();
 
@@ -12,6 +13,7 @@ const server = app.listen(env.PORT, '0.0.0.0', async () => {
   try {
     await generationListener.start();
     await generationQueueConsumer.start();
+    startReconciliationJob();
   } catch (error) {
     logger.error({ error }, 'Failed to start generation services');
   }

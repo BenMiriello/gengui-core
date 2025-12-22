@@ -1,5 +1,5 @@
 import { db } from '../config/database';
-import { media, documentMedia } from '../models/schema';
+import { documentMedia } from '../models/schema';
 import { eq } from 'drizzle-orm';
 import { redis } from './redis';
 import { logger } from '../utils/logger';
@@ -54,60 +54,28 @@ class GenerationListener {
 
   private async handleProcessing(mediaId: string) {
     try {
-      await db
-        .update(media)
-        .set({ status: 'processing' })
-        .where(eq(media.id, mediaId));
-
-      logger.info({ mediaId }, 'Updated generation status to processing');
-
       await this.broadcastMediaUpdate(mediaId);
+      logger.debug({ mediaId }, 'Broadcasted processing notification via SSE');
     } catch (error) {
-      logger.error({ error, mediaId }, 'Failed to update generation to processing');
+      logger.error({ error, mediaId }, 'Failed to broadcast processing notification');
     }
   }
 
   private async handleComplete(mediaId: string, data: { s3Key: string }) {
     try {
-      const { s3Key } = data;
-
-      if (!s3Key) {
-        throw new Error('Missing s3Key in completion event');
-      }
-
-      await db
-        .update(media)
-        .set({
-          status: 'completed',
-          s3Key,
-        })
-        .where(eq(media.id, mediaId));
-
-      logger.info({ mediaId, s3Key }, 'Generation completed successfully');
-
       await this.broadcastMediaUpdate(mediaId);
+      logger.debug({ mediaId }, 'Broadcasted completion notification via SSE');
     } catch (error) {
-      logger.error({ error, mediaId, data }, 'Failed to process completion event');
+      logger.error({ error, mediaId, data }, 'Failed to broadcast completion notification');
     }
   }
 
   private async handleFailed(mediaId: string, data: { error: string }) {
     try {
-      const { error } = data;
-
-      await db
-        .update(media)
-        .set({
-          status: 'failed',
-          error: error || 'Unknown error',
-        })
-        .where(eq(media.id, mediaId));
-
-      logger.error({ mediaId, error }, 'Generation failed');
-
       await this.broadcastMediaUpdate(mediaId);
+      logger.debug({ mediaId }, 'Broadcasted failure notification via SSE');
     } catch (err) {
-      logger.error({ error: err, mediaId, data }, 'Failed to process failure event');
+      logger.error({ error: err, mediaId, data }, 'Failed to broadcast failure notification');
     }
   }
 
