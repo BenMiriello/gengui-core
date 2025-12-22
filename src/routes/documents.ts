@@ -49,7 +49,16 @@ router.patch('/documents/:id', requireAuth, async (req: Request, res: Response, 
   try {
     const userId = (req as any).user.id;
     const { id } = req.params;
-    const { content, title, version, cursorPosition } = req.body;
+    const {
+      content,
+      title,
+      version,
+      cursorPosition,
+      defaultStylePreset,
+      defaultStylePrompt,
+      defaultImageWidth,
+      defaultImageHeight,
+    } = req.body;
 
     if (version === undefined) {
       res.status(400).json({ error: { message: 'Version is required', code: 'INVALID_INPUT' } });
@@ -59,7 +68,14 @@ router.patch('/documents/:id', requireAuth, async (req: Request, res: Response, 
     const document = await documentsService.update(
       id,
       userId,
-      { content, title },
+      {
+        content,
+        title,
+        defaultStylePreset,
+        defaultStylePrompt,
+        defaultImageWidth,
+        defaultImageHeight,
+      },
       version,
       cursorPosition
     );

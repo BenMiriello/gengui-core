@@ -77,7 +77,14 @@ export class DocumentsService {
   async update(
     documentId: string,
     userId: string,
-    updates: { content?: string; title?: string },
+    updates: {
+      content?: string;
+      title?: string;
+      defaultStylePreset?: string | null;
+      defaultStylePrompt?: string | null;
+      defaultImageWidth?: number;
+      defaultImageHeight?: number;
+    },
     expectedVersion: number,
     cursorPosition?: { lineNumber?: number; charPosition?: number }
   ) {
@@ -117,6 +124,10 @@ export class DocumentsService {
       .set({
         ...(updates.content !== undefined && { content: updates.content }),
         ...(updates.title !== undefined && { title: updates.title }),
+        ...(updates.defaultStylePreset !== undefined && { defaultStylePreset: updates.defaultStylePreset }),
+        ...(updates.defaultStylePrompt !== undefined && { defaultStylePrompt: updates.defaultStylePrompt }),
+        ...(updates.defaultImageWidth !== undefined && { defaultImageWidth: updates.defaultImageWidth }),
+        ...(updates.defaultImageHeight !== undefined && { defaultImageHeight: updates.defaultImageHeight }),
         version: document.version + 1,
         currentVersionId: newVersionId,
         updatedAt: new Date(),

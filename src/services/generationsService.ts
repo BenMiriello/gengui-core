@@ -24,6 +24,22 @@ export class GenerationsService {
     const width = request.width ?? 1024;
     const height = request.height ?? 1024;
 
+    let stylePreset: string | null = null;
+    let stylePrompt: string | null = null;
+
+    if (request.documentId) {
+      const [document] = await db
+        .select()
+        .from(documents)
+        .where(eq(documents.id, request.documentId))
+        .limit(1);
+
+      if (document) {
+        stylePreset = document.defaultStylePreset;
+        stylePrompt = document.defaultStylePrompt;
+      }
+    }
+
     const [newMedia] = await db
       .insert(media)
       .values({
@@ -34,6 +50,8 @@ export class GenerationsService {
         seed,
         width,
         height,
+        stylePreset,
+        stylePrompt,
       })
       .returning();
 

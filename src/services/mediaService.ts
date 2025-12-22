@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { db } from '../config/database';
 import { media, documents, documentMedia } from '../models/schema';
-import { eq, and, desc, getTableColumns, type SQL } from 'drizzle-orm';
+import { eq, and, desc, getTableColumns } from 'drizzle-orm';
 import { notDeleted } from '../utils/db';
 import { storageProvider } from './storage';
 import { NotFoundError } from '../utils/errors';
