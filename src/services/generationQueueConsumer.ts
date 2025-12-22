@@ -55,9 +55,15 @@ class GenerationQueueConsumer {
   private async consumeCompleted() {
     while (this.isRunning) {
       try {
+        logger.debug('Waiting for message from generation:completed queue...');
         const result = await redis.brpop('generation:completed', 1);
-        if (!result) continue;
 
+        if (!result) {
+          logger.debug('No message in queue (timeout)');
+          continue;
+        }
+
+        logger.info({ rawMessage: result[1] }, 'Received message from completed queue');
         const message = JSON.parse(result[1]);
         const { mediaId, s3Key } = message;
 
@@ -66,6 +72,7 @@ class GenerationQueueConsumer {
           continue;
         }
 
+        logger.info({ mediaId, s3Key }, 'Updating media status to completed');
         await db
           .update(media)
           .set({ status: 'completed', s3Key })

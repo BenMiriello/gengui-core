@@ -1,24 +1,19 @@
 import cron from 'node-cron';
 import { db } from '../config/database';
 import { media } from '../models/schema';
-import { and, inArray, lt, eq } from 'drizzle-orm';
+import { inArray, eq } from 'drizzle-orm';
 import { redis } from '../services/redis';
 import { logger } from '../utils/logger';
 
-export function startReconciliationJob() {
-  cron.schedule('*/5 * * * *', async () => {
-    try {
-      const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+const RECONCILIATION_JOB_INTERVAL_MINUTES = 2;
 
+export function startReconciliationJob() {
+  cron.schedule(`*/${RECONCILIATION_JOB_INTERVAL_MINUTES} * * * *`, async () => {
+    try {
       const stuckMedia = await db
         .select({ id: media.id })
         .from(media)
-        .where(
-          and(
-            inArray(media.status, ['queued', 'processing']),
-            lt(media.createdAt, tenMinutesAgo)
-          )
-        );
+        .where(inArray(media.status, ['queued', 'processing']));
 
       if (stuckMedia.length === 0) {
         return;
@@ -53,5 +48,5 @@ export function startReconciliationJob() {
     }
   });
 
-  logger.info('Reconciliation job scheduled (runs every 5 minutes)');
+  logger.info(`Reconciliation job scheduled (runs every ${RECONCILIATION_JOB_INTERVAL_MINUTES} minutes)`);
 }
