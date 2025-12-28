@@ -86,6 +86,9 @@ export const media = pgTable('media', {
   typeStatusIdx: index('media_type_status_idx').on(table.type, table.status),
   userTypeIdx: index('media_user_type_idx').on(table.userId, table.type),
   userCreatedIdx: index('media_user_created_idx').on(table.userId, table.createdAt),
+  s3KeyThumbIdx: index('media_s3_key_thumb_idx')
+    .on(table.s3KeyThumb)
+    .where(sql`s3_key_thumb IS NOT NULL`),
   userHashActiveIdx: index('media_user_hash_active_idx')
     .on(table.userId, table.hash)
     .where(sql`deleted_at IS NULL`),

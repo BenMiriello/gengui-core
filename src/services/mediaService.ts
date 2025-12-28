@@ -6,6 +6,9 @@ import { notDeleted } from '../utils/db';
 import { storageProvider } from './storage';
 import { NotFoundError } from '../utils/errors';
 import { logger } from '../utils/logger';
+import { imageProcessor } from './imageProcessor';
+import { cache, type MediaUrlType, PRESIGNED_S3_URL_EXPIRATION } from './cache';
+import { redis } from './redis';
 
 export class MediaService {
   async upload(
@@ -13,6 +16,16 @@ export class MediaService {
     file: Express.Multer.File
   ): Promise<{ id: string; storageKey: string; url: string }> {
     const hash = this.computeHash(file.buffer);
+
+    let dimensions: { width: number; height: number } | null = null;
+    if (file.mimetype.startsWith('image/')) {
+      try {
+        dimensions = await imageProcessor.extractDimensions(file.buffer);
+        logger.info({ width: dimensions.width, height: dimensions.height }, 'Dimensions extracted');
+      } catch (error) {
+        logger.warn({ error }, 'Failed to extract dimensions, continuing without');
+      }
+    }
 
     const existing = await db
       .select()
@@ -40,6 +53,8 @@ export class MediaService {
           mimeType: file.mimetype,
           hash,
           generated: false,
+          width: dimensions?.width,
+          height: dimensions?.height,
         })
         .returning();
 
@@ -69,6 +84,12 @@ export class MediaService {
     }
 
     const url = await storageProvider.getSignedUrl(result.storageKey);
+
+    if (file.mimetype.startsWith('image/')) {
+      await redis.lpush('thumbnail:queue', result.id);
+      logger.info({ mediaId: result.id }, 'Queued thumbnail generation');
+    }
+
     logger.info({ mediaId: result.id, size: file.size }, 'Media uploaded successfully');
 
     return { id: result.id, storageKey: result.storageKey, url };
@@ -137,13 +158,26 @@ async getDocumentsByMediaId(mediaId: string, userId: string, requestedFields?: s
   return results as any[];
 }
 
-  async getSignedUrl(id: string, userId: string, expiresIn: number = 900) {
+  async getSignedUrl(id: string, userId: string, expiresIn: number = PRESIGNED_S3_URL_EXPIRATION, type: MediaUrlType = 'full') {
+    const cachedUrl = await cache.getMediaUrl(id, type);
+    if (cachedUrl) {
+      return cachedUrl;
+    }
+
     const mediaItem = await this.getById(id, userId);
-    if (!mediaItem.storageKey && !mediaItem.s3Key) {
+
+    let key: string;
+    if (type === 'thumb' && mediaItem.s3KeyThumb) {
+      key = mediaItem.s3KeyThumb;
+    } else if (mediaItem.storageKey || mediaItem.s3Key) {
+      key = mediaItem.s3Key || mediaItem.storageKey!;
+    } else {
       throw new Error('Media has no storage key');
     }
-    const key = mediaItem.s3Key || mediaItem.storageKey!;
+
     const url = await storageProvider.getSignedUrl(key, expiresIn);
+    await cache.setMediaUrl(id, type, url);
+
     return url;
   }
 
@@ -157,6 +191,9 @@ async getDocumentsByMediaId(mediaId: string, userId: string, requestedFields?: s
     if (result.length === 0) {
       throw new NotFoundError('Media not found or already deleted');
     }
+
+    await cache.delMediaUrl(id);
+    await cache.delMetadata(id);
 
     logger.info({ mediaId: id }, 'Media soft deleted');
     return result[0];

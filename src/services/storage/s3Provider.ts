@@ -1,7 +1,8 @@
-import { S3Client, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { StorageProvider } from './interface';
 import { s3 } from '../s3';
 import { logger } from '../../utils/logger';
+import { PRESIGNED_S3_URL_EXPIRATION } from '../cache';
 
 export class S3StorageProvider implements StorageProvider {
   private client: S3Client;
@@ -58,8 +59,31 @@ export class S3StorageProvider implements StorageProvider {
     logger.info({ key }, 'Deleted from S3');
   }
 
-  async getSignedUrl(key: string, expiresIn: number = 900): Promise<string> {
+  async getSignedUrl(key: string, expiresIn: number = PRESIGNED_S3_URL_EXPIRATION): Promise<string> {
     return await s3.generateDownloadUrl(key, expiresIn);
+  }
+
+  async downloadToBuffer(key: string): Promise<Buffer> {
+    const command = new GetObjectCommand({
+      Bucket: this.bucket,
+      Key: key,
+    });
+
+    const response = await this.client.send(command);
+
+    if (!response.Body) {
+      throw new Error('No body in S3 response');
+    }
+
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of response.Body as any) {
+      chunks.push(chunk);
+    }
+
+    const buffer = Buffer.concat(chunks);
+    logger.info({ key, size: buffer.length }, 'Downloaded from S3');
+
+    return buffer;
   }
 
   async healthCheck(): Promise<boolean> {

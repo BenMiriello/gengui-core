@@ -1,6 +1,7 @@
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { logger } from '../utils/logger';
+import { PRESIGNED_S3_URL_EXPIRATION } from './cache';
 
 class S3Service {
   private client: S3Client;
@@ -44,7 +45,7 @@ class S3Service {
     return url;
   }
 
-  async generateDownloadUrl(key: string, expiresIn = 3600): Promise<string> {
+  async generateDownloadUrl(key: string, expiresIn = PRESIGNED_S3_URL_EXPIRATION): Promise<string> {
     const command = new GetObjectCommand({
       Bucket: this.bucket,
       Key: key,

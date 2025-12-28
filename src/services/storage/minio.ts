@@ -1,6 +1,7 @@
 import { Client } from 'minio';
 import { env } from '../../config/env';
 import { StorageProvider } from './interface';
+import { PRESIGNED_S3_URL_EXPIRATION } from '../cache';
 
 export class MinIOStorageProvider implements StorageProvider {
   private client: Client;
@@ -37,8 +38,19 @@ export class MinIOStorageProvider implements StorageProvider {
     await this.client.removeObject(this.bucket, key);
   }
 
-  async getSignedUrl(key: string, expiresIn: number = 900): Promise<string> {
+  async getSignedUrl(key: string, expiresIn: number = PRESIGNED_S3_URL_EXPIRATION): Promise<string> {
     return await this.client.presignedGetObject(this.bucket, key, expiresIn);
+  }
+
+  async downloadToBuffer(key: string): Promise<Buffer> {
+    const chunks: Buffer[] = [];
+    const stream = await this.client.getObject(this.bucket, key);
+
+    return new Promise((resolve, reject) => {
+      stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+      stream.on('end', () => resolve(Buffer.concat(chunks)));
+      stream.on('error', reject);
+    });
   }
 
   async healthCheck(): Promise<boolean> {

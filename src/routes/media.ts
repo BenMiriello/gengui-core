@@ -2,6 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import { mediaService } from '../services/mediaService';
 import { requireAuth } from '../middleware/auth';
+import { PRESIGNED_S3_URL_EXPIRATION } from '../services/cache';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
@@ -52,8 +53,9 @@ router.get('/:id', requireAuth, async (req, res, next) => {
 
 router.get('/:id/url', requireAuth, async (req, res, next) => {
   try {
-    const expiresIn = parseInt(req.query.expiresIn as string) || 900;
-    const url = await mediaService.getSignedUrl(req.params.id, req.user!.id, expiresIn);
+    const expiresIn = parseInt(req.query.expiresIn as string) || PRESIGNED_S3_URL_EXPIRATION;
+    const type = (req.query.type as string) === 'thumb' ? 'thumb' : 'full';
+    const url = await mediaService.getSignedUrl(req.params.id, req.user!.id, expiresIn, type);
 
     res.json({ url, expiresIn });
   } catch (error) {
