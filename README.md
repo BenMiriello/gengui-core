@@ -1,47 +1,157 @@
-# GenGui Core - Media Storage API
+# GenGui Core Service
 
-Multi-tenant media storage API for GenGui platform.
+Backend API service for GenGui media generation platform.
 
-## Setup
+## Local Development Setup
+
+### Prerequisites
+- Node.js 20+
+- Docker & Docker Compose
+- AWS credentials (for S3 access)
+
+### First-Time Setup
+
+1. **Start infrastructure services:**
+   ```bash
+   docker compose up -d
+   ```
+   This starts:
+   - PostgreSQL on port 5433
+   - Redis on port 6379
+
+2. **Copy environment file:**
+   ```bash
+   cp .env.example .env
+   ```
+   Then edit `.env` with your AWS credentials:
+   - `AWS_ACCESS_KEY_ID`
+   - `AWS_SECRET_ACCESS_KEY`
+   - `S3_BUCKET`
+
+3. **Install dependencies:**
+   ```bash
+   npm install
+   ```
+
+4. **Run database migrations:**
+   ```bash
+   npm run db:push
+   ```
+
+5. **Start core service:**
+   ```bash
+   npm run dev
+   ```
+   Core runs on port 3000 with hot-reload.
+
+### Subsequent Startups
 
 ```bash
-npm install
-cp .env.example .env
+# Ensure docker services are running
+docker compose up -d
+
+# Start core (in separate terminal)
+npm run dev
 ```
 
-## Development
+## What's Running
 
-```bash
-npm run dev        # Start dev server with hot reload
-npm run build      # Build for production
-npm run start      # Run production build
-npm run typecheck  # Run TypeScript type checking
-npm run lint       # Run ESLint
-npm run lint:fix   # Run ESLint with auto-fix
-npm run format     # Format code with Prettier
-```
+When core starts, it launches these workers in a single Node process:
+
+- **HTTP Server** (Express) - REST API endpoints
+- **Generation Listener** - Redis pub/sub for real-time generation events
+- **Generation Queue Consumer** - Processes generation status updates
+- **Thumbnail Queue Consumer** - Creates 128px thumbnails for images
+- **Reconciliation Job** - Every 2 mins, recovers stuck generations
 
 ## Project Structure
 
 ```
-src/
-├── config/        # Configuration and environment variables
-├── middleware/    # Express middleware
-├── models/        # Data models (TBD)
-├── routes/        # API route handlers
-├── services/      # Business logic services (TBD)
-├── app.ts         # Express app setup
-└── index.ts       # Server entry point
+core/
+├── src/
+│   ├── config/          # Database, middleware setup
+│   ├── jobs/            # Cron jobs (reconciliation, etc.)
+│   ├── models/          # Database schema (Drizzle ORM)
+│   ├── routes/          # API endpoints
+│   ├── services/        # Business logic, queue consumers
+│   ├── scripts/         # One-off scripts (migrations, backfills)
+│   └── utils/           # Helpers, logger, errors
+├── docker-compose.yml   # Local postgres & redis
+└── drizzle.config.ts    # Database migrations config
 ```
 
-## API Endpoints
+## Available Commands
 
-### Health Check
-`GET /api/health` - Returns server status and timestamp
+```bash
+npm run dev              # Start with hot-reload
+npm run build            # Compile TypeScript
+npm start                # Run production build
+npm run db:push          # Push schema changes to DB
+npm run db:migrate       # Run migrations
+npm run db:seed          # Insert test user
 
-## Tech Stack
+# Docker
+npm run docker:up        # Start docker services
+npm run docker:down      # Stop docker services
+npm run docker:logs      # Stream container logs
+```
 
-- TypeScript
-- Express.js
-- Zod (env validation)
-- ESLint + Prettier
+## Stopping Services
+
+```bash
+# Stop core: Ctrl+C in terminal
+
+# Stop docker services
+docker compose down
+
+# Stop and remove volumes (DELETES DATA)
+docker compose down -v
+```
+
+## Troubleshooting
+
+### "Redis connection failed"
+- Run `docker ps` - ensure `gengui-redis` is running
+- Check `REDIS_URL` in `.env` matches `redis://localhost:6379`
+- Try: `docker compose restart redis`
+
+### "Database connection failed"
+- Run `docker ps` - ensure `gengui-postgres` is running
+- Check `DB_PORT` is `5433` (not 5432)
+- Try: `docker compose restart postgres`
+
+### "Thumbnails not generating"
+- Redis must be running (thumbnails use Redis queue)
+- Check core logs for thumbnail processor errors
+- Run backfill script: `npx tsx src/scripts/tmp/backfill-thumbnails.ts`
+
+### "S3 upload failed"
+- Verify AWS credentials in `.env` are correct
+- Check S3 bucket exists and has proper permissions
+- Ensure IAM user has `s3:PutObject` and `s3:GetObject` permissions
+
+## Environment Variables
+
+See `.env.example` for all configuration options.
+
+**Required:**
+- `REDIS_URL` - Redis connection string
+- `DB_*` - Database credentials
+- `AWS_*` - AWS credentials and S3 bucket
+
+**Optional:**
+- `PORT` - HTTP server port (default: 3000)
+- `LOG_LEVEL` - Logging level (default: info)
+- `NODE_ENV` - Environment (development/production)
+
+## Production Notes
+
+For production deployment:
+
+1. Use managed Redis (Upstash, ElastiCache, etc.)
+2. Use managed PostgreSQL (RDS, Supabase, etc.)
+3. Consider moving thumbnail generation to Lambda
+4. Consider moving reconciliation job to EventBridge + Lambda
+5. Use secrets manager (AWS Secrets Manager) for credentials
+6. Enable SSL/TLS for all connections
+7. Set up monitoring (CloudWatch, Sentry)

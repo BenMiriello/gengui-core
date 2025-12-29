@@ -63,8 +63,9 @@ class GenerationListener {
 
   private async handleComplete(mediaId: string, data: { s3Key: string }) {
     try {
+      await redis.lpush('thumbnail:queue', mediaId);
       await this.broadcastMediaUpdate(mediaId);
-      logger.debug({ mediaId }, 'Broadcasted completion notification via SSE');
+      logger.debug({ mediaId }, 'Broadcasted completion notification via SSE and queued thumbnail generation');
     } catch (error) {
       logger.error({ error, mediaId, data }, 'Failed to broadcast completion notification');
     }
