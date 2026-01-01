@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { authService } from '../services/auth';
+import { requireAuth } from '../middleware/auth';
 import { env } from '../config/env';
 
 const router = Router();
@@ -73,24 +74,12 @@ router.post('/auth/logout', async (req: Request, res: Response, next: NextFuncti
   }
 });
 
-router.get('/auth/me', async (req: Request, res: Response, next: NextFunction) => {
+router.get('/auth/me', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const token = req.cookies.sessionToken;
-
-    if (!token) {
-      res.status(401).json({ error: { message: 'Not authenticated', code: 'UNAUTHORIZED' } });
-      return;
-    }
-
-    const user = await authService.validateSession(token);
-
-    if (!user) {
-      res.clearCookie('sessionToken');
-      res.status(401).json({ error: { message: 'Invalid or expired session', code: 'UNAUTHORIZED' } });
-      return;
-    }
-
-    res.json({ user });
+    res.json({
+      user: req.user,
+      sessionId: req.sessionId,
+    });
   } catch (error) {
     next(error);
   }

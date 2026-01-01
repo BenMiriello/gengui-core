@@ -8,6 +8,7 @@ declare global {
         email?: string;
         username?: string;
       };
+      sessionId?: string;
     }
   }
 }

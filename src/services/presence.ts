@@ -17,35 +17,25 @@ class PresenceService {
   }
 
   async cleanupStaleEditors(documentId: string): Promise<void> {
-    const start = Date.now();
     const now = Date.now();
     const cutoff = now - HEARTBEAT_TIMEOUT_MS;
     const key = `doc:${documentId}:editors`;
 
     const removed = await redis.zremrangebyscore(key, 0, cutoff);
-    console.log(`[PRESENCE] zremrangebyscore took ${Date.now() - start}ms, removed ${removed}`);
     if (removed > 0) {
       logger.info({ documentId, removed }, 'Cleaned up stale editors');
     }
   }
 
   async getActiveEditorCount(documentId: string): Promise<number> {
-    const start = Date.now();
     await this.cleanupStaleEditors(documentId);
-    console.log(`[PRESENCE] cleanupStaleEditors took ${Date.now() - start}ms`);
     const key = `doc:${documentId}:editors`;
-    const zcardStart = Date.now();
-    const result = await redis.zcard(key);
-    console.log(`[PRESENCE] zcard took ${Date.now() - zcardStart}ms`);
-    return result;
+    return redis.zcard(key);
   }
 
   async getPrimaryEditor(documentId: string): Promise<string | null> {
-    const start = Date.now();
     const key = `doc:${documentId}:primary`;
-    const result = await redis.get(key);
-    console.log(`[PRESENCE] getPrimaryEditor took ${Date.now() - start}ms`);
-    return result;
+    return redis.get(key);
   }
 
   async attemptTakeover(documentId: string, newSessionId: string): Promise<boolean> {

@@ -23,16 +23,14 @@ router.get('/documents/:id', requireAuth, async (req: Request, res: Response, ne
     const start = Date.now();
     const userId = (req as any).user.id;
     const { id } = req.params;
-    const sessionId = req.headers['x-session-id'] as string;
+    const sessionId = req.sessionId!;
 
     const document = await documentsService.get(id, userId);
     console.log(`[GET /documents/${id}] DB fetch took ${Date.now() - start}ms`);
 
-    const presenceStart = Date.now();
     const editorCount = await presenceService.getActiveEditorCount(id);
-    const isPrimaryEditor = sessionId ? await presenceService.isPrimaryEditor(id, sessionId) : false;
+    const isPrimaryEditor = await presenceService.isPrimaryEditor(id, sessionId);
     const hasActiveEditor = editorCount > 0;
-    console.log(`[GET /documents/${id}] Presence check took ${Date.now() - presenceStart}ms`);
 
     res.json({
       document,
@@ -236,12 +234,7 @@ router.put('/documents/:id/heartbeat', requireAuth, async (req: Request, res: Re
   try {
     const userId = (req as any).user.id;
     const { id } = req.params;
-    const sessionId = req.headers['x-session-id'] as string;
-
-    if (!sessionId) {
-      res.status(400).json({ error: { message: 'Session ID is required', code: 'INVALID_INPUT' } });
-      return;
-    }
+    const sessionId = req.sessionId!;
 
     await documentsService.get(id, userId);
     await presenceService.recordHeartbeat(id, sessionId);
@@ -273,12 +266,7 @@ router.post('/documents/:id/takeover', requireAuth, async (req: Request, res: Re
   try {
     const userId = (req as any).user.id;
     const { id } = req.params;
-    const sessionId = req.headers['x-session-id'] as string;
-
-    if (!sessionId) {
-      res.status(400).json({ error: { message: 'Session ID is required', code: 'INVALID_INPUT' } });
-      return;
-    }
+    const sessionId = req.sessionId!;
 
     await documentsService.get(id, userId);
 

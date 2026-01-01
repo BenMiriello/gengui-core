@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { createHash } from 'crypto';
 import { authService } from '../services/auth';
 import { UnauthorizedError } from '../utils/errors';
 import { logger } from '../utils/logger';
@@ -17,8 +18,15 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
       throw new UnauthorizedError('Invalid or expired session');
     }
 
+    const userAgent = req.headers['user-agent'] || '';
+    const sessionId = createHash('sha256')
+      .update(`${token}:${userAgent}`)
+      .digest('hex')
+      .slice(0, 20);
+
     req.user = user;
-    logger.debug({ userId: user.id }, 'User authenticated');
+    req.sessionId = sessionId;
+    logger.debug({ userId: user.id, sessionId }, 'User authenticated');
     next();
   } catch (error) {
     next(error);
