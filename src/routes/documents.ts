@@ -3,6 +3,7 @@ import { documentsService } from '../services/documents';
 import { documentVersionsService } from '../services/documentVersions';
 import { mediaService } from '../services/mediaService';
 import { sseService } from '../services/sse';
+import { presenceService } from '../services/presence';
 import { requireAuth } from '../middleware/auth';
 
 const router = Router();
@@ -19,10 +20,26 @@ router.get('/documents', requireAuth, async (req: Request, res: Response, next: 
 
 router.get('/documents/:id', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const start = Date.now();
     const userId = (req as any).user.id;
     const { id } = req.params;
+    const sessionId = req.headers['x-session-id'] as string;
+
     const document = await documentsService.get(id, userId);
-    res.json({ document });
+    console.log(`[GET /documents/${id}] DB fetch took ${Date.now() - start}ms`);
+
+    const presenceStart = Date.now();
+    const editorCount = await presenceService.getActiveEditorCount(id);
+    const isPrimaryEditor = sessionId ? await presenceService.isPrimaryEditor(id, sessionId) : false;
+    const hasActiveEditor = editorCount > 0;
+    console.log(`[GET /documents/${id}] Presence check took ${Date.now() - presenceStart}ms`);
+
+    res.json({
+      document,
+      hasActiveEditor,
+      isPrimaryEditor,
+    });
+    console.log(`[GET /documents/${id}] Total request took ${Date.now() - start}ms`);
   } catch (error) {
     next(error);
   }
@@ -110,12 +127,23 @@ router.get('/documents/:id/versions', requireAuth, async (req: Request, res: Res
 
 router.get('/documents/:id/versions/:versionId', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const start = Date.now();
     const userId = (req as any).user.id;
     const { id, versionId } = req.params;
+    const includeContent = req.query.includeContent === 'true';
+
     await documentsService.get(id, userId);
     const version = await documentVersionsService.get(versionId, id);
-    const content = await documentVersionsService.reconstructContent(id, versionId);
-    res.json({ version: { ...version, content } });
+
+    if (includeContent) {
+      const contentStart = Date.now();
+      const content = await documentVersionsService.reconstructContent(id, versionId);
+      console.log(`[GET /versions/${versionId.slice(0,8)}] Reconstruct took ${Date.now() - contentStart}ms`);
+      res.json({ version: { ...version, content } });
+    } else {
+      res.json({ version });
+    }
+    console.log(`[GET /versions/${versionId.slice(0,8)}] Total ${Date.now() - start}ms`);
   } catch (error) {
     next(error);
   }
@@ -141,11 +169,13 @@ router.post('/documents/:id/restore/:versionId', requireAuth, async (req: Reques
 
 router.get('/documents/:id/versions/:versionId/children', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const start = Date.now();
     const userId = (req as any).user.id;
     const { id, versionId } = req.params;
     await documentsService.get(id, userId);
     const children = await documentVersionsService.getChildren(versionId);
     res.json({ children });
+    console.log(`[GET /versions/${versionId.slice(0,8)}/children] Total ${Date.now() - start}ms, found ${children.length} children`);
   } catch (error) {
     next(error);
   }
@@ -182,6 +212,88 @@ router.get('/documents/:id/media/stream', requireAuth, async (req: Request, res:
 
     const clientId = `${userId}-${id}-${Date.now()}`;
     sseService.addClient(clientId, id, res);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/documents/:id/stream', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = (req as any).user.id;
+    const { id } = req.params;
+    await documentsService.get(id, userId);
+
+    const sessionId = req.headers['x-session-id'] as string || `${userId}-${Date.now()}`;
+    const clientId = `doc-${id}-${sessionId}`;
+
+    sseService.addClient(clientId, id, res);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.put('/documents/:id/heartbeat', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = (req as any).user.id;
+    const { id } = req.params;
+    const sessionId = req.headers['x-session-id'] as string;
+
+    if (!sessionId) {
+      res.status(400).json({ error: { message: 'Session ID is required', code: 'INVALID_INPUT' } });
+      return;
+    }
+
+    await documentsService.get(id, userId);
+    await presenceService.recordHeartbeat(id, sessionId);
+
+    const isPrimaryEditor = await presenceService.isPrimaryEditor(id, sessionId);
+    if (isPrimaryEditor) {
+      await presenceService.renewPrimaryLock(id, sessionId);
+    } else {
+      const currentPrimary = await presenceService.getPrimaryEditor(id);
+      if (!currentPrimary) {
+        await presenceService.attemptTakeover(id, sessionId);
+      }
+    }
+
+    const editorCount = await presenceService.getActiveEditorCount(id);
+    sseService.broadcastToDocument(id, 'presence-update', {
+      editorCount,
+      sessionId,
+      timestamp: new Date().toISOString(),
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/documents/:id/takeover', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = (req as any).user.id;
+    const { id } = req.params;
+    const sessionId = req.headers['x-session-id'] as string;
+
+    if (!sessionId) {
+      res.status(400).json({ error: { message: 'Session ID is required', code: 'INVALID_INPUT' } });
+      return;
+    }
+
+    await documentsService.get(id, userId);
+
+    const success = await presenceService.attemptTakeover(id, sessionId);
+
+    if (success) {
+      res.json({ success: true, isPrimaryEditor: true });
+    } else {
+      res.status(409).json({
+        error: {
+          message: 'Another session just took over. Please try again.',
+          code: 'TAKEOVER_CONFLICT',
+        },
+      });
+    }
   } catch (error) {
     next(error);
   }

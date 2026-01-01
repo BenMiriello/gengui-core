@@ -1,12 +1,24 @@
 import { db } from '../config/database';
 import { media, documentMedia } from '../models/schema';
 import { eq } from 'drizzle-orm';
-import { redis } from './redis';
+import Redis from 'ioredis';
 import { logger } from '../utils/logger';
 import { sseService } from './sse';
 
 class GenerationQueueConsumer {
   private isRunning = false;
+  private redisClient: Redis;
+
+  constructor() {
+    // Dedicated Redis client for queue operations - brpop() blocks the connection
+    this.redisClient = new Redis(process.env.REDIS_URL || 'redis://127.0.0.1:6379', {
+      maxRetriesPerRequest: 3,
+      enableReadyCheck: true,
+    });
+    this.redisClient.on('error', (error) => {
+      logger.error({ error }, 'Generation queue consumer Redis error');
+    });
+  }
 
   async start() {
     if (this.isRunning) {
@@ -27,7 +39,7 @@ class GenerationQueueConsumer {
   private async consumeProcessing() {
     while (this.isRunning) {
       try {
-        const result = await redis.brpop('generation:processing', 1);
+        const result = await this.redisClient.brpop('generation:processing', 1);
         if (!result) continue;
 
         const message = JSON.parse(result[1]);
@@ -56,7 +68,7 @@ class GenerationQueueConsumer {
     while (this.isRunning) {
       try {
         logger.debug('Waiting for message from generation:completed queue...');
-        const result = await redis.brpop('generation:completed', 1);
+        const result = await this.redisClient.brpop('generation:completed', 1);
 
         if (!result) {
           logger.debug('No message in queue (timeout)');
@@ -90,7 +102,7 @@ class GenerationQueueConsumer {
   private async consumeFailed() {
     while (this.isRunning) {
       try {
-        const result = await redis.brpop('generation:failed', 1);
+        const result = await this.redisClient.brpop('generation:failed', 1);
         if (!result) continue;
 
         const message = JSON.parse(result[1]);
@@ -140,6 +152,7 @@ class GenerationQueueConsumer {
 
     logger.info('Stopping generation queue consumer...');
     this.isRunning = false;
+    await this.redisClient.quit();
     logger.info('Generation queue consumer stopped');
   }
 }

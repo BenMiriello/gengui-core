@@ -1,9 +1,21 @@
-import { redis } from './redis';
+import Redis from 'ioredis';
 import { logger } from '../utils/logger';
 import { thumbnailProcessor } from './thumbnailProcessor';
 
 class ThumbnailQueueConsumer {
   private isRunning = false;
+  private redisClient: Redis;
+
+  constructor() {
+    // Dedicated Redis client for queue operations - brpop() blocks the connection
+    this.redisClient = new Redis(process.env.REDIS_URL || 'redis://127.0.0.1:6379', {
+      maxRetriesPerRequest: 3,
+      enableReadyCheck: true,
+    });
+    this.redisClient.on('error', (error) => {
+      logger.error({ error }, 'Thumbnail queue consumer Redis error');
+    });
+  }
 
   async start() {
     if (this.isRunning) {
@@ -22,7 +34,7 @@ class ThumbnailQueueConsumer {
   private async consume() {
     while (this.isRunning) {
       try {
-        const result = await redis.brpop('thumbnail:queue', 1);
+        const result = await this.redisClient.brpop('thumbnail:queue', 1);
 
         if (!result) {
           continue;
@@ -52,6 +64,7 @@ class ThumbnailQueueConsumer {
 
     logger.info('Stopping thumbnail queue consumer...');
     this.isRunning = false;
+    await this.redisClient.quit();
     logger.info('Thumbnail queue consumer stopped');
   }
 }

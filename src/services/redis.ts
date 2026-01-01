@@ -12,6 +12,8 @@ class RedisService {
       throw new Error('REDIS_URL environment variable is not set');
     }
 
+    console.log(`[REDIS INIT] Connecting to: ${redisUrl}`);
+
     this.client = new Redis(redisUrl, {
       maxRetriesPerRequest: 3,
       enableReadyCheck: true,
@@ -25,20 +27,40 @@ class RedisService {
     });
 
     this.client.on('connect', () => {
+      console.log('[REDIS] Client connected');
       logger.info('Redis client connected');
       this.isConnected = true;
     });
 
+    this.client.on('ready', () => {
+      console.log('[REDIS] Client ready');
+    });
+
     this.client.on('error', (error) => {
+      console.log('[REDIS] Client error:', error.message);
       logger.error({ error }, 'Redis client error');
       this.isConnected = false;
     });
 
+    this.client.on('close', () => {
+      console.log('[REDIS] Client connection closed');
+    });
+
+    this.client.on('reconnecting', () => {
+      console.log('[REDIS] Client reconnecting');
+    });
+
     this.subscriber.on('connect', () => {
+      console.log('[REDIS] Subscriber connected');
       logger.info('Redis subscriber connected');
     });
 
+    this.subscriber.on('ready', () => {
+      console.log('[REDIS] Subscriber ready');
+    });
+
     this.subscriber.on('error', (error) => {
+      console.log('[REDIS] Subscriber error:', error.message);
       logger.error({ error }, 'Redis subscriber error');
     });
   }
@@ -96,6 +118,26 @@ class RedisService {
 
   async del(key: string): Promise<number> {
     return this.client.del(key);
+  }
+
+  async zadd(key: string, score: number, member: string): Promise<number> {
+    return this.client.zadd(key, score, member);
+  }
+
+  async zcard(key: string): Promise<number> {
+    return this.client.zcard(key);
+  }
+
+  async zremrangebyscore(key: string, min: number, max: number): Promise<number> {
+    return this.client.zremrangebyscore(key, min, max);
+  }
+
+  async zrange(key: string, start: number, stop: number): Promise<string[]> {
+    return this.client.zrange(key, start, stop);
+  }
+
+  async eval(script: string, numKeys: number, keys: string[], args: string[]): Promise<any> {
+    return this.client.eval(script, numKeys, ...keys, ...args);
   }
 
   async disconnect(): Promise<void> {

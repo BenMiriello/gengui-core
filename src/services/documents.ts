@@ -4,6 +4,7 @@ import { eq, and, isNull, desc } from 'drizzle-orm';
 import { NotFoundError, ConflictError, ForbiddenError } from '../utils/errors';
 import { logger } from '../utils/logger';
 import { documentVersionsService } from './documentVersions';
+import { sseService } from './sse';
 
 export class DocumentsService {
   async list(userId: string) {
@@ -137,11 +138,17 @@ export class DocumentsService {
 
     logger.info({ userId, documentId, versionId: newVersionId }, 'Document updated');
 
+    sseService.broadcastToDocument(documentId, 'document-update', {
+      version: updated.version,
+      updatedBy: userId,
+      timestamp: new Date().toISOString(),
+    });
+
     return updated;
   }
 
   async setCurrentVersion(documentId: string, userId: string, versionId: string) {
-    const document = await this.get(documentId, userId);
+    await this.get(documentId, userId);
 
     const content = await documentVersionsService.reconstructContent(documentId, versionId);
 
@@ -150,7 +157,6 @@ export class DocumentsService {
       .set({
         content,
         currentVersionId: versionId,
-        version: document.version + 1,
         updatedAt: new Date(),
       })
       .where(eq(documents.id, documentId))
