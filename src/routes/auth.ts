@@ -2,10 +2,15 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { authService } from '../services/auth';
 import { requireAuth } from '../middleware/auth';
 import { env } from '../config/env';
+import {
+  authRateLimiter,
+  signupRateLimiter,
+  emailVerificationRateLimiter,
+} from '../middleware/rateLimiter';
 
 const router = Router();
 
-router.post('/auth/signup', async (req: Request, res: Response, next: NextFunction) => {
+router.post('/auth/signup', signupRateLimiter, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { email, username, password } = req.body;
 
@@ -32,7 +37,7 @@ router.post('/auth/signup', async (req: Request, res: Response, next: NextFuncti
   }
 });
 
-router.post('/auth/login', async (req: Request, res: Response, next: NextFunction) => {
+router.post('/auth/login', authRateLimiter, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { emailOrUsername, password } = req.body;
 
@@ -80,6 +85,126 @@ router.get('/auth/me', requireAuth, async (req: Request, res: Response, next: Ne
       user: req.user,
       sessionId: req.sessionId,
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.patch('/auth/username', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = (req as any).user.id;
+    const { username, password } = req.body;
+
+    if (!username || !password) {
+      res.status(400).json({
+        error: { message: 'Username and password are required', code: 'INVALID_INPUT' }
+      });
+      return;
+    }
+
+    const user = await authService.updateUsernameWithPassword(userId, username, password);
+    res.json({ user });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/auth/email/initiate-change', requireAuth, emailVerificationRateLimiter, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = (req as any).user.id;
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      res.status(400).json({
+        error: { message: 'Email and password are required', code: 'INVALID_INPUT' }
+      });
+      return;
+    }
+
+    const result = await authService.initiateEmailChange(userId, email, password);
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/auth/email/confirm-change', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { token } = req.body;
+
+    if (!token) {
+      res.status(400).json({
+        error: { message: 'Token is required', code: 'INVALID_INPUT' }
+      });
+      return;
+    }
+
+    const user = await authService.verifyEmailChange(token);
+    res.json({ user });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/auth/verify-email', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { token } = req.body;
+
+    if (!token) {
+      res.status(400).json({
+        error: { message: 'Token is required', code: 'INVALID_INPUT' }
+      });
+      return;
+    }
+
+    const user = await authService.verifyEmail(token);
+    res.json({ user });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.patch('/auth/password', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = (req as any).user.id;
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      res.status(400).json({
+        error: { message: 'Current password and new password are required', code: 'INVALID_INPUT' }
+      });
+      return;
+    }
+
+    await authService.updatePassword(userId, currentPassword, newPassword);
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/auth/preferences', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = (req as any).user.id;
+    const preferences = await authService.getUserPreferences(userId);
+    res.json({ preferences });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.patch('/auth/preferences', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = (req as any).user.id;
+    const { defaultImageWidth, defaultImageHeight, defaultStylePreset } = req.body;
+
+    const preferences = await authService.updateUserPreferences(userId, {
+      defaultImageWidth,
+      defaultImageHeight,
+      defaultStylePreset,
+    });
+
+    res.json({ preferences });
   } catch (error) {
     next(error);
   }

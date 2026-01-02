@@ -44,6 +44,28 @@ Backend API service for GenGui media generation platform.
    ```
    Core runs on port 3000 with hot-reload.
 
+### Email Configuration (Optional)
+
+By default, verification URLs are logged to console in development. For full email testing:
+
+**Option 1: Mailhog (recommended)**
+```bash
+brew install mailhog
+mailhog
+```
+Then add to `.env`:
+```
+SMTP_HOST=localhost
+SMTP_PORT=1025
+```
+View emails at http://localhost:8025
+
+**Option 2: Console logging (default)**
+No configuration needed. Verification URLs appear in terminal output.
+
+**Production:**
+Set `SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM` in `.env`. Optional: `SMTP_USER`, `SMTP_PASSWORD` for auth.
+
 ### Subsequent Startups
 
 ```bash
