@@ -1,5 +1,5 @@
 import { db } from '../config/database';
-import { documents } from '../models/schema';
+import { documents, users } from '../models/schema';
 import { eq, and, isNull, desc } from 'drizzle-orm';
 import { NotFoundError, ConflictError, ForbiddenError } from '../utils/errors';
 import { logger } from '../utils/logger';
@@ -46,6 +46,15 @@ export class DocumentsService {
   async create(userId: string, title: string, content: string) {
     const generatedTitle = title || this.generateTitle(content);
 
+    const [user] = await db
+      .select({
+        defaultImageWidth: users.defaultImageWidth,
+        defaultImageHeight: users.defaultImageHeight,
+      })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
     const [document] = await db
       .insert(documents)
       .values({
@@ -54,6 +63,8 @@ export class DocumentsService {
         content,
         version: 1,
         currentVersionId: null,
+        defaultImageWidth: user?.defaultImageWidth ?? 1024,
+        defaultImageHeight: user?.defaultImageHeight ?? 1024,
       })
       .returning();
 
