@@ -287,6 +287,11 @@ export class AuthService {
       throw new UnauthorizedError('Current password is incorrect');
     }
 
+    const isSamePassword = await bcrypt.compare(newPassword, user.passwordHash);
+    if (isSamePassword) {
+      throw new ConflictError('New password must be different from current password');
+    }
+
     const passwordValidation = validatePassword(newPassword);
     if (!passwordValidation.valid) {
       throw new ConflictError(passwordValidation.errors.join(', '));
@@ -298,6 +303,8 @@ export class AuthService {
       .update(users)
       .set({ passwordHash: newPasswordHash })
       .where(eq(users.id, userId));
+
+    await emailService.sendPasswordChangedEmail(user.email);
 
     logger.info({ userId }, 'Password updated');
   }

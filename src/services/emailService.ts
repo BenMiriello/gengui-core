@@ -178,6 +178,39 @@ export class EmailService {
       logger.info({ email }, 'Password reset email sent');
     }
   }
+
+  async sendPasswordChangedEmail(email: string): Promise<void> {
+    if (!this.enabled || !this.transporter) {
+      logger.info({ email }, '📧 DEV MODE - Password changed notification (email not sent)');
+      console.log('\n🔔 Password Changed Notification:');
+      console.log(`   User ${email} changed their password at ${new Date().toISOString()}\n`);
+      return;
+    }
+
+    await this.transporter.sendMail({
+      from: process.env.SMTP_FROM || 'GenGui <noreply@localhost>',
+      to: email,
+      subject: 'Password changed successfully',
+      html: `
+        <h1>Password changed</h1>
+        <p>Your password was successfully changed on ${new Date().toLocaleString()}.</p>
+        <p>If you did not make this change, please contact support immediately and reset your password.</p>
+      `,
+      text: `
+        Password changed
+
+        Your password was successfully changed on ${new Date().toLocaleString()}.
+
+        If you did not make this change, please contact support immediately and reset your password.
+      `,
+    });
+
+    if (this.devMode) {
+      logger.info({ email }, '📧 Password changed notification sent to Mailhog - Check http://localhost:8025');
+    } else {
+      logger.info({ email }, 'Password changed notification sent');
+    }
+  }
 }
 
 export const emailService = new EmailService();
