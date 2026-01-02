@@ -6,6 +6,7 @@ import {
   authRateLimiter,
   signupRateLimiter,
   emailVerificationRateLimiter,
+  passwordResetRateLimiter,
 } from '../middleware/rateLimiter';
 
 const router = Router();
@@ -205,6 +206,38 @@ router.patch('/auth/preferences', requireAuth, async (req: Request, res: Respons
     });
 
     res.json({ preferences });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/auth/password-reset/request', passwordResetRateLimiter, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+
+    await authService.requestPasswordReset(email);
+
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/auth/password-reset/confirm', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { token, password } = req.body;
+
+    if (!token || !password) {
+      return res.status(400).json({ error: 'Token and password are required' });
+    }
+
+    await authService.resetPassword(token, password);
+
+    res.json({ success: true });
   } catch (error) {
     next(error);
   }

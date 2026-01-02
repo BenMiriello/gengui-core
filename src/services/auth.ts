@@ -1,7 +1,7 @@
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import { db } from '../config/database';
-import { users, sessions, emailVerificationTokens } from '../models/schema';
+import { users, sessions, emailVerificationTokens, passwordResetTokens } from '../models/schema';
 import { eq, or, and, lt } from 'drizzle-orm';
 import { validatePassword, validateUsername, validateEmail } from '../utils/validation';
 import { ConflictError, UnauthorizedError } from '../utils/errors';
@@ -11,6 +11,7 @@ import { emailService } from './emailService';
 const BCRYPT_ROUNDS = 12;
 const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
 const EMAIL_VERIFICATION_DURATION_MS = 24 * 60 * 60 * 1000;
+const PASSWORD_RESET_DURATION_MS = 60 * 60 * 1000;
 
 export class AuthService {
   async signup(email: string, username: string, password: string) {
@@ -492,6 +493,71 @@ export class AuthService {
     logger.info({ userId, updates }, 'User preferences updated');
 
     return user;
+  }
+
+  async requestPasswordReset(email: string) {
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(eq(users.email, email))
+      .limit(1);
+
+    if (!user) {
+      logger.warn({ email }, 'Password reset requested for non-existent email');
+      return;
+    }
+
+    await db
+      .delete(passwordResetTokens)
+      .where(eq(passwordResetTokens.userId, user.id));
+
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + PASSWORD_RESET_DURATION_MS);
+
+    await db.insert(passwordResetTokens).values({
+      userId: user.id,
+      token,
+      expiresAt,
+    });
+
+    await emailService.sendPasswordResetEmail(email, token);
+
+    logger.info({ userId: user.id, email }, 'Password reset token created');
+  }
+
+  async resetPassword(token: string, newPassword: string) {
+    const passwordValidation = validatePassword(newPassword);
+    if (!passwordValidation.valid) {
+      throw new ConflictError(passwordValidation.errors.join(', '));
+    }
+
+    const [resetToken] = await db
+      .select()
+      .from(passwordResetTokens)
+      .where(eq(passwordResetTokens.token, token))
+      .limit(1);
+
+    if (!resetToken) {
+      throw new UnauthorizedError('Invalid or expired reset token');
+    }
+
+    if (resetToken.expiresAt < new Date()) {
+      await db.delete(passwordResetTokens).where(eq(passwordResetTokens.id, resetToken.id));
+      throw new UnauthorizedError('Reset token expired, request a new one');
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
+
+    await db
+      .update(users)
+      .set({ passwordHash })
+      .where(eq(users.id, resetToken.userId));
+
+    await db.delete(passwordResetTokens).where(eq(passwordResetTokens.userId, resetToken.userId));
+
+    await db.delete(sessions).where(eq(sessions.userId, resetToken.userId));
+
+    logger.info({ userId: resetToken.userId }, 'Password reset completed');
   }
 }
 
