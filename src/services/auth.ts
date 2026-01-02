@@ -68,7 +68,7 @@ export class AuthService {
   }
 
   async login(emailOrUsername: string, password: string) {
-    const user = await db
+    const [user] = await db
       .select()
       .from(users)
       .where(
@@ -79,22 +79,70 @@ export class AuthService {
       )
       .limit(1);
 
-    if (user.length === 0 || !user[0].passwordHash) {
+    if (!user || !user.passwordHash) {
       throw new UnauthorizedError('Invalid credentials');
     }
 
-    const validPassword = await bcrypt.compare(password, user[0].passwordHash);
+    const now = new Date();
+
+    if (user.lockedUntil && user.lockedUntil > now) {
+      const minutesRemaining = Math.ceil((user.lockedUntil.getTime() - now.getTime()) / (1000 * 60));
+      throw new UnauthorizedError(`Account locked. Try again in ${minutesRemaining} minute${minutesRemaining !== 1 ? 's' : ''}.`);
+    }
+
+    if (user.failedLoginAttempts === 5) {
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    } else if (user.failedLoginAttempts === 6) {
+      await new Promise(resolve => setTimeout(resolve, 5000));
+    }
+
+    const validPassword = await bcrypt.compare(password, user.passwordHash);
+
     if (!validPassword) {
-      throw new UnauthorizedError('Invalid credentials');
+      const newAttempts = user.failedLoginAttempts + 1;
+      const attemptsRemaining = Math.max(0, 8 - newAttempts);
+
+      if (newAttempts >= 7) {
+        const lockedUntil = new Date(now.getTime() + 15 * 60 * 1000);
+        await db
+          .update(users)
+          .set({ failedLoginAttempts: newAttempts, lockedUntil })
+          .where(eq(users.id, user.id));
+
+        logger.warn({ userId: user.id, attempts: newAttempts }, 'Account locked due to failed login attempts');
+        throw new UnauthorizedError('Too many failed attempts. Account locked for 15 minutes.');
+      } else {
+        await db
+          .update(users)
+          .set({ failedLoginAttempts: newAttempts })
+          .where(eq(users.id, user.id));
+
+        if (newAttempts >= 5) {
+          let message = `Invalid credentials. ${attemptsRemaining} attempt${attemptsRemaining !== 1 ? 's' : ''} remaining.`;
+          if (newAttempts === 5) {
+            message += ' Next attempt delayed 2 seconds.';
+          } else if (newAttempts === 6) {
+            message += ' Next attempt delayed 5 seconds.';
+          }
+          throw new UnauthorizedError(message);
+        } else {
+          throw new UnauthorizedError('Invalid credentials');
+        }
+      }
     }
 
-    logger.info({ userId: user[0].id }, 'User logged in');
+    await db
+      .update(users)
+      .set({ failedLoginAttempts: 0, lockedUntil: null })
+      .where(eq(users.id, user.id));
+
+    logger.info({ userId: user.id }, 'User logged in');
 
     return {
-      id: user[0].id,
-      email: user[0].email,
-      username: user[0].username,
-      emailVerified: user[0].emailVerified ?? false,
+      id: user.id,
+      email: user.email,
+      username: user.username,
+      emailVerified: user.emailVerified ?? false,
     };
   }
 

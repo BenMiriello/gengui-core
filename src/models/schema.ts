@@ -30,6 +30,8 @@ export const users = pgTable('users', {
   defaultImageWidth: integer('default_image_width').default(1024),
   defaultImageHeight: integer('default_image_height').default(1024),
   defaultStylePreset: varchar('default_style_preset', { length: 50 }),
+  failedLoginAttempts: integer('failed_login_attempts').default(0).notNull(),
+  lockedUntil: timestamp('locked_until'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
