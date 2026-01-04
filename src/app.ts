@@ -10,6 +10,7 @@ import mediaRoutes from './routes/media';
 import tagRoutes from './routes/tags';
 import generationsRoutes from './routes/generations';
 import documentsRoutes from './routes/documents';
+import customStylePromptsRoutes from './routes/customStylePrompts';
 
 export function createApp() {
   const app = express();
@@ -55,6 +56,7 @@ export function createApp() {
   app.use('/api/generations', generationsRoutes);
   app.use('/api', tagRoutes);
   app.use('/api', documentsRoutes);
+  app.use('/api', customStylePromptsRoutes);
 
   app.use(errorHandler);
 

@@ -202,6 +202,7 @@ export class AuthService {
       defaultImageWidth: user.defaultImageWidth ?? 1024,
       defaultImageHeight: user.defaultImageHeight ?? 1024,
       defaultStylePreset: user.defaultStylePreset ?? null,
+      hiddenPresetIds: user.hiddenPresetIds ?? [],
     };
   }
 
@@ -499,6 +500,7 @@ export class AuthService {
         defaultImageWidth: users.defaultImageWidth,
         defaultImageHeight: users.defaultImageHeight,
         defaultStylePreset: users.defaultStylePreset,
+        hiddenPresetIds: users.hiddenPresetIds,
       })
       .from(users)
       .where(eq(users.id, userId))
@@ -508,7 +510,10 @@ export class AuthService {
       throw new UnauthorizedError('User not found');
     }
 
-    return user;
+    return {
+      ...user,
+      hiddenPresetIds: user.hiddenPresetIds || [],
+    };
   }
 
   async updateUserPreferences(
@@ -517,6 +522,7 @@ export class AuthService {
       defaultImageWidth?: number;
       defaultImageHeight?: number;
       defaultStylePreset?: string;
+      hiddenPresetIds?: string[];
     }
   ) {
     const updates: any = {};
@@ -529,6 +535,9 @@ export class AuthService {
     }
     if (preferences.defaultStylePreset !== undefined) {
       updates.defaultStylePreset = preferences.defaultStylePreset;
+    }
+    if (preferences.hiddenPresetIds !== undefined) {
+      updates.hiddenPresetIds = preferences.hiddenPresetIds;
     }
 
     if (Object.keys(updates).length === 0) {
@@ -543,11 +552,15 @@ export class AuthService {
         defaultImageWidth: users.defaultImageWidth,
         defaultImageHeight: users.defaultImageHeight,
         defaultStylePreset: users.defaultStylePreset,
+        hiddenPresetIds: users.hiddenPresetIds,
       });
 
     logger.info({ userId, updates }, 'User preferences updated');
 
-    return user;
+    return {
+      ...user,
+      hiddenPresetIds: user.hiddenPresetIds || [],
+    };
   }
 
   async requestPasswordReset(email: string) {

@@ -5,6 +5,7 @@ import { generationListener } from './services/generationListener';
 import { generationQueueConsumer } from './services/generationQueueConsumer';
 import { thumbnailQueueConsumer } from './services/thumbnailQueueConsumer';
 import { startReconciliationJob } from './jobs/reconcileGenerations';
+import { startCleanupJob } from './jobs/cleanupSoftDeleted';
 
 const app = createApp();
 
@@ -16,6 +17,7 @@ const server = app.listen(env.PORT, '0.0.0.0', async () => {
     await generationQueueConsumer.start();
     await thumbnailQueueConsumer.start();
     startReconciliationJob();
+    startCleanupJob();
   } catch (error) {
     logger.error({ error }, 'Failed to start generation services');
   }

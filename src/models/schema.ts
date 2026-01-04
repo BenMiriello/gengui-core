@@ -30,6 +30,7 @@ export const users = pgTable('users', {
   defaultImageWidth: integer('default_image_width').default(1024),
   defaultImageHeight: integer('default_image_height').default(1024),
   defaultStylePreset: varchar('default_style_preset', { length: 50 }),
+  hiddenPresetIds: text('hidden_preset_ids').array(),
   failedLoginAttempts: integer('failed_login_attempts').default(0).notNull(),
   lockedUntil: timestamp('locked_until'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -261,6 +262,7 @@ export const usersRelations = relations(users, ({ many }) => ({
   emailVerificationTokens: many(emailVerificationTokens),
   documents: many(documents),
   documentVersions: many(documentVersions),
+  userStylePrompts: many(userStylePrompts),
 }));
 
 export const sessionsRelations = relations(sessions, ({ one }) => ({
@@ -365,6 +367,23 @@ export const documentVersionsRelations = relations(documentVersions, ({ one, man
   documentMedia: many(documentMedia),
 }));
 
+export const userStylePrompts = pgTable('user_style_prompts', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 100 }).notNull(),
+  prompt: text('prompt').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  deletedAt: timestamp('deleted_at'),
+}, (table) => ({
+  userIdIdx: index('user_style_prompts_user_id_idx').on(table.userId),
+  userActiveIdx: index('user_style_prompts_user_active_idx')
+    .on(table.userId)
+    .where(sql`deleted_at IS NULL`),
+}));
+
 export const documentMediaRelations = relations(documentMedia, ({ one }) => ({
   document: one(documents, {
     fields: [documentMedia.documentId],
@@ -377,5 +396,12 @@ export const documentMediaRelations = relations(documentMedia, ({ one }) => ({
   version: one(documentVersions, {
     fields: [documentMedia.versionId],
     references: [documentVersions.id],
+  }),
+}));
+
+export const userStylePromptsRelations = relations(userStylePrompts, ({ one }) => ({
+  user: one(users, {
+    fields: [userStylePrompts.userId],
+    references: [users.id],
   }),
 }));
