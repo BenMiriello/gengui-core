@@ -1,9 +1,6 @@
 import { redis } from './redis';
 import { logger } from '../utils/logger';
-
-export const PRESIGNED_S3_URL_EXPIRATION = 900;
-const URL_CACHE_TTL = PRESIGNED_S3_URL_EXPIRATION;
-const METADATA_CACHE_TTL = 86400;
+import { URL_CACHE_TTL, METADATA_CACHE_TTL } from '../config/constants';
 
 export interface MediaMetadata {
   width: number | null;

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import { mediaService } from '../services/mediaService';
 import { requireAuth } from '../middleware/auth';
-import { PRESIGNED_S3_URL_EXPIRATION } from '../services/cache';
+import { PRESIGNED_S3_URL_EXPIRATION } from '../config/constants';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });

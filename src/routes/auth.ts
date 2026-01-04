@@ -9,6 +9,8 @@ import {
   passwordResetRateLimiter,
 } from '../middleware/rateLimiter';
 
+const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
 const router = Router();
 
 router.post('/auth/signup', signupRateLimiter, async (req: Request, res: Response, next: NextFunction) => {
@@ -29,7 +31,7 @@ router.post('/auth/signup', signupRateLimiter, async (req: Request, res: Respons
       httpOnly: true,
       secure: env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
+      maxAge: ONE_WEEK_MS,
     });
 
     res.status(201).json({ user });
@@ -56,7 +58,7 @@ router.post('/auth/login', authRateLimiter, async (req: Request, res: Response, 
       httpOnly: true,
       secure: env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
+      maxAge: ONE_WEEK_MS,
     });
 
     res.json({ user });

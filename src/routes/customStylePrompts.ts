@@ -1,6 +1,10 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { customStylePromptsService } from '../services/customStylePrompts';
 import { requireAuth } from '../middleware/auth';
+import {
+  MAX_CUSTOM_STYLE_PROMPT_LENGTH,
+  MAX_CUSTOM_STYLE_PROMPTS_PER_USER
+} from '../config/constants';
 
 const router = Router();
 
@@ -26,17 +30,17 @@ router.post('/custom-style-prompts', requireAuth, async (req: Request, res: Resp
       return;
     }
 
-    if (prompt.length > 2000) {
+    if (prompt.length > MAX_CUSTOM_STYLE_PROMPT_LENGTH) {
       res.status(400).json({
-        error: { message: 'Prompt must be 2000 characters or less', code: 'INVALID_INPUT' }
+        error: { message: `Prompt must be ${MAX_CUSTOM_STYLE_PROMPT_LENGTH} characters or less`, code: 'INVALID_INPUT' }
       });
       return;
     }
 
     const existingPrompts = await customStylePromptsService.list(userId);
-    if (existingPrompts.length >= 2) {
+    if (existingPrompts.length >= MAX_CUSTOM_STYLE_PROMPTS_PER_USER) {
       res.status(400).json({
-        error: { message: 'Maximum 2 custom prompts allowed', code: 'MAX_PROMPTS_REACHED' }
+        error: { message: `Maximum ${MAX_CUSTOM_STYLE_PROMPTS_PER_USER} custom prompts allowed`, code: 'MAX_PROMPTS_REACHED' }
       });
       return;
     }
@@ -54,9 +58,9 @@ router.patch('/custom-style-prompts/:id', requireAuth, async (req: Request, res:
     const { id } = req.params;
     const { name, prompt } = req.body;
 
-    if (prompt && prompt.length > 2000) {
+    if (prompt && prompt.length > MAX_CUSTOM_STYLE_PROMPT_LENGTH) {
       res.status(400).json({
-        error: { message: 'Prompt must be 2000 characters or less', code: 'INVALID_INPUT' }
+        error: { message: `Prompt must be ${MAX_CUSTOM_STYLE_PROMPT_LENGTH} characters or less`, code: 'INVALID_INPUT' }
       });
       return;
     }

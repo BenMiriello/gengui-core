@@ -2,14 +2,21 @@ import { Router } from 'express';
 import { generationsService } from '../services/generationsService';
 import { requireAuth } from '../middleware/auth';
 import { z } from 'zod';
+import {
+  MAX_PROMPT_LENGTH,
+  MIN_WIDTH,
+  MAX_WIDTH,
+  MIN_HEIGHT,
+  MAX_HEIGHT
+} from '../config/constants';
 
 const router = Router();
 
 const createGenerationSchema = z.object({
-  prompt: z.string().min(1).max(1000),
+  prompt: z.string().min(1).max(MAX_PROMPT_LENGTH),
   seed: z.number().int().min(0).optional(),
-  width: z.number().int().min(256).max(2048).optional(),
-  height: z.number().int().min(256).max(2048).optional(),
+  width: z.number().int().min(MIN_WIDTH).max(MAX_WIDTH).optional(),
+  height: z.number().int().min(MIN_HEIGHT).max(MAX_HEIGHT).optional(),
   documentId: z.string().uuid().optional(),
   versionId: z.string().uuid().optional(),
   startChar: z.number().int().min(0).optional(),
