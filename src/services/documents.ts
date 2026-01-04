@@ -91,6 +91,7 @@ export class DocumentsService {
     userId: string,
     updates: {
       content?: string;
+      contentJson?: any;
       title?: string;
       defaultStylePreset?: string | null;
       defaultStylePrompt?: string | null;
@@ -135,6 +136,7 @@ export class DocumentsService {
       .update(documents)
       .set({
         ...(updates.content !== undefined && { content: updates.content }),
+        ...(updates.contentJson !== undefined && { contentJson: updates.contentJson }),
         ...(updates.title !== undefined && { title: updates.title }),
         ...(updates.defaultStylePreset !== undefined && { defaultStylePreset: updates.defaultStylePreset }),
         ...(updates.defaultStylePrompt !== undefined && { defaultStylePrompt: updates.defaultStylePrompt }),

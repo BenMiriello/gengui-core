@@ -10,6 +10,7 @@ import {
   index,
   uniqueIndex,
   text,
+  jsonb,
 } from 'drizzle-orm/pg-core';
 import { relations, sql } from 'drizzle-orm';
 
@@ -188,6 +189,7 @@ export const documents = pgTable('documents', {
     .references(() => users.id, { onDelete: 'cascade' }),
   title: varchar('title', { length: 100 }).notNull(),
   content: text('content').notNull(),
+  contentJson: jsonb('content_json'),
   version: integer('version').default(1).notNull(),
   currentVersionId: uuid('current_version_id'),
   defaultStylePreset: varchar('default_style_preset', { length: 50 }),
