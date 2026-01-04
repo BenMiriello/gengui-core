@@ -3,14 +3,28 @@ import { documents, documentVersions } from '../models/schema';
 import { eq, desc, sql } from 'drizzle-orm';
 import { NotFoundError } from '../utils/errors';
 import { logger } from '../utils/logger';
-import { diff_match_patch } from 'diff-match-patch';
 
-const dmp = new diff_match_patch();
+function textToProseMirrorJSON(plainText: string): any {
+  const paragraphs = plainText.split('\n').filter((line, idx, arr) =>
+    line.trim() !== '' || idx < arr.length - 1
+  );
+
+  return {
+    type: 'doc',
+    content: paragraphs.map(text => ({
+      type: 'paragraph',
+      content: text.trim() === '' ? [] : [{
+        type: 'text',
+        text
+      }]
+    }))
+  };
+}
 
 export class DocumentVersionsService {
   async createVersion(
     documentId: string,
-    previousContent: string,
+    _previousContent: string,
     newContent: string,
     userId: string | null,
     options?: {
@@ -20,14 +34,14 @@ export class DocumentVersionsService {
       changeType?: 'add' | 'remove' | 'replace';
     }
   ) {
-    const patches = dmp.patch_make(previousContent, newContent);
-    const diff = dmp.patch_toText(patches);
+    const snapshotContent = textToProseMirrorJSON(newContent);
 
     const [version] = await db
       .insert(documentVersions)
       .values({
         documentId,
-        diff,
+        snapshotContent,
+        format: 'snapshot',
         createdBy: userId,
         parentVersionId: options?.parentVersionId ?? null,
         lineNumber: options?.lineNumber ?? null,
@@ -67,16 +81,9 @@ export class DocumentVersionsService {
       throw new NotFoundError('Version not found');
     }
 
-    const patches = dmp.patch_fromText(version.diff);
-    let changePosition = null;
-
-    if (patches.length > 0) {
-      changePosition = (patches[0] as any).start1;
-    }
-
     return {
       ...version,
-      changePosition,
+      changePosition: version.charPosition ?? null,
     };
   }
 
@@ -193,47 +200,43 @@ export class DocumentVersionsService {
       throw new NotFoundError('Document not found');
     }
 
-    const path = await this.getPathToRoot(targetVersionId);
+    const [version] = await db
+      .select()
+      .from(documentVersions)
+      .where(eq(documentVersions.id, targetVersionId))
+      .limit(1);
 
-    if (path.length === 0) {
-      return '';
+    if (!version) {
+      throw new NotFoundError('Version not found');
     }
 
-    const firstVersion = path[0];
-    const patches = dmp.patch_fromText(firstVersion.diff);
-    const [content0, results0] = dmp.patch_apply(patches, '');
-    logger.info({
-      versionId: firstVersion.id,
-      patchCount: patches.length,
-      results: results0,
-      allSuccess: results0.every((r: boolean) => r),
-      contentLength: content0.length
-    }, '[RECONSTRUCT] Applied first version');
+    if (version.format === 'snapshot' && version.snapshotContent) {
+      const proseMirrorDoc = version.snapshotContent as any;
+      const textParts: string[] = [];
 
-    let content = content0;
+      if (proseMirrorDoc.content) {
+        for (const node of proseMirrorDoc.content) {
+          if (node.type === 'paragraph') {
+            if (!node.content || node.content.length === 0) {
+              textParts.push('');
+            } else {
+              const paragraphText = node.content
+                .filter((n: any) => n.type === 'text')
+                .map((n: any) => n.text)
+                .join('');
+              textParts.push(paragraphText);
+            }
+          }
+        }
+      }
 
-    for (let i = 1; i < path.length; i++) {
-      const version = path[i];
-      const versionPatches = dmp.patch_fromText(version.diff);
-      const [newContent, results] = dmp.patch_apply(versionPatches, content);
-      logger.info({
-        versionId: version.id,
-        patchCount: versionPatches.length,
-        results: results,
-        allSuccess: results.every((r: boolean) => r),
-        oldLength: content.length,
-        newLength: newContent.length
-      }, '[RECONSTRUCT] Applied version ' + (i + 1) + '/' + path.length);
-      content = newContent;
+      const content = textParts.join('\n');
+      logger.info({ versionId: targetVersionId, format: 'snapshot', contentLength: content.length }, '[RECONSTRUCT] Returned snapshot content');
+      return content;
     }
 
-    logger.info({
-      targetVersionId,
-      pathLength: path.length,
-      finalLength: content.length
-    }, '[RECONSTRUCT] Complete');
-
-    return content;
+    logger.warn({ versionId: targetVersionId, format: version.format }, '[RECONSTRUCT] Unknown version format');
+    return '';
   }
 }
 

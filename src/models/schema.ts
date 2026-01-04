@@ -18,6 +18,7 @@ export const modelTypeEnum = pgEnum('model_type', ['lora', 'checkpoint', 'other'
 export const mediaTypeEnum = pgEnum('media_type', ['upload', 'generation']);
 export const mediaStatusEnum = pgEnum('media_status', ['queued', 'processing', 'completed', 'failed']);
 export const changeTypeEnum = pgEnum('change_type', ['add', 'remove', 'replace']);
+export const versionFormatEnum = pgEnum('version_format', ['snapshot', 'prosemirror']);
 
 export const users = pgTable('users', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -214,7 +215,10 @@ export const documentVersions = pgTable('document_versions', {
     .notNull()
     .references(() => documents.id, { onDelete: 'cascade' }),
   parentVersionId: uuid('parent_version_id'),
-  diff: text('diff').notNull(),
+  diff: text('diff'),
+  steps: jsonb('steps'),
+  snapshotContent: jsonb('snapshot_content'),
+  format: versionFormatEnum('format').default('snapshot').notNull(),
   lineNumber: integer('line_number'),
   charPosition: integer('char_position'),
   changeType: changeTypeEnum('change_type').default('replace').notNull(),
