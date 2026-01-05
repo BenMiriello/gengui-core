@@ -1,7 +1,7 @@
 import { Client } from 'minio';
 import { env } from '../../config/env';
 import { StorageProvider } from './interface';
-import { PRESIGNED_S3_URL_EXPIRATION } from '../cache';
+import { PRESIGNED_S3_URL_EXPIRATION } from '../../config/constants';
 
 export class MinIOStorageProvider implements StorageProvider {
   private client: Client;

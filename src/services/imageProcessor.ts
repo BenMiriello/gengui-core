@@ -20,7 +20,7 @@ class ImageProcessor {
         height: metadata.height
       };
     } catch (error) {
-      logger.error('Failed to extract image dimensions', { error });
+      logger.error({ error }, 'Failed to extract image dimensions');
       throw error;
     }
   }
@@ -35,11 +35,11 @@ class ImageProcessor {
         .jpeg({ quality: 85 })
         .toBuffer();
 
-      logger.info('Thumbnail created', { size, originalSize: buffer.length, thumbnailSize: thumbnail.length });
+      logger.info({ size, originalSize: buffer.length, thumbnailSize: thumbnail.length }, 'Thumbnail created');
 
       return thumbnail;
     } catch (error) {
-      logger.error('Failed to create thumbnail', { error, size });
+      logger.error({ error, size }, 'Failed to create thumbnail');
       throw error;
     }
   }

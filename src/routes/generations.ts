@@ -18,10 +18,13 @@ const createGenerationSchema = z.object({
   width: z.number().int().min(MIN_WIDTH).max(MAX_WIDTH).optional(),
   height: z.number().int().min(MIN_HEIGHT).max(MAX_HEIGHT).optional(),
   documentId: z.string().uuid().optional(),
-  versionId: z.string().uuid().optional(),
   startChar: z.number().int().min(0).optional(),
   endChar: z.number().int().min(0).optional(),
   sourceText: z.string().optional(),
+  nodePos: z.number().int().min(0).optional(),
+  textOffset: z.number().int().min(0).optional(),
+  contextBefore: z.string().optional(),
+  contextAfter: z.string().optional(),
 });
 
 router.post('/', requireAuth, async (req, res, next) => {

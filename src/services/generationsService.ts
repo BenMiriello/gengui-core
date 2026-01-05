@@ -12,10 +12,13 @@ export interface GenerationRequest {
   width?: number;
   height?: number;
   documentId?: string;
-  versionId?: string;
   startChar?: number;
   endChar?: number;
   sourceText?: string;
+  nodePos?: number;
+  textOffset?: number;
+  contextBefore?: string;
+  contextAfter?: string;
 }
 
 export class GenerationsService {
@@ -55,11 +58,11 @@ export class GenerationsService {
       })
       .returning();
 
-    if (request.documentId && request.versionId) {
-      let contextBefore: string | undefined;
-      let contextAfter: string | undefined;
+    if (request.documentId) {
+      let contextBefore: string | undefined = request.contextBefore;
+      let contextAfter: string | undefined = request.contextAfter;
 
-      if (request.startChar !== undefined && request.endChar !== undefined) {
+      if (!contextBefore && !contextAfter && request.startChar !== undefined && request.endChar !== undefined) {
         const [document] = await db
           .select()
           .from(documents)
@@ -81,10 +84,11 @@ export class GenerationsService {
       await db.insert(documentMedia).values({
         documentId: request.documentId,
         mediaId: newMedia.id,
-        versionId: request.versionId,
         startChar: request.startChar,
         endChar: request.endChar,
         sourceText: request.sourceText,
+        nodePos: request.nodePos,
+        textOffset: request.textOffset,
         contextBefore,
         contextAfter,
         requestedPrompt: request.prompt,

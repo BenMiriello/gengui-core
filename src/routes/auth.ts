@@ -36,7 +36,7 @@ router.post('/auth/signup', signupRateLimiter, async (req: Request, res: Respons
 
     res.status(201).json({ user });
   } catch (error) {
-    next(error);
+    return next(error);
   }
 });
 
@@ -63,7 +63,7 @@ router.post('/auth/login', authRateLimiter, async (req: Request, res: Response, 
 
     res.json({ user });
   } catch (error) {
-    next(error);
+    return next(error);
   }
 });
 
@@ -78,7 +78,7 @@ router.post('/auth/logout', async (req: Request, res: Response, next: NextFuncti
     res.clearCookie('sessionToken');
     res.json({ success: true });
   } catch (error) {
-    next(error);
+    return next(error);
   }
 });
 
@@ -89,7 +89,7 @@ router.get('/auth/me', requireAuth, async (req: Request, res: Response, next: Ne
       sessionId: req.sessionId,
     });
   } catch (error) {
-    next(error);
+    return next(error);
   }
 });
 
@@ -108,7 +108,7 @@ router.patch('/auth/username', requireAuth, async (req: Request, res: Response, 
     const user = await authService.updateUsernameWithPassword(userId, username, password);
     res.json({ user });
   } catch (error) {
-    next(error);
+    return next(error);
   }
 });
 
@@ -127,7 +127,7 @@ router.post('/auth/email/initiate-change', requireAuth, emailVerificationRateLim
     const result = await authService.initiateEmailChange(userId, email, password);
     res.json(result);
   } catch (error) {
-    next(error);
+    return next(error);
   }
 });
 
@@ -145,7 +145,7 @@ router.post('/auth/email/confirm-change', async (req: Request, res: Response, ne
     const user = await authService.verifyEmailChange(token);
     res.json({ user });
   } catch (error) {
-    next(error);
+    return next(error);
   }
 });
 
@@ -163,7 +163,7 @@ router.post('/auth/verify-email', async (req: Request, res: Response, next: Next
     const user = await authService.verifyEmail(token);
     res.json({ user });
   } catch (error) {
-    next(error);
+    return next(error);
   }
 });
 
@@ -182,7 +182,7 @@ router.patch('/auth/password', requireAuth, async (req: Request, res: Response, 
     await authService.updatePassword(userId, currentPassword, newPassword);
     res.json({ success: true });
   } catch (error) {
-    next(error);
+    return next(error);
   }
 });
 
@@ -192,7 +192,7 @@ router.get('/auth/preferences', requireAuth, async (req: Request, res: Response,
     const preferences = await authService.getUserPreferences(userId);
     res.json({ preferences });
   } catch (error) {
-    next(error);
+    return next(error);
   }
 });
 
@@ -210,7 +210,7 @@ router.patch('/auth/preferences', requireAuth, async (req: Request, res: Respons
 
     res.json({ preferences });
   } catch (error) {
-    next(error);
+    return next(error);
   }
 });
 
@@ -224,9 +224,9 @@ router.post('/auth/password-reset/request', passwordResetRateLimiter, async (req
 
     await authService.requestPasswordReset(email);
 
-    res.json({ success: true });
+    return res.json({ success: true });
   } catch (error) {
-    next(error);
+    return next(error);
   }
 });
 
@@ -240,9 +240,9 @@ router.post('/auth/password-reset/confirm', async (req: Request, res: Response, 
 
     await authService.resetPassword(token, password);
 
-    res.json({ success: true });
+    return res.json({ success: true });
   } catch (error) {
-    next(error);
+    return next(error);
   }
 });
 

@@ -17,8 +17,6 @@ import { relations, sql } from 'drizzle-orm';
 export const modelTypeEnum = pgEnum('model_type', ['lora', 'checkpoint', 'other']);
 export const mediaTypeEnum = pgEnum('media_type', ['upload', 'generation']);
 export const mediaStatusEnum = pgEnum('media_status', ['queued', 'processing', 'completed', 'failed']);
-export const changeTypeEnum = pgEnum('change_type', ['add', 'remove', 'replace']);
-export const versionFormatEnum = pgEnum('version_format', ['snapshot', 'prosemirror']);
 
 export const users = pgTable('users', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -191,8 +189,6 @@ export const documents = pgTable('documents', {
   title: varchar('title', { length: 100 }).notNull(),
   content: text('content').notNull(),
   contentJson: jsonb('content_json'),
-  version: integer('version').default(1).notNull(),
-  currentVersionId: uuid('current_version_id'),
   defaultStylePreset: varchar('default_style_preset', { length: 50 }),
   defaultStylePrompt: text('default_style_prompt'),
   defaultImageWidth: integer('default_image_width').default(1024),
@@ -203,32 +199,9 @@ export const documents = pgTable('documents', {
 }, (table) => ({
   userIdIdx: index('documents_user_id_idx').on(table.userId),
   updatedAtIdx: index('documents_updated_at_idx').on(table.updatedAt),
-  currentVersionIdx: index('documents_current_version_idx').on(table.currentVersionId),
   userActiveIdx: index('documents_user_active_idx')
     .on(table.userId, table.deletedAt)
     .where(sql`deleted_at IS NULL`),
-}));
-
-export const documentVersions = pgTable('document_versions', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  documentId: uuid('document_id')
-    .notNull()
-    .references(() => documents.id, { onDelete: 'cascade' }),
-  parentVersionId: uuid('parent_version_id'),
-  diff: text('diff'),
-  steps: jsonb('steps'),
-  snapshotContent: jsonb('snapshot_content'),
-  format: versionFormatEnum('format').default('snapshot').notNull(),
-  lineNumber: integer('line_number'),
-  charPosition: integer('char_position'),
-  changeType: changeTypeEnum('change_type').default('replace').notNull(),
-  createdBy: uuid('created_by')
-    .references(() => users.id, { onDelete: 'set null' }),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-}, (table) => ({
-  documentIdIdx: index('document_versions_document_id_idx').on(table.documentId),
-  parentVersionIdx: index('document_versions_parent_version_idx').on(table.parentVersionId),
-  createdAtIdx: index('document_versions_created_at_idx').on(table.createdAt),
 }));
 
 export const documentMedia = pgTable('document_media', {
@@ -239,11 +212,10 @@ export const documentMedia = pgTable('document_media', {
   mediaId: uuid('media_id')
     .notNull()
     .references(() => media.id, { onDelete: 'cascade' }),
-  versionId: uuid('version_id')
-    .notNull()
-    .references(() => documentVersions.id, { onDelete: 'cascade' }),
   startChar: integer('start_char'),
   endChar: integer('end_char'),
+  nodePos: integer('node_pos'),
+  textOffset: integer('text_offset'),
   sourceText: text('source_text'),
   contextBefore: text('context_before'),
   contextAfter: text('context_after'),
@@ -253,7 +225,6 @@ export const documentMedia = pgTable('document_media', {
 }, (table) => ({
   documentIdIdx: index('document_media_document_id_idx').on(table.documentId),
   mediaIdIdx: index('document_media_media_id_idx').on(table.mediaId),
-  versionIdIdx: index('document_media_version_id_idx').on(table.versionId),
   documentActiveIdx: index('document_media_document_active_idx')
     .on(table.documentId)
     .where(sql`deleted_at IS NULL`),
@@ -267,7 +238,6 @@ export const usersRelations = relations(users, ({ many }) => ({
   passwordResetTokens: many(passwordResetTokens),
   emailVerificationTokens: many(emailVerificationTokens),
   documents: many(documents),
-  documentVersions: many(documentVersions),
   userStylePrompts: many(userStylePrompts),
 }));
 
@@ -345,31 +315,6 @@ export const documentsRelations = relations(documents, ({ one, many }) => ({
     fields: [documents.userId],
     references: [users.id],
   }),
-  versions: many(documentVersions),
-  currentVersion: one(documentVersions, {
-    fields: [documents.currentVersionId],
-    references: [documentVersions.id],
-  }),
-  documentMedia: many(documentMedia),
-}));
-
-export const documentVersionsRelations = relations(documentVersions, ({ one, many }) => ({
-  document: one(documents, {
-    fields: [documentVersions.documentId],
-    references: [documents.id],
-  }),
-  createdByUser: one(users, {
-    fields: [documentVersions.createdBy],
-    references: [users.id],
-  }),
-  parent: one(documentVersions, {
-    fields: [documentVersions.parentVersionId],
-    references: [documentVersions.id],
-    relationName: 'versionTree',
-  }),
-  children: many(documentVersions, {
-    relationName: 'versionTree',
-  }),
   documentMedia: many(documentMedia),
 }));
 
@@ -398,10 +343,6 @@ export const documentMediaRelations = relations(documentMedia, ({ one }) => ({
   media: one(media, {
     fields: [documentMedia.mediaId],
     references: [media.id],
-  }),
-  version: one(documentVersions, {
-    fields: [documentMedia.versionId],
-    references: [documentVersions.id],
   }),
 }));
 

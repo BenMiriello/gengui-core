@@ -1,7 +1,7 @@
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { logger } from '../utils/logger';
-import { PRESIGNED_S3_URL_EXPIRATION } from './cache';
+import { PRESIGNED_S3_URL_EXPIRATION } from '../config/constants';
 
 class S3Service {
   private client: S3Client;

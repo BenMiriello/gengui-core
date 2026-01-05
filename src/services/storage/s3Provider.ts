@@ -2,7 +2,7 @@ import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } fro
 import { StorageProvider } from './interface';
 import { s3 } from '../s3';
 import { logger } from '../../utils/logger';
-import { PRESIGNED_S3_URL_EXPIRATION } from '../cache';
+import { PRESIGNED_S3_URL_EXPIRATION } from '../../config/constants';
 
 export class S3StorageProvider implements StorageProvider {
   private client: S3Client;

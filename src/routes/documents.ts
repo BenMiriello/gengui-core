@@ -1,6 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { documentsService } from '../services/documents';
-import { documentVersionsService } from '../services/documentVersions';
 import { mediaService } from '../services/mediaService';
 import { sseService } from '../services/sse';
 import { presenceService } from '../services/presence';
@@ -66,33 +65,26 @@ router.patch('/documents/:id', requireAuth, async (req: Request, res: Response, 
     const { id } = req.params;
     const {
       content,
+      contentJson,
       title,
-      version,
-      cursorPosition,
       defaultStylePreset,
       defaultStylePrompt,
       defaultImageWidth,
       defaultImageHeight,
     } = req.body;
 
-    if (version === undefined) {
-      res.status(400).json({ error: { message: 'Version is required', code: 'INVALID_INPUT' } });
-      return;
-    }
-
     const document = await documentsService.update(
       id,
       userId,
       {
         content,
+        contentJson,
         title,
         defaultStylePreset,
         defaultStylePrompt,
         defaultImageWidth,
         defaultImageHeight,
-      },
-      version,
-      cursorPosition
+      }
     );
     res.json({ document });
   } catch (error) {
@@ -106,85 +98,6 @@ router.delete('/documents/:id', requireAuth, async (req: Request, res: Response,
     const { id } = req.params;
     await documentsService.delete(id, userId);
     res.json({ success: true });
-  } catch (error) {
-    next(error);
-  }
-});
-
-router.get('/documents/:id/versions', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const userId = (req as any).user.id;
-    const { id } = req.params;
-    await documentsService.get(id, userId);
-    const versions = await documentVersionsService.list(id);
-    res.json({ versions });
-  } catch (error) {
-    next(error);
-  }
-});
-
-router.get('/documents/:id/versions/:versionId', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const start = Date.now();
-    const userId = (req as any).user.id;
-    const { id, versionId } = req.params;
-    const includeContent = req.query.includeContent === 'true';
-
-    await documentsService.get(id, userId);
-    const version = await documentVersionsService.get(versionId, id);
-
-    if (includeContent) {
-      const contentStart = Date.now();
-      const content = await documentVersionsService.reconstructContent(id, versionId);
-      console.log(`[GET /versions/${versionId.slice(0,8)}] Reconstruct took ${Date.now() - contentStart}ms`);
-      res.json({ version: { ...version, content } });
-    } else {
-      res.json({ version });
-    }
-    console.log(`[GET /versions/${versionId.slice(0,8)}] Total ${Date.now() - start}ms`);
-  } catch (error) {
-    next(error);
-  }
-});
-
-router.post('/documents/:id/restore/:versionId', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const userId = (req as any).user.id;
-    const { id, versionId } = req.params;
-    const document = await documentsService.get(id, userId);
-    const content = await documentVersionsService.reconstructContent(id, versionId);
-    const updated = await documentsService.update(
-      id,
-      userId,
-      { content },
-      document.version
-    );
-    res.json({ document: updated });
-  } catch (error) {
-    next(error);
-  }
-});
-
-router.get('/documents/:id/versions/:versionId/children', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const start = Date.now();
-    const userId = (req as any).user.id;
-    const { id, versionId } = req.params;
-    await documentsService.get(id, userId);
-    const children = await documentVersionsService.getChildren(versionId);
-    res.json({ children });
-    console.log(`[GET /versions/${versionId.slice(0,8)}/children] Total ${Date.now() - start}ms, found ${children.length} children`);
-  } catch (error) {
-    next(error);
-  }
-});
-
-router.post('/documents/:id/set-version/:versionId', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const userId = (req as any).user.id;
-    const { id, versionId } = req.params;
-    const document = await documentsService.setCurrentVersion(id, userId, versionId);
-    res.json({ document });
   } catch (error) {
     next(error);
   }
