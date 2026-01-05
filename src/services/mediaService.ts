@@ -7,7 +7,8 @@ import { storageProvider } from './storage';
 import { NotFoundError } from '../utils/errors';
 import { logger } from '../utils/logger';
 import { imageProcessor } from './imageProcessor';
-import { cache, type MediaUrlType, PRESIGNED_S3_URL_EXPIRATION } from './cache';
+import { cache, type MediaUrlType } from './cache';
+import { PRESIGNED_S3_URL_EXPIRATION } from '../config/constants';
 import { redis } from './redis';
 
 export class MediaService {
@@ -224,8 +225,11 @@ async getDocumentsByMediaId(mediaId: string, userId: string, requestedFields?: s
         startChar: documentMedia.startChar,
         endChar: documentMedia.endChar,
         sourceText: documentMedia.sourceText,
+        contextBefore: documentMedia.contextBefore,
+        contextAfter: documentMedia.contextAfter,
+        nodePos: documentMedia.nodePos,
+        textOffset: documentMedia.textOffset,
         requestedPrompt: documentMedia.requestedPrompt,
-        versionId: documentMedia.versionId,
       })
       .from(documentMedia)
       .innerJoin(media, eq(documentMedia.mediaId, media.id))
