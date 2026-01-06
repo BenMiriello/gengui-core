@@ -17,6 +17,7 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "db:seed": "docker exec -i gengui-postgres psql -U gengui -d gengui_media -c \"INSERT INTO users (id, email) VALUES ('00000000-0000-0000-0000-000000000001', 'test@example.com') ON CONFLICT (id) DO NOTHING\"",
+    "admin:create": "tsx src/scripts/createAdmin.ts",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f",

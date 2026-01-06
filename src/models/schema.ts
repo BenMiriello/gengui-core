@@ -17,6 +17,7 @@ import { relations, sql } from 'drizzle-orm';
 export const modelTypeEnum = pgEnum('model_type', ['lora', 'checkpoint', 'other']);
 export const mediaTypeEnum = pgEnum('media_type', ['upload', 'generation']);
 export const mediaStatusEnum = pgEnum('media_status', ['queued', 'processing', 'completed', 'failed']);
+export const userRoleEnum = pgEnum('user_role', ['user', 'admin']);
 
 export const users = pgTable('users', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -25,6 +26,7 @@ export const users = pgTable('users', {
   passwordHash: varchar('password_hash', { length: 255 }),
   oauthProvider: varchar('oauth_provider', { length: 50 }),
   oauthProviderId: varchar('oauth_provider_id', { length: 255 }),
+  role: userRoleEnum('role').default('user').notNull(),
   emailVerified: boolean('email_verified').default(false).notNull(),
   pendingEmail: varchar('pending_email', { length: 255 }),
   defaultImageWidth: integer('default_image_width').default(1024),

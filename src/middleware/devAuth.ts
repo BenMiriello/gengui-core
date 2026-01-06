@@ -15,7 +15,7 @@ export function devAuth(req: Request, _res: Response, next: NextFunction) {
     throw new UnauthorizedError('Missing X-User-Id header');
   }
 
-  req.user = { id: userId };
+  req.user = { id: userId, role: 'user' };
   logger.debug({ userId }, 'Dev auth: user authenticated');
   next();
 }

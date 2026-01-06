@@ -32,3 +32,5 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
     next(error);
   }
 }
+
+export { requireAdmin } from './requireAdmin';
