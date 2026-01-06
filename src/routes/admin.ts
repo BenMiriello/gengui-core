@@ -10,7 +10,7 @@ const router = Router();
  */
 router.get('/admin/users', requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { search, role, emailVerified, limit, offset } = req.query;
+    const { search, role, emailVerified, limit, offset, includeStats } = req.query;
 
     // Parse and validate query parameters
     const filters: any = {};
@@ -43,6 +43,10 @@ router.get('/admin/users', requireAdmin, async (req: Request, res: Response, nex
       if (!isNaN(parsedOffset)) {
         filters.offset = parsedOffset;
       }
+    }
+
+    if (includeStats === 'true') {
+      filters.includeStats = true;
     }
 
     const result = await adminService.listUsers(filters);

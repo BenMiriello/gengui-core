@@ -107,6 +107,18 @@ export class GenerationsService {
       });
 
       logger.info({ mediaId: newMedia.id, prompt: request.prompt }, 'Generation queued');
+
+      // Track generation for rate limiting
+      const now = new Date();
+      const todayUTC = new Date(Date.UTC(
+        now.getUTCFullYear(),
+        now.getUTCMonth(),
+        now.getUTCDate()
+      ));
+      const dateStr = todayUTC.toISOString().split('T')[0];
+      const rateLimitKey = `user:${userId}:generations:${dateStr}`;
+      await redis.zadd(rateLimitKey, Date.now(), newMedia.id);
+      await redis.expire(rateLimitKey, 172800); // 48h TTL for cleanup
     } catch (error) {
       logger.error({ error, mediaId: newMedia.id }, 'Failed to queue generation, marking as failed');
       await db

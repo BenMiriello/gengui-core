@@ -140,6 +140,10 @@ class RedisService {
     return this.client.eval(script, numKeys, ...keys, ...args);
   }
 
+  async expire(key: string, seconds: number): Promise<number> {
+    return this.client.expire(key, seconds);
+  }
+
   async disconnect(): Promise<void> {
     await this.client.quit();
     await this.subscriber.quit();

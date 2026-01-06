@@ -1,6 +1,6 @@
 import { db } from '../config/database';
 import { users, media } from '../models/schema';
-import { eq, or, ilike, sql, desc, count } from 'drizzle-orm';
+import { eq, or, ilike, sql, desc, count, inArray, and } from 'drizzle-orm';
 import { redis } from './redis';
 import { NotFoundError, BadRequestError } from '../utils/errors';
 import { logger } from '../utils/logger';
@@ -11,12 +11,34 @@ interface UserListFilters {
   emailVerified?: boolean;
   limit?: number;
   offset?: number;
+  includeStats?: boolean;
 }
 
 interface UserStats {
   totalMedia: number;
   totalGenerations: number;
   accountAge: number; // days
+}
+
+interface GenerationStats {
+  totalGenerations: number;
+  queuedGenerations: number;
+  processingGenerations: number;
+  completedGenerations: number;
+  failedGenerations: number;
+}
+
+interface UserWithStats {
+  id: string;
+  username: string;
+  email: string;
+  role: 'user' | 'admin';
+  emailVerified: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  failedLoginAttempts: number;
+  lockedUntil: Date | null;
+  stats?: GenerationStats;
 }
 
 interface QueueStatus {
@@ -42,6 +64,7 @@ export class AdminService {
       emailVerified,
       limit = 50,
       offset = 0,
+      includeStats = false,
     } = filters;
 
     // Validate limit
@@ -94,6 +117,56 @@ export class AdminService {
       .limit(limit)
       .offset(offset);
 
+    // Optionally include generation stats
+    let usersWithStats: UserWithStats[] = userList;
+
+    if (includeStats && userList.length > 0) {
+      const userIds = userList.map((u) => u.id);
+
+      // Aggregate generation counts by status for all users in this page
+      const statsQuery = await db
+        .select({
+          userId: media.userId,
+          totalCount: count(),
+          queuedCount: sql<number>`COUNT(CASE WHEN ${media.status} = 'queued' THEN 1 END)`,
+          processingCount: sql<number>`COUNT(CASE WHEN ${media.status} = 'processing' THEN 1 END)`,
+          completedCount: sql<number>`COUNT(CASE WHEN ${media.status} = 'completed' THEN 1 END)`,
+          failedCount: sql<number>`COUNT(CASE WHEN ${media.status} = 'failed' THEN 1 END)`,
+        })
+        .from(media)
+        .where(
+          and(
+            inArray(media.userId, userIds),
+            eq(media.type, 'generation')
+          )
+        )
+        .groupBy(media.userId);
+
+      // Build stats map
+      const statsMap = new Map<string, GenerationStats>();
+      for (const row of statsQuery) {
+        statsMap.set(row.userId, {
+          totalGenerations: Number(row.totalCount),
+          queuedGenerations: Number(row.queuedCount),
+          processingGenerations: Number(row.processingCount),
+          completedGenerations: Number(row.completedCount),
+          failedGenerations: Number(row.failedCount),
+        });
+      }
+
+      // Attach stats to users
+      usersWithStats = userList.map((u) => ({
+        ...u,
+        stats: statsMap.get(u.id) || {
+          totalGenerations: 0,
+          queuedGenerations: 0,
+          processingGenerations: 0,
+          completedGenerations: 0,
+          failedGenerations: 0,
+        },
+      }));
+    }
+
     logger.info(
       {
         filters,
@@ -104,7 +177,7 @@ export class AdminService {
     );
 
     return {
-      users: userList,
+      users: usersWithStats,
       pagination: {
         total: totalCount,
         limit,

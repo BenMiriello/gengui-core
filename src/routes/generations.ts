@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { generationsService } from '../services/generationsService';
 import { requireAuth } from '../middleware/auth';
+import { generationRateLimiter } from '../middleware/generationRateLimiter';
 import { z } from 'zod';
 import {
   MAX_PROMPT_LENGTH,
@@ -27,7 +28,7 @@ const createGenerationSchema = z.object({
   contextAfter: z.string().optional(),
 });
 
-router.post('/', requireAuth, async (req, res, next) => {
+router.post('/', requireAuth, generationRateLimiter, async (req, res, next) => {
   try {
     const validatedData = createGenerationSchema.parse(req.body);
     const result = await generationsService.create(req.user!.id, validatedData);
