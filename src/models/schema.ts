@@ -47,6 +47,9 @@ export const sessions = pgTable('sessions', {
   token: varchar('token', { length: 255 }).notNull().unique(),
   expiresAt: timestamp('expires_at').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
+  lastActivityAt: timestamp('last_activity_at'),
+  ipAddress: varchar('ip_address', { length: 45 }),
+  userAgent: text('user_agent'),
 }, (table) => ({
   tokenIdx: index('sessions_token_idx').on(table.token),
   userExpiresIdx: index('sessions_user_expires_idx').on(table.userId, table.expiresAt),

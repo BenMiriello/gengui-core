@@ -148,7 +148,7 @@ export class AuthService {
     };
   }
 
-  async createSession(userId: string) {
+  async createSession(userId: string, ipAddress?: string, userAgent?: string) {
     const token = crypto.randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + SESSION_DURATION_MS);
 
@@ -158,10 +158,13 @@ export class AuthService {
         userId,
         token,
         expiresAt,
+        lastActivityAt: new Date(),
+        ipAddress: ipAddress || null,
+        userAgent: userAgent || null,
       })
       .returning();
 
-    logger.info({ userId, sessionId: session.id }, 'Session created');
+    logger.info({ userId, sessionId: session.id, ipAddress, userAgent }, 'Session created');
 
     return {
       token: session.token,
@@ -212,6 +215,11 @@ export class AuthService {
   async deleteSession(token: string) {
     await db.delete(sessions).where(eq(sessions.token, token));
     logger.info('Session deleted');
+  }
+
+  async deleteAllUserSessions(userId: string) {
+    await db.delete(sessions).where(eq(sessions.userId, userId));
+    logger.info({ userId }, 'All user sessions deleted');
   }
 
   async updateUsername(userId: string, username: string) {
@@ -308,9 +316,12 @@ export class AuthService {
       .set({ passwordHash: newPasswordHash })
       .where(eq(users.id, userId));
 
+    // Invalidate all sessions for security
+    await this.deleteAllUserSessions(userId);
+
     await emailService.sendPasswordChangedEmail(user.email);
 
-    logger.info({ userId }, 'Password updated');
+    logger.info({ userId }, 'Password updated and sessions invalidated');
   }
 
   async createEmailVerificationToken(userId: string, email: string): Promise<string> {
@@ -489,7 +500,10 @@ export class AuthService {
       .delete(emailVerificationTokens)
       .where(eq(emailVerificationTokens.userId, tokenRecord.userId));
 
-    logger.info({ userId: user.id, email: user.email }, 'Email changed and verified');
+    // Invalidate all sessions for security
+    await this.deleteAllUserSessions(tokenRecord.userId);
+
+    logger.info({ userId: user.id, email: user.email }, 'Email changed, verified, and sessions invalidated');
 
     return {
       id: user.id,

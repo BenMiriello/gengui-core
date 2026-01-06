@@ -25,7 +25,9 @@ router.post('/auth/signup', signupRateLimiter, async (req: Request, res: Respons
     }
 
     const user = await authService.signup(email, username, password);
-    const session = await authService.createSession(user.id);
+    const ipAddress = req.ip || req.headers['x-forwarded-for'] as string || undefined;
+    const userAgent = req.headers['user-agent'];
+    const session = await authService.createSession(user.id, ipAddress, userAgent);
 
     res.cookie('sessionToken', session.token, {
       httpOnly: true,
@@ -52,7 +54,9 @@ router.post('/auth/login', authRateLimiter, async (req: Request, res: Response, 
     }
 
     const user = await authService.login(emailOrUsername, password);
-    const session = await authService.createSession(user.id);
+    const ipAddress = req.ip || req.headers['x-forwarded-for'] as string || undefined;
+    const userAgent = req.headers['user-agent'];
+    const session = await authService.createSession(user.id, ipAddress, userAgent);
 
     res.cookie('sessionToken', session.token, {
       httpOnly: true,
