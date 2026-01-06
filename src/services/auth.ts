@@ -204,6 +204,7 @@ export class AuthService {
       username: user.username,
       role: user.role,
       emailVerified: user.emailVerified ?? false,
+      createdAt: user.createdAt?.toISOString() ?? new Date().toISOString(),
       pendingEmail: user.pendingEmail ?? null,
       defaultImageWidth: user.defaultImageWidth ?? 1024,
       defaultImageHeight: user.defaultImageHeight ?? 1024,
@@ -376,6 +377,23 @@ export class AuthService {
       role: user.role,
       emailVerified: user.emailVerified,
     };
+  }
+
+  async resendVerificationEmail(userId: string) {
+    const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+
+    if (!user) throw new UnauthorizedError('User not found');
+    if (user.emailVerified) {
+      return { success: true, alreadyVerified: true, message: 'Email already verified' };
+    }
+
+    // Delete old tokens, create new one
+    await db.delete(emailVerificationTokens).where(eq(emailVerificationTokens.userId, userId));
+    const token = await this.createEmailVerificationToken(userId, user.email);
+    await emailService.sendVerificationEmail(user.email, token);
+
+    logger.info({ userId, email: user.email }, 'Verification email resent');
+    return { success: true, alreadyVerified: false };
   }
 
   async updateUsernameWithPassword(userId: string, username: string, password: string) {

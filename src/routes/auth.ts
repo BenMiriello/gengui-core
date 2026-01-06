@@ -171,6 +171,19 @@ router.post('/auth/verify-email', async (req: Request, res: Response, next: Next
   }
 });
 
+router.post('/auth/resend-verification',
+  requireAuth,
+  emailVerificationRateLimiter,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const result = await authService.resendVerificationEmail(req.user!.id);
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
 router.patch('/auth/password', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = (req as any).user.id;

@@ -33,4 +33,22 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
   }
 }
 
+export function requireEmailVerified(customMessage?: string) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    const user = req.user;
+
+    if (!user?.emailVerified) {
+      res.status(403).json({
+        error: {
+          message: customMessage || 'Email verification required',
+          code: 'EMAIL_NOT_VERIFIED',
+          details: { action: 'verify_email', email: user?.email }
+        }
+      });
+      return;
+    }
+    next();
+  };
+}
+
 export { requireAdmin } from './requireAdmin';
