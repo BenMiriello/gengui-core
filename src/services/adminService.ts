@@ -329,14 +329,14 @@ export class AdminService {
     }
 
     try {
-      // Get queue depth using eval to run LLEN command
-      const depth = await redis.eval('return redis.call("LLEN", KEYS[1])', 1, ['generation:queue'], []) as number;
+      // Get queue depth
+      const depth = await redis.llen('generation:queue');
 
       // Get oldest job age if queue has items
       let oldestJobAge: number | undefined;
       if (depth > 0) {
-        // Get the oldest job ID (rightmost item in the queue) using eval
-        const oldestJobIds = await redis.eval('return redis.call("LRANGE", KEYS[1], -1, -1)', 1, ['generation:queue'], []) as string[];
+        // Get the oldest job ID (rightmost item in the queue)
+        const oldestJobIds = await redis.lrange('generation:queue', -1, -1);
         if (oldestJobIds.length > 0) {
           const jobData = await redis.getJob(oldestJobIds[0]);
           if (jobData && jobData.queuedAt) {
@@ -346,7 +346,7 @@ export class AdminService {
         }
       }
 
-      logger.info({ depth, oldestJobAge }, 'Admin checked queue status');
+      logger.info({ depth, oldestJobAge, isConnected }, 'Admin checked queue status');
 
       return {
         depth,

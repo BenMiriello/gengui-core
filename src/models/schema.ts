@@ -102,6 +102,8 @@ export const media = pgTable('media', {
   stylePrompt: text('style_prompt'),
   seed: integer('seed'),
   error: text('error'),
+  attempts: integer('attempts').default(0).notNull(),
+  cancelledAt: timestamp('cancelled_at'),
   generated: boolean('generated').default(false).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),

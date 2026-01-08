@@ -4,15 +4,12 @@ import { logger } from '../utils/logger';
 class RedisService {
   private client: Redis;
   private subscriber: Redis;
-  private isConnected = false;
 
   constructor() {
     const redisUrl = process.env.REDIS_URL;
     if (!redisUrl) {
       throw new Error('REDIS_URL environment variable is not set');
     }
-
-    console.log(`[REDIS INIT] Connecting to: ${redisUrl}`);
 
     this.client = new Redis(redisUrl, {
       maxRetriesPerRequest: 3,
@@ -27,40 +24,34 @@ class RedisService {
     });
 
     this.client.on('connect', () => {
-      console.log('[REDIS] Client connected');
       logger.info('Redis client connected');
-      this.isConnected = true;
     });
 
     this.client.on('ready', () => {
-      console.log('[REDIS] Client ready');
+      logger.info('Redis client ready');
     });
 
     this.client.on('error', (error) => {
-      console.log('[REDIS] Client error:', error.message);
       logger.error({ error }, 'Redis client error');
-      this.isConnected = false;
     });
 
     this.client.on('close', () => {
-      console.log('[REDIS] Client connection closed');
+      logger.info('Redis client connection closed');
     });
 
     this.client.on('reconnecting', () => {
-      console.log('[REDIS] Client reconnecting');
+      logger.info('Redis client reconnecting');
     });
 
     this.subscriber.on('connect', () => {
-      console.log('[REDIS] Subscriber connected');
       logger.info('Redis subscriber connected');
     });
 
     this.subscriber.on('ready', () => {
-      console.log('[REDIS] Subscriber ready');
+      logger.info('Redis subscriber ready');
     });
 
     this.subscriber.on('error', (error) => {
-      console.log('[REDIS] Subscriber error:', error.message);
       logger.error({ error }, 'Redis subscriber error');
     });
   }
@@ -102,6 +93,14 @@ class RedisService {
 
   async lpush(key: string, value: string): Promise<number> {
     return this.client.lpush(key, value);
+  }
+
+  async llen(key: string): Promise<number> {
+    return this.client.llen(key);
+  }
+
+  async lrange(key: string, start: number, stop: number): Promise<string[]> {
+    return this.client.lrange(key, start, stop);
   }
 
   async get(key: string): Promise<string | null> {
@@ -147,12 +146,13 @@ class RedisService {
   async disconnect(): Promise<void> {
     await this.client.quit();
     await this.subscriber.quit();
-    this.isConnected = false;
     logger.info('Redis connections closed');
   }
 
   getConnectionStatus(): boolean {
-    return this.isConnected;
+    // Check actual Redis client status instead of just the flag
+    // 'ready' means connected and ready to accept commands
+    return this.client.status === 'ready' || this.client.status === 'connect';
   }
 }
 
