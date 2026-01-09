@@ -195,6 +195,94 @@ export class GenerationsService {
 
     return results;
   }
+
+  /**
+   * Cancel a generation job
+   * Race-condition safe: checks RunPod status before cancelling
+   * Returns 409 if job already completed
+   */
+  async cancel(id: string, userId: string) {
+    // Verify ownership
+    const job = await this.getById(id, userId);
+
+    // Already cancelled
+    if (job.cancelledAt) {
+      logger.info({ mediaId: id }, 'Job already cancelled');
+      return { cancelled: true, alreadyCancelled: true };
+    }
+
+    // Already completed/failed - can't cancel
+    if (job.status === 'completed' || job.status === 'failed') {
+      logger.info({ mediaId: id, status: job.status }, 'Job already finished, cannot cancel');
+      throw new Error(`Job already ${job.status}`);
+    }
+
+    // RunPod mode: Check status with RunPod API first to avoid race conditions
+    if (runpodClient.isEnabled()) {
+      const runpodJobId = await redis.get(`runpod:job:${id}`);
+
+      if (!runpodJobId) {
+        // No RunPod job ID - maybe never submitted or Redis expired
+        // Just mark as cancelled in DB
+        logger.warn({ mediaId: id }, 'No RunPod job ID found, marking as cancelled in DB');
+        await db
+          .update(media)
+          .set({ cancelledAt: new Date(), status: 'failed', error: 'Cancelled by user' })
+          .where(eq(media.id, id));
+        return { cancelled: true };
+      }
+
+      try {
+        // Check current RunPod status
+        const status = await runpodClient.getJobStatus(runpodJobId);
+
+        // Already completed - show result instead of cancelling
+        if (status.status === 'COMPLETED') {
+          logger.info({ mediaId: id, runpodJobId }, 'Job completed before cancellation');
+          throw new Error('Job already completed');
+        }
+
+        // Try to cancel on RunPod
+        if (status.status === 'IN_QUEUE' || status.status === 'IN_PROGRESS') {
+          try {
+            await runpodClient.cancelJob(runpodJobId);
+            logger.info({ mediaId: id, runpodJobId }, 'Job cancelled on RunPod');
+          } catch (cancelError) {
+            // Cancel failed - maybe just completed
+            logger.warn({ error: cancelError, mediaId: id }, 'RunPod cancel failed, checking status again');
+            const newStatus = await runpodClient.getJobStatus(runpodJobId);
+            if (newStatus.status === 'COMPLETED') {
+              throw new Error('Job completed before cancellation');
+            }
+            // Cancel failed for other reason, but we'll mark as cancelled in DB anyway
+            logger.error({ error: cancelError, mediaId: id }, 'RunPod cancel failed, marking as cancelled in DB');
+          }
+        }
+      } catch (error) {
+        // If error is "already completed", propagate it
+        if (error instanceof Error && error.message.includes('already completed')) {
+          throw error;
+        }
+        // Other errors - log and continue with DB cancellation
+        logger.error({ error, mediaId: id }, 'Error checking/cancelling RunPod job');
+      }
+    }
+
+    // Mark as cancelled in DB
+    await db
+      .update(media)
+      .set({
+        cancelledAt: new Date(),
+        status: 'failed',
+        error: 'Cancelled by user',
+        updatedAt: new Date()
+      })
+      .where(eq(media.id, id));
+
+    logger.info({ mediaId: id }, 'Job cancelled successfully');
+
+    return { cancelled: true };
+  }
 }
 
 export const generationsService = new GenerationsService();

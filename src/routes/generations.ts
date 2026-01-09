@@ -72,4 +72,23 @@ router.get('/:id', requireAuth, async (req, res, next) => {
   }
 });
 
+router.post('/:id/cancel', requireAuth, async (req, res, next) => {
+  try {
+    const result = await generationsService.cancel(req.params.id, req.user!.id);
+    res.json(result);
+  } catch (error) {
+    // Job already completed - return 409 Conflict
+    if (error instanceof Error && error.message.includes('already completed')) {
+      res.status(409).json({ error: { message: error.message, code: 'ALREADY_COMPLETED' } });
+      return;
+    }
+    // Job already failed - return 409 Conflict
+    if (error instanceof Error && error.message.includes('already failed')) {
+      res.status(409).json({ error: { message: error.message, code: 'ALREADY_FAILED' } });
+      return;
+    }
+    next(error);
+  }
+});
+
 export default router;

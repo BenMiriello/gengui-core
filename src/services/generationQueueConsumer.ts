@@ -84,6 +84,18 @@ class GenerationQueueConsumer {
           continue;
         }
 
+        // Check if job was cancelled - ignore if so
+        const [job] = await db
+          .select({ cancelledAt: media.cancelledAt })
+          .from(media)
+          .where(eq(media.id, mediaId))
+          .limit(1);
+
+        if (job?.cancelledAt) {
+          logger.info({ mediaId }, 'Ignoring completed message for cancelled job');
+          continue;
+        }
+
         logger.info({ mediaId, s3Key }, 'Updating media status to completed');
         await db
           .update(media)
@@ -110,6 +122,18 @@ class GenerationQueueConsumer {
 
         if (!mediaId) {
           logger.error({ message }, 'Failed queue message missing mediaId');
+          continue;
+        }
+
+        // Check if job was cancelled - ignore if so
+        const [job] = await db
+          .select({ cancelledAt: media.cancelledAt })
+          .from(media)
+          .where(eq(media.id, mediaId))
+          .limit(1);
+
+        if (job?.cancelledAt) {
+          logger.info({ mediaId }, 'Ignoring failed message for cancelled job');
           continue;
         }
 
