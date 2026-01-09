@@ -82,9 +82,10 @@ When core starts, it launches these workers in a single Node process:
 
 - **HTTP Server** (Express) - REST API endpoints
 - **Generation Listener** - Redis pub/sub for real-time generation events
-- **Generation Queue Consumer** - Processes generation status updates
+- **Generation Queue Consumer** - Processes generation status updates (primary fast path)
 - **Thumbnail Queue Consumer** - Creates 128px thumbnails for images
-- **Reconciliation Job** - Every 2 mins, recovers stuck generations
+- **Job Reconciliation Service** - Every 5s, polls RunPod API for stuck jobs (backup path, RunPod mode only)
+- **Redis Reconciliation Job** - Every 2 mins, recovers stuck Redis-based generations (local mode only)
 
 ## Project Structure
 
@@ -152,6 +153,20 @@ docker compose down -v
 - Check S3 bucket exists and has proper permissions
 - Ensure IAM user has `s3:PutObject` and `s3:GetObject` permissions
 
+### "Job stuck in 'queued' or 'processing'"
+
+**Local Mode (ENABLE_RUNPOD=false):**
+- Check worker is running and connected to Redis
+- Check Redis logs: `docker compose logs redis`
+- Verify worker logs for errors
+
+**RunPod Mode (ENABLE_RUNPOD=true):**
+- Check job reconciliation service is running (logs show "Job reconciliation service started")
+- Verify RunPod credentials are correct
+- Check RunPod dashboard for worker status
+- Wait 5-27s for reconciliation service to detect and retry
+- Check core logs for reconciliation activity
+
 ## Environment Variables
 
 See `.env.example` for all configuration options.
@@ -166,14 +181,51 @@ See `.env.example` for all configuration options.
 - `LOG_LEVEL` - Logging level (default: info)
 - `NODE_ENV` - Environment (development/production)
 
+**RunPod Integration (for serverless GPU workers):**
+- `ENABLE_RUNPOD` - Set to `true` to use RunPod serverless workers (default: `false`)
+- `RUNPOD_API_KEY` - RunPod API key (required if `ENABLE_RUNPOD=true`)
+- `RUNPOD_ENDPOINT_ID` - RunPod endpoint ID (required if `ENABLE_RUNPOD=true`)
+
+### Worker Modes
+
+The system supports two worker deployment modes:
+
+**Local Mode** (`ENABLE_RUNPOD=false` or not set):
+- Worker runs locally in **polling mode** (continuous process)
+- Jobs submitted to Redis queue via `redis.addJob()`
+- Redis-based reconciliation recovers stuck jobs
+- Use for: Local dev on Mac + Linux PC worker
+
+**RunPod Mode** (`ENABLE_RUNPOD=true`):
+- Worker runs on RunPod Serverless in **handler mode** (per-job invocation)
+- Jobs submitted to RunPod API with per-job timeout (20s for zit-basic)
+- Job reconciliation service polls RunPod API every 5s for failures
+- Auto-scaling: 1 worker per queued job (REQUEST_COUNT=1)
+- Use for: Remote dev and production
+
 ## Production Notes
 
 For production deployment:
 
-1. Use managed Redis (Upstash, ElastiCache, etc.)
-2. Use managed PostgreSQL (RDS, Supabase, etc.)
-3. Consider moving thumbnail generation to Lambda
-4. Consider moving reconciliation job to EventBridge + Lambda
-5. Use secrets manager (AWS Secrets Manager) for credentials
-6. Enable SSL/TLS for all connections
-7. Set up monitoring (CloudWatch, Sentry)
+1. **Database & Cache:**
+   - Use managed Redis (Upstash, ElastiCache, etc.) - Workers need access from RunPod
+   - Use managed PostgreSQL (RDS, Supabase, etc.)
+
+2. **Worker Deployment:**
+   - Deploy inference worker to RunPod Serverless (see `inference-worker/README.md`)
+   - Set `ENABLE_RUNPOD=true` and configure RunPod credentials
+   - Configure endpoint: REQUEST_COUNT=1, idle=1s, max workers=10
+
+3. **Security:**
+   - Use secrets manager (AWS Secrets Manager) for credentials
+   - Enable SSL/TLS for all connections (Redis with `rediss://`, Postgres with SSL)
+   - Ensure RunPod workers can access Redis and S3
+
+4. **Monitoring:**
+   - Set up application monitoring (CloudWatch, Sentry)
+   - Monitor RunPod costs and worker utilization
+   - Track reconciliation service metrics (stuck jobs, retries)
+
+5. **Optional Optimizations:**
+   - Consider moving thumbnail generation to Lambda
+   - Scale Core API horizontally (job reconciliation is safe for multi-instance)

@@ -3,6 +3,7 @@ import { media, documentMedia, documents } from '../models/schema';
 import { eq, and } from 'drizzle-orm';
 import { notDeleted } from '../utils/db';
 import { redis } from './redis';
+import { runpodClient, RUNPOD_CONSTANTS } from './runpod';
 import { NotFoundError } from '../utils/errors';
 import { logger } from '../utils/logger';
 
@@ -96,25 +97,51 @@ export class GenerationsService {
     }
 
     try {
-      await redis.addJob(newMedia.id, {
-        userId,
-        mediaId: newMedia.id,
-        prompt: request.prompt,
-        seed: seed.toString(),
-        width: width.toString(),
-        height: height.toString(),
-        status: 'queued',
-      });
+      // Submit to RunPod or Redis based on configuration
+      if (runpodClient.isEnabled()) {
+        // RunPod mode: Submit to RunPod API with per-job timeout
+        const runpodJobId = await runpodClient.submitJob(
+          {
+            mediaId: newMedia.id,
+            userId,
+            prompt: request.prompt,
+            seed: seed.toString(),
+            width: width.toString(),
+            height: height.toString(),
+          },
+          {
+            executionTimeout: RUNPOD_CONSTANTS.EXECUTION_TIMEOUT_MS,
+          }
+        );
 
-      logger.info({ mediaId: newMedia.id, prompt: request.prompt }, 'Generation queued');
+        // Store RunPod job ID and submission timestamp in Redis for reconciliation
+        await redis.set(`runpod:job:${newMedia.id}`, runpodJobId, RUNPOD_CONSTANTS.REDIS_JOB_TTL_SECONDS);
+        await redis.set(`runpod:job:${newMedia.id}:submitted`, Date.now().toString(), RUNPOD_CONSTANTS.REDIS_JOB_TTL_SECONDS);
+
+        logger.info(
+          { mediaId: newMedia.id, runpodJobId, prompt: request.prompt },
+          'Generation submitted to RunPod'
+        );
+      } else {
+        // Local/Redis mode: Queue in Redis for worker polling
+        await redis.addJob(newMedia.id, {
+          userId,
+          mediaId: newMedia.id,
+          prompt: request.prompt,
+          seed: seed.toString(),
+          width: width.toString(),
+          height: height.toString(),
+          status: 'queued',
+        });
+
+        logger.info({ mediaId: newMedia.id, prompt: request.prompt }, 'Generation queued in Redis');
+      }
 
       // Track generation for rate limiting
       const now = new Date();
-      const todayUTC = new Date(Date.UTC(
-        now.getUTCFullYear(),
-        now.getUTCMonth(),
-        now.getUTCDate()
-      ));
+      const todayUTC = new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+      );
       const dateStr = todayUTC.toISOString().split('T')[0];
       const rateLimitKey = `user:${userId}:generations:${dateStr}`;
       await redis.zadd(rateLimitKey, Date.now(), newMedia.id);

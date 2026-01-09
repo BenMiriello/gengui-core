@@ -4,6 +4,7 @@ import { logger } from './utils/logger';
 import { generationListener } from './services/generationListener';
 import { generationQueueConsumer } from './services/generationQueueConsumer';
 import { thumbnailQueueConsumer } from './services/thumbnailQueueConsumer';
+import { jobReconciliationService } from './services/runpod';
 import { startReconciliationJob } from './jobs/reconcileGenerations';
 import { startCleanupJob } from './jobs/cleanupSoftDeleted';
 
@@ -16,7 +17,8 @@ const server = app.listen(env.PORT, '0.0.0.0', async () => {
     await generationListener.start();
     await generationQueueConsumer.start();
     await thumbnailQueueConsumer.start();
-    startReconciliationJob();
+    await jobReconciliationService.start(); // RunPod job reconciliation (5s polling)
+    startReconciliationJob(); // Redis job reconciliation (2min polling, for local mode)
     startCleanupJob();
   } catch (error) {
     logger.error({ error }, 'Failed to start generation services');
@@ -28,6 +30,7 @@ process.on('SIGTERM', async () => {
   await generationListener.stop();
   await generationQueueConsumer.stop();
   await thumbnailQueueConsumer.stop();
+  await jobReconciliationService.stop();
   server.close(() => {
     logger.info('Server closed');
     process.exit(0);
@@ -39,6 +42,7 @@ process.on('SIGINT', async () => {
   await generationListener.stop();
   await generationQueueConsumer.stop();
   await thumbnailQueueConsumer.stop();
+  await jobReconciliationService.stop();
   server.close(() => {
     logger.info('Server closed');
     process.exit(0);
