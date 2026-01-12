@@ -1,7 +1,7 @@
 // Constants for job configuration
 export const RUNPOD_CONSTANTS = {
-  // Job execution timeout for zit-basic model (3-8s typical + 12s buffer)
-  EXECUTION_TIMEOUT_MS: 20000,
+  // Job execution timeout - includes model loading on cold start (first run: ~5min, warm: ~10s)
+  EXECUTION_TIMEOUT_MS: 30000, // 30 seconds
 
   // Redis TTL for RunPod job mappings (1 hour)
   REDIS_JOB_TTL_SECONDS: 3600,
