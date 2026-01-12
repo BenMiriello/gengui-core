@@ -22,19 +22,12 @@ router.get('/documents/:id', requireAuth, async (req: Request, res: Response, ne
     const start = Date.now();
     const userId = (req as any).user.id;
     const { id } = req.params;
-    const sessionId = req.sessionId!;
 
     const document = await documentsService.get(id, userId);
     console.log(`[GET /documents/${id}] DB fetch took ${Date.now() - start}ms`);
 
-    const editorCount = await presenceService.getActiveEditorCount(id);
-    const isPrimaryEditor = await presenceService.isPrimaryEditor(id, sessionId);
-    const hasActiveEditor = editorCount > 0;
-
     res.json({
       document,
-      hasActiveEditor,
-      isPrimaryEditor,
     });
     console.log(`[GET /documents/${id}] Total request took ${Date.now() - start}ms`);
   } catch (error) {

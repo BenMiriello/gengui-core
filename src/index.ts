@@ -1,9 +1,7 @@
 import { env } from './config/env';
 import { createApp } from './app';
 import { logger } from './utils/logger';
-import { generationListener } from './services/generationListener';
-import { generationQueueConsumer } from './services/generationQueueConsumer';
-import { thumbnailQueueConsumer } from './services/thumbnailQueueConsumer';
+import { jobStatusConsumer } from './services/jobStatusConsumer';
 import { jobReconciliationService } from './services/runpod';
 import { startReconciliationJob } from './jobs/reconcileGenerations';
 import { startCleanupJob } from './jobs/cleanupSoftDeleted';
@@ -14,11 +12,9 @@ const server = app.listen(env.PORT, '0.0.0.0', async () => {
   logger.info(`Server running on port ${env.PORT} in ${env.NODE_ENV} mode`);
 
   try {
-    await generationListener.start();
-    await generationQueueConsumer.start();
-    await thumbnailQueueConsumer.start();
-    await jobReconciliationService.start(); // RunPod job reconciliation (5s polling)
-    startReconciliationJob(); // Redis job reconciliation (2min polling, for local mode)
+    await jobStatusConsumer.start();
+    await jobReconciliationService.start();
+    startReconciliationJob();
     startCleanupJob();
   } catch (error) {
     logger.error({ error }, 'Failed to start generation services');
@@ -27,9 +23,7 @@ const server = app.listen(env.PORT, '0.0.0.0', async () => {
 
 process.on('SIGTERM', async () => {
   logger.info('SIGTERM received, shutting down gracefully');
-  await generationListener.stop();
-  await generationQueueConsumer.stop();
-  await thumbnailQueueConsumer.stop();
+  await jobStatusConsumer.stop();
   await jobReconciliationService.stop();
   server.close(() => {
     logger.info('Server closed');
@@ -39,9 +33,7 @@ process.on('SIGTERM', async () => {
 
 process.on('SIGINT', async () => {
   logger.info('SIGINT received, shutting down gracefully');
-  await generationListener.stop();
-  await generationQueueConsumer.stop();
-  await thumbnailQueueConsumer.stop();
+  await jobStatusConsumer.stop();
   await jobReconciliationService.stop();
   server.close(() => {
     logger.info('Server closed');

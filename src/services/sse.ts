@@ -15,7 +15,10 @@ class SSEService {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
     });
+
+    res.flushHeaders();
 
     this.clients.set(clientId, { id: clientId, documentId, res });
 
@@ -27,6 +30,18 @@ class SSEService {
       this.clients.delete(clientId);
       logger.info({ clientId, documentId }, 'SSE client disconnected');
     });
+
+    res.on('error', (error) => {
+      logger.error({ error, clientId, documentId }, 'SSE client error');
+      this.clients.delete(clientId);
+    });
+
+    if (res.socket) {
+      res.socket.on('error', (error) => {
+        logger.error({ error, clientId, documentId }, 'SSE socket error');
+        this.clients.delete(clientId);
+      });
+    }
   }
 
   broadcastToDocument(documentId: string, event: string, data: any) {

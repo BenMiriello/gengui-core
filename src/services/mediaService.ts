@@ -4,6 +4,7 @@ import { media, documents, documentMedia } from '../models/schema';
 import { eq, and, desc, getTableColumns } from 'drizzle-orm';
 import { notDeleted } from '../utils/db';
 import { storageProvider } from './storage';
+import { redisStreams } from './redis-streams';
 import { NotFoundError } from '../utils/errors';
 import { logger } from '../utils/logger';
 import { imageProcessor } from './imageProcessor';
@@ -87,7 +88,7 @@ export class MediaService {
     const url = await storageProvider.getSignedUrl(result.storageKey);
 
     if (file.mimetype.startsWith('image/')) {
-      await redis.lpush('thumbnail:queue', result.id);
+      await redisStreams.add('thumbnail:stream', { mediaId: result.id });
       logger.info({ mediaId: result.id }, 'Queued thumbnail generation');
     }
 

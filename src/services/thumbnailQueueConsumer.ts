@@ -1,21 +1,9 @@
-import Redis from 'ioredis';
 import { logger } from '../utils/logger';
 import { thumbnailProcessor } from './thumbnailProcessor';
+import { redisStreams } from './redis-streams';
 
 class ThumbnailQueueConsumer {
   private isRunning = false;
-  private redisClient: Redis;
-
-  constructor() {
-    // Dedicated Redis client for queue operations - brpop() blocks the connection
-    this.redisClient = new Redis(process.env.REDIS_URL || 'redis://127.0.0.1:6379', {
-      maxRetriesPerRequest: 3,
-      enableReadyCheck: true,
-    });
-    this.redisClient.on('error', (error) => {
-      logger.error({ error }, 'Thumbnail queue consumer Redis error');
-    });
-  }
 
   async start() {
     if (this.isRunning) {
@@ -32,26 +20,33 @@ class ThumbnailQueueConsumer {
   }
 
   private async consume() {
+    const streamName = 'thumbnail:stream';
+    const groupName = 'thumbnail-processors';
+    const consumerName = `thumbnail-processor-${process.pid}`;
+
     while (this.isRunning) {
       try {
-        const result = await this.redisClient.brpop('thumbnail:queue', 1);
+        const result = await redisStreams.consume(streamName, groupName, consumerName, {
+          block: 10000
+        });
 
-        if (!result) {
-          continue;
-        }
+        if (!result) continue;
 
-        const mediaId = result[1];
+        const { id, data } = result;
+        const { mediaId } = data;
 
         if (!mediaId) {
-          logger.error({ message: result[1] }, 'Thumbnail queue message invalid');
+          logger.error({ data }, 'Thumbnail stream message missing mediaId');
+          await redisStreams.ack(streamName, groupName, id);
           continue;
         }
 
         logger.info({ mediaId }, 'Processing thumbnail generation');
         await thumbnailProcessor.processThumbnail(mediaId);
+        await redisStreams.ack(streamName, groupName, id);
 
       } catch (error) {
-        logger.error({ error }, 'Error processing thumbnail queue');
+        logger.error({ error }, 'Error processing thumbnail stream');
         await new Promise(resolve => setTimeout(resolve, 1000));
       }
     }
@@ -64,7 +59,6 @@ class ThumbnailQueueConsumer {
 
     logger.info('Stopping thumbnail queue consumer...');
     this.isRunning = false;
-    await this.redisClient.quit();
     logger.info('Thumbnail queue consumer stopped');
   }
 }

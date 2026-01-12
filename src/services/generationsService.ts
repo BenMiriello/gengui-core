@@ -3,6 +3,7 @@ import { media, documentMedia, documents } from '../models/schema';
 import { eq, and } from 'drizzle-orm';
 import { notDeleted } from '../utils/db';
 import { redis } from './redis';
+import { redisStreams } from './redis-streams';
 import { runpodClient, RUNPOD_CONSTANTS } from './runpod';
 import { NotFoundError } from '../utils/errors';
 import { logger } from '../utils/logger';
@@ -123,8 +124,8 @@ export class GenerationsService {
           'Generation submitted to RunPod'
         );
       } else {
-        // Local/Redis mode: Queue in Redis for worker polling
-        await redis.addJob(newMedia.id, {
+        // Local/Redis mode: Queue in Redis stream for worker polling
+        await redisStreams.add('generation:stream', {
           userId,
           mediaId: newMedia.id,
           prompt: request.prompt,
@@ -134,7 +135,7 @@ export class GenerationsService {
           status: 'queued',
         });
 
-        logger.info({ mediaId: newMedia.id, prompt: request.prompt }, 'Generation queued in Redis');
+        logger.info({ mediaId: newMedia.id, prompt: request.prompt }, 'Generation queued in Redis stream');
       }
 
       // Track generation for rate limiting

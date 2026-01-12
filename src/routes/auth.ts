@@ -32,7 +32,7 @@ router.post('/auth/signup', signupRateLimiter, async (req: Request, res: Respons
     res.cookie('sessionToken', session.token, {
       httpOnly: true,
       secure: env.NODE_ENV === 'production',
-      sameSite: 'strict',
+      sameSite: env.NODE_ENV === 'production' ? 'strict' : 'lax',
       maxAge: ONE_WEEK_MS,
     });
 
@@ -61,7 +61,7 @@ router.post('/auth/login', authRateLimiter, async (req: Request, res: Response, 
     res.cookie('sessionToken', session.token, {
       httpOnly: true,
       secure: env.NODE_ENV === 'production',
-      sameSite: 'strict',
+      sameSite: env.NODE_ENV === 'production' ? 'strict' : 'lax',
       maxAge: ONE_WEEK_MS,
     });
 

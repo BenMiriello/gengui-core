@@ -8,9 +8,12 @@ let redisClient: Redis | undefined;
 
 if (redisUrl) {
   redisClient = new Redis(redisUrl, {
-    maxRetriesPerRequest: 3,
+    maxRetriesPerRequest: 0,
+    commandTimeout: 15000,
+    connectTimeout: 10000,
     enableReadyCheck: true,
     lazyConnect: false,
+    enableOfflineQueue: true,
   });
 
   redisClient.on('connect', () => {

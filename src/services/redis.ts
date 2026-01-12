@@ -12,15 +12,21 @@ class RedisService {
     }
 
     this.client = new Redis(redisUrl, {
-      maxRetriesPerRequest: 3,
+      maxRetriesPerRequest: 0,
+      commandTimeout: 15000,
+      connectTimeout: 10000,
       enableReadyCheck: true,
       lazyConnect: false,
+      enableOfflineQueue: true,
     });
 
     this.subscriber = new Redis(redisUrl, {
-      maxRetriesPerRequest: 3,
+      maxRetriesPerRequest: 0,
+      commandTimeout: 15000,
+      connectTimeout: 10000,
       enableReadyCheck: true,
       lazyConnect: false,
+      enableOfflineQueue: true,
     });
 
     this.client.on('connect', () => {
@@ -153,6 +159,10 @@ class RedisService {
     // Check actual Redis client status instead of just the flag
     // 'ready' means connected and ready to accept commands
     return this.client.status === 'ready' || this.client.status === 'connect';
+  }
+
+  getClient(): Redis {
+    return this.client;
   }
 }
 

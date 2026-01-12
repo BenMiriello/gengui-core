@@ -10,8 +10,10 @@ class PresenceService {
     const now = Date.now();
     const key = `doc:${documentId}:editors`;
 
-    await this.cleanupStaleEditors(documentId);
-    await redis.zadd(key, now, sessionId);
+    await Promise.all([
+      this.cleanupStaleEditors(documentId),
+      redis.zadd(key, now, sessionId),
+    ]);
 
     logger.debug({ documentId, sessionId }, 'Heartbeat recorded');
   }
@@ -28,7 +30,6 @@ class PresenceService {
   }
 
   async getActiveEditorCount(documentId: string): Promise<number> {
-    await this.cleanupStaleEditors(documentId);
     const key = `doc:${documentId}:editors`;
     return redis.zcard(key);
   }

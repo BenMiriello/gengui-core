@@ -2,6 +2,7 @@ import { db } from '../config/database';
 import { documentMedia } from '../models/schema';
 import { eq } from 'drizzle-orm';
 import { redis } from './redis';
+import { redisStreams } from './redis-streams';
 import { logger } from '../utils/logger';
 import { sseService } from './sse';
 
@@ -63,7 +64,7 @@ class GenerationListener {
 
   private async handleComplete(mediaId: string, data: { s3Key: string }) {
     try {
-      await redis.lpush('thumbnail:queue', mediaId);
+      await redisStreams.add('thumbnail:stream', { mediaId });
       await this.broadcastMediaUpdate(mediaId);
       logger.debug({ mediaId }, 'Broadcasted completion notification via SSE and queued thumbnail generation');
     } catch (error) {

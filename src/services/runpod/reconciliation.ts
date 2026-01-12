@@ -2,6 +2,7 @@ import { db } from '../../config/database';
 import { media, documentMedia } from '../../models/schema';
 import { eq, and, or, lt, isNull } from 'drizzle-orm';
 import { redis } from '../redis';
+import { redisStreams } from '../redis-streams';
 import { runpodClient } from './client';
 import type { RunPodJobStatusResponse } from './types';
 import { logger } from '../../utils/logger';
@@ -237,12 +238,13 @@ class JobReconciliationService {
       })
       .where(eq(media.id, mediaId));
 
-    // Also push to Redis completed queue for live clients
+    // Also push to Redis completed stream for live clients
     // (in case consumer is still waiting on it)
-    await redis.lpush(
-      'generation:completed',
-      JSON.stringify({ mediaId, s3Key })
-    );
+    await redisStreams.add('generation:completed:stream', {
+      mediaId,
+      s3Key,
+      timestamp: new Date().toISOString()
+    });
 
     await this.broadcastMediaUpdate(mediaId);
   }
@@ -371,11 +373,12 @@ class JobReconciliationService {
       })
       .where(eq(media.id, mediaId));
 
-    // Push to failed queue for consumer (idempotent)
-    await redis.lpush(
-      'generation:failed',
-      JSON.stringify({ mediaId, error: reason })
-    );
+    // Push to failed stream for consumer (idempotent)
+    await redisStreams.add('generation:failed:stream', {
+      mediaId,
+      error: reason,
+      timestamp: new Date().toISOString()
+    });
 
     await this.broadcastMediaUpdate(mediaId);
   }

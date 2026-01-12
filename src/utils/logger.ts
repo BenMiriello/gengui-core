@@ -14,6 +14,9 @@ export const logger = pino({
           },
         }
       : undefined,
+  serializers: {
+    error: pino.stdSerializers.err,
+  },
   redact: {
     paths: ['password', 'token', 'authorization', 'accessKey', 'secretKey'],
     remove: true,
