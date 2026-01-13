@@ -87,7 +87,7 @@ export async function analyzeText(content: string): Promise<AnalysisResult> {
     model: 'gemini-3-flash-preview',
     generationConfig: {
       responseMimeType: 'application/json',
-      responseSchema,
+      responseSchema: responseSchema as any,
     },
   });
 
