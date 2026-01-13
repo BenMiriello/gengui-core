@@ -253,4 +253,24 @@ router.get('/documents/:id/story-nodes', requireAuth, async (req: Request, res: 
   }
 });
 
+router.delete('/documents/:id/story-nodes', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = (req as any).user.id;
+    const { id } = req.params;
+
+    // Verify user owns document
+    await documentsService.get(id, userId);
+
+    // Delete all story nodes for this document
+    // Connections will cascade delete via foreign key constraint
+    await db
+      .delete(storyNodes)
+      .where(and(eq(storyNodes.documentId, id), eq(storyNodes.userId, userId)));
+
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
 export default router;
