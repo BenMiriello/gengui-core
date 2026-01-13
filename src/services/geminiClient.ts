@@ -119,21 +119,18 @@ ${content}`;
     console.log('========================');
 
     if (!result?.response) {
-      const msg = 'Gemini API returned invalid result - no response';
-      console.error(msg, { result });
-      throw new Error(msg);
+      throw new Error('Gemini API returned invalid result. Please try again.');
     }
 
     const response = result.response;
 
     // Check if the response was blocked or has no candidates
     if (!response.candidates || response.candidates.length === 0) {
-      const msg = 'Gemini API returned no candidates';
-      console.error(msg, {
-        promptFeedback: response.promptFeedback,
-        candidates: response.candidates
-      });
-      throw new Error(msg);
+      const blockReason = response.promptFeedback?.blockReason;
+      if (blockReason) {
+        throw new Error(`Content was blocked by Gemini API: ${blockReason}`);
+      }
+      throw new Error('Gemini API returned no results. The content may have been filtered.');
     }
 
     const text = response.text();
@@ -154,6 +151,28 @@ ${content}`;
     console.error('Error stack:', error?.stack);
     console.error('========================');
 
-    throw new Error(`Gemini API error: ${error?.message || error?.toString() || 'Unknown error'}`);
+    // Handle specific error types
+    if (error?.message?.includes('quota')) {
+      throw new Error('API quota exceeded. Please try again later.');
+    }
+
+    if (error?.message?.includes('rate limit')) {
+      throw new Error('Rate limit exceeded. Please wait a moment and try again.');
+    }
+
+    if (error?.message?.includes('404')) {
+      throw new Error('Gemini model not available. Please contact support.');
+    }
+
+    if (error?.message?.includes('JSON')) {
+      throw new Error('Failed to parse analysis results. Please try again.');
+    }
+
+    // Re-throw if it's already a formatted error
+    if (error?.message?.includes('Gemini API') || error?.message?.includes('blocked')) {
+      throw error;
+    }
+
+    throw new Error(`Analysis failed: ${error?.message || 'Unknown error'}. Please try again.`);
   }
 }

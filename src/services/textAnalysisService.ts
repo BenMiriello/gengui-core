@@ -99,6 +99,41 @@ class TextAnalysisService {
         return;
       }
 
+      // Validate document content
+      const trimmedContent = document.content.trim();
+      if (!trimmedContent) {
+        logger.error({ documentId }, 'Document is empty');
+        sseService.broadcastToDocument(documentId, 'analysis-failed', {
+          documentId,
+          error: 'Document is empty. Please add some text before analyzing.',
+          timestamp: new Date().toISOString(),
+        });
+        await redisStreams.ack(streamName, groupName, message.id);
+        return;
+      }
+
+      if (trimmedContent.length < 50) {
+        logger.error({ documentId, length: trimmedContent.length }, 'Document too short');
+        sseService.broadcastToDocument(documentId, 'analysis-failed', {
+          documentId,
+          error: 'Document is too short. Please add at least 50 characters of text.',
+          timestamp: new Date().toISOString(),
+        });
+        await redisStreams.ack(streamName, groupName, message.id);
+        return;
+      }
+
+      if (trimmedContent.length > 50000) {
+        logger.error({ documentId, length: trimmedContent.length }, 'Document too long');
+        sseService.broadcastToDocument(documentId, 'analysis-failed', {
+          documentId,
+          error: 'Document is too long. The maximum length for analysis is 50,000 characters.',
+          timestamp: new Date().toISOString(),
+        });
+        await redisStreams.ack(streamName, groupName, message.id);
+        return;
+      }
+
       // Call Gemini API
       logger.info({ documentId, contentLength: document.content.length }, 'Calling Gemini API');
       const analysis = await analyzeText(document.content);
@@ -173,13 +208,14 @@ class TextAnalysisService {
       );
 
       await redisStreams.ack(streamName, groupName, message.id);
-    } catch (error) {
-      logger.error({ error, documentId }, 'Text analysis failed');
+    } catch (error: any) {
+      const errorMessage = error?.message || 'Analysis failed. Please try again.';
+      logger.error({ error, documentId, errorMessage }, 'Text analysis failed');
 
-      // Broadcast error to user
+      // Broadcast error to user with specific error message
       sseService.broadcastToDocument(documentId, 'analysis-failed', {
         documentId,
-        error: 'Analysis failed. Please try again.',
+        error: errorMessage,
         timestamp: new Date().toISOString(),
       });
 
