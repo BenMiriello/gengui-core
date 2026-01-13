@@ -1,5 +1,5 @@
 import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
-import logger from '../utils/logger';
+import { logger } from '../utils/logger';
 
 const apiKey = process.env.GEMINI_API_KEY;
 
@@ -99,6 +99,12 @@ Extract:
 3. **Events**: Significant actions or occurrences in the story
 4. **Other**: Any other important story elements (objects, concepts, etc.)
 
+Only create nodes for objects that contribute meaningfully to the story and/or exist separate from a place or character. If they can sufficiently be described as part of a location or in the character description, do not include them as separate nodes.
+
+Only create nodes for events that are significant to the overall narrative, involve multiple characters/locations, or have a lasting impact on the story.
+
+Only create nodes for locations if they are mentioned or described or are significant to the story.
+
 For each element:
 - Provide a concise name
 - Write a brief description (1-3 sentences)
@@ -119,7 +125,7 @@ ${content}`;
     console.log('========================');
 
     if (!result?.response) {
-      throw new Error('Gemini API returned invalid result. Please try again.');
+      throw new Error('Unable to analyze document. Please try again.');
     }
 
     const response = result.response;
@@ -128,13 +134,19 @@ ${content}`;
     if (!response.candidates || response.candidates.length === 0) {
       const blockReason = response.promptFeedback?.blockReason;
       if (blockReason) {
-        throw new Error(`Content was blocked by Gemini API: ${blockReason}`);
+        console.error('Content was blocked:', blockReason);
+        throw new Error('Unable to analyze document. The content may contain inappropriate material.');
       }
-      throw new Error('Gemini API returned no results. The content may have been filtered.');
+      throw new Error('Unable to analyze document. The content may have been filtered. Please try again.');
     }
 
     const text = response.text();
     console.log('Gemini response text length:', text.length);
+
+    if (!text || text.trim().length === 0) {
+      console.error('Gemini returned empty response');
+      throw new Error('Unable to analyze document. The content may be too short or unclear. Please try again.');
+    }
 
     const parsed = JSON.parse(text) as AnalysisResult;
 
@@ -161,15 +173,18 @@ ${content}`;
     }
 
     if (error?.message?.includes('404')) {
-      throw new Error('Gemini model not available. Please contact support.');
+      throw new Error('Analysis service not available. Please contact support.');
     }
 
     if (error?.message?.includes('JSON')) {
       throw new Error('Failed to parse analysis results. Please try again.');
     }
 
-    // Re-throw if it's already a formatted error
-    if (error?.message?.includes('Gemini API') || error?.message?.includes('blocked')) {
+    // Re-throw if it's already a formatted error message
+    if (error?.message?.includes('Unable to analyze') ||
+        error?.message?.includes('quota') ||
+        error?.message?.includes('rate limit') ||
+        error?.message?.includes('inappropriate material')) {
       throw error;
     }
 
