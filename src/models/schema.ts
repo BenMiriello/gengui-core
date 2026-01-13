@@ -18,6 +18,7 @@ export const modelTypeEnum = pgEnum('model_type', ['lora', 'checkpoint', 'other'
 export const mediaTypeEnum = pgEnum('media_type', ['upload', 'generation']);
 export const mediaStatusEnum = pgEnum('media_status', ['queued', 'processing', 'completed', 'failed']);
 export const userRoleEnum = pgEnum('user_role', ['user', 'admin']);
+export const storyNodeTypeEnum = pgEnum('story_node_type', ['character', 'location', 'event', 'other']);
 
 export const users = pgTable('users', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -246,6 +247,7 @@ export const usersRelations = relations(users, ({ many }) => ({
   emailVerificationTokens: many(emailVerificationTokens),
   documents: many(documents),
   userStylePrompts: many(userStylePrompts),
+  storyNodes: many(storyNodes),
 }));
 
 export const sessionsRelations = relations(sessions, ({ one }) => ({
@@ -323,6 +325,7 @@ export const documentsRelations = relations(documents, ({ one, many }) => ({
     references: [users.id],
   }),
   documentMedia: many(documentMedia),
+  storyNodes: many(storyNodes),
 }));
 
 export const userStylePrompts = pgTable('user_style_prompts', {
@@ -342,6 +345,42 @@ export const userStylePrompts = pgTable('user_style_prompts', {
     .where(sql`deleted_at IS NULL`),
 }));
 
+export const storyNodes = pgTable('story_nodes', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  documentId: uuid('document_id')
+    .notNull()
+    .references(() => documents.id, { onDelete: 'cascade' }),
+  type: storyNodeTypeEnum('type').notNull(),
+  name: varchar('name', { length: 200 }).notNull(),
+  description: text('description'),
+  passages: jsonb('passages'),
+  metadata: jsonb('metadata'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => ({
+  userIdIdx: index('story_nodes_user_id_idx').on(table.userId),
+  documentIdIdx: index('story_nodes_document_id_idx').on(table.documentId),
+}));
+
+export const storyNodeConnections = pgTable('story_node_connections', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  fromNodeId: uuid('from_node_id')
+    .notNull()
+    .references(() => storyNodes.id, { onDelete: 'cascade' }),
+  toNodeId: uuid('to_node_id')
+    .notNull()
+    .references(() => storyNodes.id, { onDelete: 'cascade' }),
+  description: text('description'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => ({
+  fromNodeIdIdx: index('story_node_connections_from_node_id_idx').on(table.fromNodeId),
+  toNodeIdIdx: index('story_node_connections_to_node_id_idx').on(table.toNodeId),
+}));
+
 export const documentMediaRelations = relations(documentMedia, ({ one }) => ({
   document: one(documents, {
     fields: [documentMedia.documentId],
@@ -357,5 +396,31 @@ export const userStylePromptsRelations = relations(userStylePrompts, ({ one }) =
   user: one(users, {
     fields: [userStylePrompts.userId],
     references: [users.id],
+  }),
+}));
+
+export const storyNodesRelations = relations(storyNodes, ({ one, many }) => ({
+  user: one(users, {
+    fields: [storyNodes.userId],
+    references: [users.id],
+  }),
+  document: one(documents, {
+    fields: [storyNodes.documentId],
+    references: [documents.id],
+  }),
+  connectionsFrom: many(storyNodeConnections, { relationName: 'fromNode' }),
+  connectionsTo: many(storyNodeConnections, { relationName: 'toNode' }),
+}));
+
+export const storyNodeConnectionsRelations = relations(storyNodeConnections, ({ one }) => ({
+  fromNode: one(storyNodes, {
+    fields: [storyNodeConnections.fromNodeId],
+    references: [storyNodes.id],
+    relationName: 'fromNode',
+  }),
+  toNode: one(storyNodes, {
+    fields: [storyNodeConnections.toNodeId],
+    references: [storyNodes.id],
+    relationName: 'toNode',
   }),
 }));

@@ -3,6 +3,7 @@ import { createApp } from './app';
 import { logger } from './utils/logger';
 import { jobStatusConsumer } from './services/jobStatusConsumer';
 import { jobReconciliationService } from './services/runpod';
+import { textAnalysisService } from './services/textAnalysisService';
 import { startReconciliationJob } from './jobs/reconcileGenerations';
 import { startCleanupJob } from './jobs/cleanupSoftDeleted';
 
@@ -14,6 +15,7 @@ const server = app.listen(env.PORT, '0.0.0.0', async () => {
   try {
     await jobStatusConsumer.start();
     await jobReconciliationService.start();
+    await textAnalysisService.start();
     startReconciliationJob();
     startCleanupJob();
   } catch (error) {
@@ -25,6 +27,7 @@ process.on('SIGTERM', async () => {
   logger.info('SIGTERM received, shutting down gracefully');
   await jobStatusConsumer.stop();
   await jobReconciliationService.stop();
+  textAnalysisService.stop();
   server.close(() => {
     logger.info('Server closed');
     process.exit(0);
@@ -35,6 +38,7 @@ process.on('SIGINT', async () => {
   logger.info('SIGINT received, shutting down gracefully');
   await jobStatusConsumer.stop();
   await jobReconciliationService.stop();
+  textAnalysisService.stop();
   server.close(() => {
     logger.info('Server closed');
     process.exit(0);

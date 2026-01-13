@@ -4,6 +4,10 @@ import { mediaService } from '../services/mediaService';
 import { sseService } from '../services/sse';
 import { presenceService } from '../services/presence';
 import { requireAuth } from '../middleware/auth';
+import { redisStreams } from '../services/redis-streams';
+import { db } from '../config/database';
+import { storyNodes, storyNodeConnections } from '../models/schema';
+import { eq, and, or, inArray } from 'drizzle-orm';
 
 const router = Router();
 
@@ -188,6 +192,62 @@ router.post('/documents/:id/takeover', requireAuth, async (req: Request, res: Re
         },
       });
     }
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/documents/:id/analyze', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = (req as any).user.id;
+    const { id } = req.params;
+    const reanalyze = req.query.reanalyze === 'true';
+
+    // Verify user owns document
+    await documentsService.get(id, userId);
+
+    // Queue analysis request
+    await redisStreams.add('text-analysis:stream', {
+      documentId: id,
+      userId,
+      reanalyze: reanalyze ? 'true' : 'false',
+    });
+
+    res.status(202).json({ message: 'Analysis queued' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/documents/:id/story-nodes', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = (req as any).user.id;
+    const { id } = req.params;
+
+    // Verify user owns document
+    await documentsService.get(id, userId);
+
+    // Fetch story nodes
+    const nodes = await db
+      .select()
+      .from(storyNodes)
+      .where(and(eq(storyNodes.documentId, id), eq(storyNodes.userId, userId)));
+
+    // Fetch connections for these nodes
+    const nodeIds = nodes.map(n => n.id);
+    const connections = nodeIds.length > 0
+      ? await db
+          .select()
+          .from(storyNodeConnections)
+          .where(
+            or(
+              inArray(storyNodeConnections.fromNodeId, nodeIds),
+              inArray(storyNodeConnections.toNodeId, nodeIds)
+            )
+          )
+      : [];
+
+    res.json({ nodes, connections });
   } catch (error) {
     next(error);
   }

@@ -24,21 +24,23 @@ class SSEService {
 
     res.write(`data: ${JSON.stringify({ type: 'connected' })}\n\n`);
 
-    logger.info({ clientId, documentId }, 'SSE client connected');
+    console.log(`SSE client connected: ${clientId} for document ${documentId}`);
+    console.log(`Total SSE clients: ${this.clients.size}`);
 
     res.on('close', () => {
       this.clients.delete(clientId);
-      logger.info({ clientId, documentId }, 'SSE client disconnected');
+      console.log(`SSE client disconnected: ${clientId}`);
+      console.log(`Total SSE clients: ${this.clients.size}`);
     });
 
     res.on('error', (error) => {
-      logger.error({ error, clientId, documentId }, 'SSE client error');
+      console.error(`SSE client error for ${clientId}:`, error);
       this.clients.delete(clientId);
     });
 
     if (res.socket) {
       res.socket.on('error', (error) => {
-        logger.error({ error, clientId, documentId }, 'SSE socket error');
+        console.error(`SSE socket error for ${clientId}:`, error);
         this.clients.delete(clientId);
       });
     }
@@ -47,16 +49,28 @@ class SSEService {
   broadcastToDocument(documentId: string, event: string, data: any) {
     const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 
+    const documentClients = Array.from(this.clients.values()).filter(
+      c => c.documentId === documentId
+    );
+
+    console.log(`Broadcasting ${event} to document ${documentId}`);
+    console.log(`Total clients: ${this.clients.size}, Document clients: ${documentClients.length}`);
+
+    let successCount = 0;
     for (const [clientId, client] of this.clients) {
       if (client.documentId === documentId) {
         try {
           client.res.write(message);
+          successCount++;
+          console.log(`Sent ${event} to client ${clientId}`);
         } catch (error) {
           logger.error({ error, clientId }, 'Failed to send SSE message');
           this.clients.delete(clientId);
         }
       }
     }
+
+    console.log(`Successfully sent ${event} to ${successCount} clients`);
   }
 
   broadcast(event: string, data: any) {
