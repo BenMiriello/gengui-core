@@ -173,8 +173,13 @@ class JobStatusConsumer {
     }
 
     logger.info({ mediaId }, 'Processing thumbnail generation');
-    await thumbnailProcessor.processThumbnail(mediaId);
-    await redisStreams.ack(streamName, groupName, message.id);
+    try {
+      await thumbnailProcessor.processThumbnail(mediaId);
+      await redisStreams.ack(streamName, groupName, message.id);
+      logger.info({ mediaId }, 'Thumbnail completed and ACKed');
+    } catch (error) {
+      logger.error({ error, mediaId }, 'Thumbnail failed, will retry');
+    }
   }
 
   private async broadcastMediaUpdate(mediaId: string) {

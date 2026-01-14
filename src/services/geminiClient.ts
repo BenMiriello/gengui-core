@@ -105,6 +105,8 @@ Only create nodes for events that are significant to the overall narrative, invo
 
 Only create nodes for locations if they are mentioned or described or are significant to the story.
 
+Events should have connections to all characters and places that are directly involved.
+
 For each element:
 - Provide a concise name
 - Write a brief description (1-3 sentences)

@@ -4,7 +4,7 @@ import { db } from '../config/database';
 import { media } from '../models/schema';
 import { and, isNull } from 'drizzle-orm';
 import { notDeleted } from '../utils/db';
-import { redis } from '../services/redis';
+import { redisStreams } from '../services/redis-streams';
 import { logger } from '../utils/logger';
 
 async function backfillThumbnails() {
@@ -24,19 +24,17 @@ async function backfillThumbnails() {
     let queued = 0;
     for (const item of mediaItems) {
       if ((item.s3Key || item.storageKey) && (item.mimeType?.startsWith('image/') || item.mimeType === null)) {
-        await redis.lpush('thumbnail:queue', item.id);
+        await redisStreams.add('thumbnail:stream', { mediaId: item.id });
         queued++;
       }
     }
 
     logger.info({ total: mediaItems.length, queued }, 'Thumbnail backfill completed');
-    logger.info('Monitor progress with: redis-cli LLEN thumbnail:queue');
+    logger.info('Monitor progress with: redis-cli XLEN thumbnail:stream');
 
-    await redis.disconnect();
     process.exit(0);
   } catch (error) {
     logger.error({ error }, 'Failed to backfill thumbnails');
-    await redis.disconnect();
     process.exit(1);
   }
 }

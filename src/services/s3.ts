@@ -52,6 +52,12 @@ class S3Service {
     });
 
     const url = await getSignedUrl(this.client, command, { expiresIn });
+    logger.debug({
+      key,
+      bucket: this.bucket,
+      expiresIn,
+      urlPrefix: url.substring(0, 50)
+    }, 'Generated download URL');
     return url;
   }
 

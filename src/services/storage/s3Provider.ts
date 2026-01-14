@@ -9,11 +9,18 @@ export class S3StorageProvider implements StorageProvider {
   private bucket: string;
 
   constructor() {
+    const accessKeyId = process.env.AWS_ACCESS_KEY_ID || process.env.MINIO_ACCESS_KEY || 'minioadmin';
+    const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY || process.env.MINIO_SECRET_KEY || 'minioadmin';
+
+    if (!process.env.AWS_ACCESS_KEY_ID && !process.env.MINIO_ACCESS_KEY) {
+      logger.warn('S3 credentials not properly configured - using fallback minioadmin credentials');
+    }
+
     const config: any = {
       region: process.env.AWS_REGION || 'us-east-1',
       credentials: {
-        accessKeyId: process.env.AWS_ACCESS_KEY_ID || process.env.MINIO_ACCESS_KEY || 'minioadmin',
-        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || process.env.MINIO_SECRET_KEY || 'minioadmin',
+        accessKeyId,
+        secretAccessKey,
       },
     };
 
@@ -21,10 +28,12 @@ export class S3StorageProvider implements StorageProvider {
     if (endpoint) {
       config.endpoint = endpoint;
       config.forcePathStyle = true;
+      logger.info({ endpoint }, 'Using custom S3 endpoint');
     }
 
     this.client = new S3Client(config);
     this.bucket = process.env.S3_BUCKET || process.env.MINIO_BUCKET || 'media';
+    logger.debug({ bucket: this.bucket }, 'S3 storage provider initialized');
   }
 
   async upload(

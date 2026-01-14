@@ -42,8 +42,13 @@ class ThumbnailQueueConsumer {
         }
 
         logger.info({ mediaId }, 'Processing thumbnail generation');
-        await thumbnailProcessor.processThumbnail(mediaId);
-        await redisStreams.ack(streamName, groupName, id);
+        try {
+          await thumbnailProcessor.processThumbnail(mediaId);
+          await redisStreams.ack(streamName, groupName, id);
+          logger.info({ mediaId }, 'Thumbnail completed and ACKed');
+        } catch (error) {
+          logger.error({ error, mediaId }, 'Thumbnail failed, will retry');
+        }
 
       } catch (error) {
         logger.error({ error }, 'Error processing thumbnail stream');

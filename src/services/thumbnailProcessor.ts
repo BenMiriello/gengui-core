@@ -58,7 +58,7 @@ export class ThumbnailProcessor {
 
       const originalBuffer = await storageProvider.downloadToBuffer(storageKey);
 
-      const thumbnailBuffer = await imageProcessor.createThumbnail(originalBuffer, 128);
+      const thumbnailBuffer = await imageProcessor.createThumbnail(originalBuffer, 256);
 
       const ext = path.extname(storageKey);
       const thumbKey = `users/${mediaItem.userId}/media/thumbs/${mediaItem.id}${ext}`;
@@ -82,6 +82,7 @@ export class ThumbnailProcessor {
 
     } catch (error) {
       logger.error({ error, mediaId }, 'Failed to process thumbnail');
+      throw error;
     }
   }
 }

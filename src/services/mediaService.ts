@@ -70,7 +70,10 @@ export class MediaService {
 
         const [updated] = await tx
           .update(media)
-          .set({ storageKey })
+          .set({
+            storageKey,
+            s3Key: storageKey,
+          })
           .where(eq(media.id, newMedia.id))
           .returning();
 
