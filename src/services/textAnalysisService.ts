@@ -150,8 +150,21 @@ class TextAnalysisService {
       const createdNodes: Array<{ id: string; name: string }> = [];
 
       for (const nodeData of analysis.nodes) {
-        // Find text positions for passages
-        const passages = this.findTextPositions(document.content, nodeData.passages.map(p => p.text));
+        // Try to find text positions for passages (logs warnings if not found)
+        // Temporarily store all passages even if they don't match, for demo purposes
+        const passages = nodeData.passages.map(p => {
+          const index = document.content.indexOf(p.text);
+          if (index !== -1) {
+            return {
+              start: index,
+              end: index + p.text.length,
+              text: p.text,
+            };
+          } else {
+            logger.warn({ passageText: p.text }, 'Passage text not found in document');
+            return { text: p.text };
+          }
+        });
 
         const [node] = await db
           .insert(storyNodes)

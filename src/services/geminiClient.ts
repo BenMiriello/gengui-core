@@ -90,29 +90,33 @@ export async function analyzeText(content: string): Promise<AnalysisResult> {
       responseSchema: responseSchema as any,
     },
   });
+  const prompt = `Analyze the following narrative text and extract story elements.
 
-  const prompt = `Analyze the following narrative text and extract story elements:
+CRITICAL RULES - FOLLOW EXACTLY:
 
-Extract:
-1. **Characters**: People or sentient beings in the story
-2. **Locations**: Places where events occur
-3. **Events**: Significant actions or occurrences in the story
-4. **Other**: Any other important story elements (objects, concepts, etc.)
+1. **Character descriptions**: MUST focus on physical appearance, personality traits, role, and motivations. DO NOT include plot events or actions they take. Keep relationships separate.
 
-Only create nodes for objects that contribute meaningfully to the story and/or exist separate from a place or character. If they can sufficiently be described as part of a location or in the character description, do not include them as separate nodes.
+2. **Location descriptions**: MUST describe physical features, atmosphere, and appearance. DO NOT describe events that happen there.
 
-Only create nodes for events that are significant to the overall narrative, involve multiple characters/locations, or have a lasting impact on the story.
+3. **Connections**: Every node MUST have at least one connection. No isolated nodes. No isolated node groups (all nodes must connect into a single graph).
 
-Only create nodes for locations if they are mentioned or described or are significant to the story.
+Extract these element types:
+- **Characters**: People or sentient beings. Describe their physical appearance first including specific details, then personality, role, and motivations (but not plot events or actions they take).
+- **Locations**: Places where events occur. Describe their appearance, key features, atmosphere, significance.
+- **Events**: Significant plot actions. Only create for major narrative moments that involve multiple characters/locations or have lasting story impact.
+- **Other**: Important story elements (objects, concepts) that exist independently and contribute meaningfully to the narrative.
 
-Events should have connections to all characters and places that are directly involved.
+Only create nodes for:
+- Events that are truly significant to the overall narrative
+- Locations that are actually described or mentioned in the text
+- Objects that cannot be sufficiently described as part of a character or location
 
-For each element:
-- Provide a concise name
-- Write a brief description (1-3 sentences)
-- Include text passages where this element appears (30-100 characters each, with enough context to find them uniquely in the document)
+For each element provide:
+- Concise name
+- Brief description (1-4 sentences following the rules above)
+- Passages: 1-3 Short keywords or phrases (short but exact verbatim quotes of 3 to 15 words) from the text. These must be passages that define the element the most, or are most significant for its character or meaning or role. Must not simply repeat the name or description, though it can optionally augment or support the description. Must be somewhat specific and not so generic that they would match to irrelevant passages.
 
-Also identify connections/relationships between elements with brief descriptions.
+Identify connections/relationships between elements with brief descriptions.
 
 Text to analyze:
 ${content}`;
