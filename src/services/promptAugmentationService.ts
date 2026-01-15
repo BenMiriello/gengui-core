@@ -3,8 +3,9 @@ import { documents, storyNodes, storyNodeConnections, media } from '../models/sc
 import { eq, and, inArray } from 'drizzle-orm';
 import { logger } from '../utils/logger';
 import { sseService } from './sse';
-import { redisStreams, StreamMessage } from './redis-streams';
+import { StreamMessage, redisStreams as sharedRedisStreams } from './redis-streams';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { BlockingConsumer } from '../lib/blocking-consumer';
 
 const apiKey = process.env.GEMINI_API_KEY;
 
@@ -38,36 +39,21 @@ interface AugmentationJobData {
   height: string;
 }
 
-class PromptAugmentationService {
-  private isRunning = false;
-
-  async start() {
-    if (this.isRunning) {
-      logger.warn('Prompt augmentation service already running');
-      return;
-    }
-
-    this.isRunning = true;
-    logger.info('Starting prompt augmentation service...');
-
-    await redisStreams.ensureGroupOnce('prompt-augmentation:stream', 'prompt-augmentation-processors');
-
-    this.consumeMessages();
-
-    logger.info('Prompt augmentation service started successfully');
+class PromptAugmentationService extends BlockingConsumer {
+  constructor() {
+    super('prompt-augmentation-service');
   }
 
-  stop() {
-    this.isRunning = false;
-    logger.info('Stopping prompt augmentation service...');
+  protected async onStart() {
+    await this.streams.ensureGroupOnce('prompt-augmentation:stream', 'prompt-augmentation-processors');
   }
 
-  private async consumeMessages() {
+  protected async consumeLoop() {
     const consumerName = `prompt-augmentation-processor-${process.pid}`;
 
     while (this.isRunning) {
       try {
-        const result = await redisStreams.consume(
+        const result = await this.streams.consume(
           'prompt-augmentation:stream',
           'prompt-augmentation-processors',
           consumerName,
@@ -86,7 +72,7 @@ class PromptAugmentationService {
             );
           } catch (error) {
             logger.error({ error, messageId: result.id }, 'Error processing augmentation request');
-            await redisStreams.ack('prompt-augmentation:stream', 'prompt-augmentation-processors', result.id);
+            await this.streams.ack('prompt-augmentation:stream', 'prompt-augmentation-processors', result.id);
           }
         }
       } catch (error) {
@@ -106,7 +92,7 @@ class PromptAugmentationService {
 
     if (!mediaId || !userId || !documentId) {
       logger.error({ data: message.data }, 'Augmentation request missing required fields');
-      await redisStreams.ack(streamName, groupName, message.id);
+      await this.streams.ack(streamName, groupName, message.id);
       return;
     }
 
@@ -123,7 +109,7 @@ class PromptAugmentationService {
       if (!document) {
         logger.error({ documentId, userId }, 'Document not found');
         await this.failAugmentation(mediaId, documentId, 'Document not found');
-        await redisStreams.ack(streamName, groupName, message.id);
+        await this.streams.ack(streamName, groupName, message.id);
         return;
       }
 
@@ -162,8 +148,8 @@ class PromptAugmentationService {
         })
         .where(eq(media.id, mediaId));
 
-      // Queue generation job
-      await redisStreams.add('generation:stream', {
+      // Queue generation job (use shared client for producer operations)
+      await sharedRedisStreams.add('generation:stream', {
         userId,
         mediaId,
         prompt: finalPrompt,
@@ -175,13 +161,13 @@ class PromptAugmentationService {
 
       logger.info({ mediaId }, 'Generation queued after successful augmentation');
 
-      await redisStreams.ack(streamName, groupName, message.id);
+      await this.streams.ack(streamName, groupName, message.id);
     } catch (error: any) {
       const errorMessage = error?.message || 'Augmentation failed. Please try again.';
       logger.error({ error, mediaId, documentId, errorMessage }, 'Prompt augmentation failed');
 
       await this.failAugmentation(mediaId, documentId, errorMessage);
-      await redisStreams.ack(streamName, groupName, message.id);
+      await this.streams.ack(streamName, groupName, message.id);
     }
   }
 

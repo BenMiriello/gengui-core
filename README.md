@@ -137,6 +137,87 @@ When core starts, it launches these workers in a single Node process:
 - **Job Reconciliation Service** - Every 5s, polls RunPod API for stuck jobs (backup path, RunPod mode only)
 - **Redis Reconciliation Job** - Every 2 mins, recovers stuck Redis-based generations (local mode only)
 
+## Redis Architecture
+
+**Critical Rule:** Blocking operations (XREADGROUP with BLOCK, Pub/Sub subscribe) MUST use dedicated Redis clients, never the shared client. Blocking the shared client causes 6-8 second delays across the entire application.
+
+### Type-Safe Pattern
+
+The codebase enforces this rule at compile-time:
+
+- **ProducerStreams** - Shared client, NO `consume()` method (add, ack, metrics only)
+- **ConsumerStreams** - Dedicated client, HAS `consume()` method
+- **BlockingConsumer** - Base class that auto-creates dedicated client
+
+```typescript
+// ✅ Producers use shared client
+import { redisStreams } from './redis-streams';
+await redisStreams.add('my-stream', { data: 'value' });
+
+// ❌ This produces a TypeScript compile error
+await redisStreams.consume('my-stream', 'group', 'consumer');
+// Error: Property 'consume' does not exist on type 'ProducerStreams'
+
+// ✅ Consumers extend BlockingConsumer
+class MyConsumer extends BlockingConsumer {
+  constructor() {
+    super('my-consumer-name');
+  }
+
+  protected async onStart() {
+    await this.streams.ensureGroupOnce('my-stream', 'my-group');
+  }
+
+  protected async consumeLoop() {
+    while (this.isRunning) {
+      const msg = await this.streams.consume('my-stream', 'my-group', 'consumer', { block: 2000 });
+      if (msg) {
+        await this.handleMessage(msg);
+        await this.streams.ack('my-stream', 'my-group', msg.id);
+      }
+    }
+  }
+}
+```
+
+### Hybrid Pattern (Consume + Produce)
+
+When a consumer also produces messages, use BOTH clients:
+
+```typescript
+class MyHybridConsumer extends BlockingConsumer {
+  protected async consumeLoop() {
+    const msg = await this.streams.consume(...);  // Dedicated client
+
+    // Process message...
+
+    // Produce to another stream using shared client
+    await sharedRedisStreams.add('output-stream', { result: 'value' });
+
+    await this.streams.ack(...);  // Dedicated client
+  }
+}
+```
+
+### For Pub/Sub
+
+Use the dedicated subscriber client:
+
+```typescript
+import { redis } from './redis';
+
+const subscriber = redis.getSubscriber();  // Dedicated subscriber
+await subscriber.psubscribe('my-pattern:*');
+subscriber.on('pmessage', (pattern, channel, message) => {
+  // Handle message
+});
+```
+
+**Files:**
+- `src/lib/blocking-consumer.ts` - Base class for all consumers
+- `src/services/redis-streams.ts` - ProducerStreams / ConsumerStreams split
+- `src/services/redis.ts` - Shared client + dedicated subscriber
+
 ## Project Structure
 
 ```

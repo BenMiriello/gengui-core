@@ -5,11 +5,11 @@ import type Redis from 'ioredis';
 /**
  * Redis Streams utility for job queue operations
  *
- * Provides clean abstractions for:
- * - Adding messages to streams (XADD)
- * - Consuming messages with consumer groups (XREADGROUP)
- * - Acknowledging messages (XACK)
- * - Stream metrics and monitoring
+ * ProducerStreams: ONLY non-blocking operations on SHARED client (add, ack, metrics)
+ * ConsumerStreams: Extends ProducerStreams, adds blocking consume() for DEDICATED clients
+ *
+ * Type safety guarantee: redisStreams singleton is typed as ProducerStreams,
+ * so calling .consume() on it will produce a compile-time error.
  */
 
 export interface StreamMessage {
@@ -17,12 +17,20 @@ export interface StreamMessage {
   data: Record<string, string>;
 }
 
-export class RedisStreams {
-  private client: Redis;
-  private ensuredGroups: Set<string> = new Set();
+/**
+ * Producer-only streams using SHARED Redis client.
+ * ONLY non-blocking operations: add(), ack(), getPending(), getInfo()
+ *
+ * Use this for services that only produce messages to streams.
+ * The singleton `redisStreams` is typed as ProducerStreams to prevent
+ * accidental blocking operations on the shared client.
+ */
+export class ProducerStreams {
+  protected client: Redis;
+  protected ensuredGroups: Set<string> = new Set();
 
-  constructor() {
-    this.client = redis.getClient();
+  constructor(client: Redis) {
+    this.client = client;
   }
 
   /**
@@ -56,50 +64,14 @@ export class RedisStreams {
    * @returns Message ID
    */
   async add(streamName: string, data: Record<string, string>): Promise<string> {
+    const start = Date.now();
     const args = Object.entries(data).flat();
-    return await this.client.xadd(streamName, '*', ...args);
-  }
-
-  /**
-   * Consume messages from a stream using consumer groups
-   * Automatically creates the consumer group if it doesn't exist
-   */
-  async consume(
-    streamName: string,
-    groupName: string,
-    consumerName: string,
-    options: {
-      count?: number;
-      block?: number; // milliseconds
-    } = {}
-  ): Promise<StreamMessage | null> {
-    const { count = 1, block = 2000 } = options;
-
-    try {
-      const result = await this.client.xreadgroup(
-        'GROUP', groupName, consumerName,
-        'BLOCK', block,
-        'COUNT', count,
-        'STREAMS', streamName, '>'
-      );
-
-      if (!result || result.length === 0) {
-        return null;
-      }
-
-      const [[, entries]] = result;
-      if (entries.length === 0) {
-        return null;
-      }
-
-      const [id, fields] = entries[0];
-      const data = this.parseFields(fields);
-
-      return { id, data };
-    } catch (error) {
-      logger.error({ error, streamName, groupName, consumerName }, 'Failed to consume from stream');
-      throw error;
+    const result = await this.client.xadd(streamName, '*', ...args);
+    const elapsed = Date.now() - start;
+    if (elapsed > 100) {
+      logger.warn({ streamName, elapsed, dataSize: JSON.stringify(data).length, connectionStatus: this.client.status }, '[REDIS SLOW] xadd');
     }
+    return result;
   }
 
   /**
@@ -134,7 +106,7 @@ export class RedisStreams {
    * Parse stream entry fields from array format to object
    * Redis returns fields as [key1, value1, key2, value2, ...]
    */
-  private parseFields(fields: string[]): Record<string, string> {
+  protected parseFields(fields: string[]): Record<string, string> {
     const result: Record<string, string> = {};
     for (let i = 0; i < fields.length; i += 2) {
       result[fields[i]] = fields[i + 1];
@@ -190,4 +162,73 @@ export class RedisStreams {
   }
 }
 
-export const redisStreams = new RedisStreams();
+/**
+ * Consumer streams requiring DEDICATED Redis client.
+ * Inherits non-blocking operations from ProducerStreams, adds blocking consume()
+ *
+ * CRITICAL: This class MUST be used with a dedicated Redis client.
+ * Never use the shared client for consuming - it will block ALL Redis operations.
+ *
+ * Recommended: Extend BlockingConsumer instead of instantiating this directly.
+ */
+export class ConsumerStreams extends ProducerStreams {
+  constructor(dedicatedClient: Redis) {
+    super(dedicatedClient);
+  }
+
+  /**
+   * BLOCKING OPERATION - Consume messages from a stream using consumer groups
+   *
+   * CRITICAL: This uses XREADGROUP with BLOCK, which is a blocking operation.
+   * Must ONLY be called on a dedicated Redis client, never the shared client.
+   *
+   * The BlockingConsumer base class automatically provides a dedicated client.
+   */
+  async consume(
+    streamName: string,
+    groupName: string,
+    consumerName: string,
+    options: {
+      count?: number;
+      block?: number; // milliseconds
+    } = {}
+  ): Promise<StreamMessage | null> {
+    const { count = 1, block = 2000 } = options;
+
+    try {
+      const result = await this.client.xreadgroup(
+        'GROUP', groupName, consumerName,
+        'BLOCK', block,
+        'COUNT', count,
+        'STREAMS', streamName, '>'
+      );
+
+      if (!result || result.length === 0) {
+        return null;
+      }
+
+      const [[, entries]] = result;
+      if (entries.length === 0) {
+        return null;
+      }
+
+      const [id, fields] = entries[0];
+      const data = this.parseFields(fields);
+
+      return { id, data };
+    } catch (error) {
+      logger.error({ error, streamName, groupName, consumerName }, 'Failed to consume from stream');
+      throw error;
+    }
+  }
+}
+
+/**
+ * Singleton for producers - typed as ProducerStreams (no consume method)
+ *
+ * Attempting to call redisStreams.consume() will produce a TypeScript compile error:
+ * TS2339: Property 'consume' does not exist on type 'ProducerStreams'
+ *
+ * For consuming, extend BlockingConsumer which provides a dedicated client + ConsumerStreams.
+ */
+export const redisStreams: ProducerStreams = new ProducerStreams(redis.getClient());

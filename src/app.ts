@@ -46,7 +46,14 @@ export function createApp() {
   });
 
   app.use((req, _res, next) => {
-    logger.info({ method: req.method, path: req.path }, 'Request');
+    // Skip logging for high-frequency endpoints
+    const isHeartbeat = req.path.includes('/heartbeat');
+    const isMediaUrl = req.path.match(/\/api\/media\/[^/]+\/url$/);
+    const isHealthCheck = req.path === '/health';
+
+    if (!isHeartbeat && !isMediaUrl && !isHealthCheck) {
+      logger.info({ method: req.method, path: req.path }, 'Request');
+    }
     next();
   });
 

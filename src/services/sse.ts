@@ -53,8 +53,10 @@ class SSEService {
       c => c.documentId === documentId
     );
 
-    console.log(`Broadcasting ${event} to document ${documentId}`);
-    console.log(`Total clients: ${this.clients.size}, Document clients: ${documentClients.length}`);
+    // Only log when there are actual clients to broadcast to
+    if (documentClients.length > 0) {
+      logger.debug({ event, documentId, clientCount: documentClients.length }, 'Broadcasting SSE event');
+    }
 
     let successCount = 0;
     for (const [clientId, client] of this.clients) {
@@ -62,7 +64,6 @@ class SSEService {
         try {
           client.res.write(message);
           successCount++;
-          console.log(`Sent ${event} to client ${clientId}`);
         } catch (error) {
           logger.error({ error, clientId }, 'Failed to send SSE message');
           this.clients.delete(clientId);
@@ -70,7 +71,10 @@ class SSEService {
       }
     }
 
-    console.log(`Successfully sent ${event} to ${successCount} clients`);
+    // Only log successful broadcasts when clients exist
+    if (successCount > 0) {
+      logger.debug({ event, successCount }, 'SSE event sent');
+    }
   }
 
   broadcast(event: string, data: any) {

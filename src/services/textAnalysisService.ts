@@ -3,8 +3,9 @@ import { documents, storyNodes, storyNodeConnections } from '../models/schema';
 import { eq, and } from 'drizzle-orm';
 import { logger } from '../utils/logger';
 import { sseService } from './sse';
-import { redisStreams, StreamMessage } from './redis-streams';
+import { StreamMessage } from './redis-streams';
 import { analyzeText, StoryNodeResult } from './geminiClient';
+import { BlockingConsumer } from '../lib/blocking-consumer';
 
 interface TextPosition {
   start: number;
@@ -12,36 +13,21 @@ interface TextPosition {
   text: string;
 }
 
-class TextAnalysisService {
-  private isRunning = false;
-
-  async start() {
-    if (this.isRunning) {
-      logger.warn('Text analysis service already running');
-      return;
-    }
-
-    this.isRunning = true;
-    logger.info('Starting text analysis service...');
-
-    await redisStreams.ensureGroupOnce('text-analysis:stream', 'text-analysis-processors');
-
-    this.consumeMessages();
-
-    logger.info('Text analysis service started successfully');
+class TextAnalysisService extends BlockingConsumer {
+  constructor() {
+    super('text-analysis-service');
   }
 
-  stop() {
-    this.isRunning = false;
-    logger.info('Stopping text analysis service...');
+  protected async onStart() {
+    await this.streams.ensureGroupOnce('text-analysis:stream', 'text-analysis-processors');
   }
 
-  private async consumeMessages() {
+  protected async consumeLoop() {
     const consumerName = `text-analysis-processor-${process.pid}`;
 
     while (this.isRunning) {
       try {
-        const result = await redisStreams.consume(
+        const result = await this.streams.consume(
           'text-analysis:stream',
           'text-analysis-processors',
           consumerName,
@@ -60,7 +46,7 @@ class TextAnalysisService {
             );
           } catch (error) {
             logger.error({ error, messageId: result.id }, 'Error processing analysis request');
-            await redisStreams.ack('text-analysis:stream', 'text-analysis-processors', result.id);
+            await this.streams.ack('text-analysis:stream', 'text-analysis-processors', result.id);
           }
         }
       } catch (error) {
@@ -79,7 +65,7 @@ class TextAnalysisService {
 
     if (!documentId || !userId) {
       logger.error({ data: message.data }, 'Analysis request missing documentId or userId');
-      await redisStreams.ack(streamName, groupName, message.id);
+      await this.streams.ack(streamName, groupName, message.id);
       return;
     }
 
@@ -95,7 +81,7 @@ class TextAnalysisService {
 
       if (!document) {
         logger.error({ documentId, userId }, 'Document not found');
-        await redisStreams.ack(streamName, groupName, message.id);
+        await this.streams.ack(streamName, groupName, message.id);
         return;
       }
 
@@ -108,7 +94,7 @@ class TextAnalysisService {
           error: 'Document is empty. Please add some text before analyzing.',
           timestamp: new Date().toISOString(),
         });
-        await redisStreams.ack(streamName, groupName, message.id);
+        await this.streams.ack(streamName, groupName, message.id);
         return;
       }
 
@@ -119,7 +105,7 @@ class TextAnalysisService {
           error: 'Document is too short. Please add at least 50 characters of text.',
           timestamp: new Date().toISOString(),
         });
-        await redisStreams.ack(streamName, groupName, message.id);
+        await this.streams.ack(streamName, groupName, message.id);
         return;
       }
 
@@ -130,7 +116,7 @@ class TextAnalysisService {
           error: 'Document is too long. The maximum length for analysis is 50,000 characters.',
           timestamp: new Date().toISOString(),
         });
-        await redisStreams.ack(streamName, groupName, message.id);
+        await this.streams.ack(streamName, groupName, message.id);
         return;
       }
 
@@ -220,7 +206,7 @@ class TextAnalysisService {
         'Text analysis completed successfully'
       );
 
-      await redisStreams.ack(streamName, groupName, message.id);
+      await this.streams.ack(streamName, groupName, message.id);
     } catch (error: any) {
       const errorMessage = error?.message || 'Analysis failed. Please try again.';
       logger.error({ error, documentId, errorMessage }, 'Text analysis failed');
@@ -232,7 +218,7 @@ class TextAnalysisService {
         timestamp: new Date().toISOString(),
       });
 
-      await redisStreams.ack(streamName, groupName, message.id);
+      await this.streams.ack(streamName, groupName, message.id);
     }
   }
 

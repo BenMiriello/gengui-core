@@ -3,42 +3,32 @@ import { media, documentMedia } from '../models/schema';
 import { eq } from 'drizzle-orm';
 import { logger } from '../utils/logger';
 import { sseService } from './sse';
-import { redisStreams, StreamMessage } from './redis-streams';
+import { StreamMessage, redisStreams as sharedRedisStreams } from './redis-streams';
 import { thumbnailProcessor } from './thumbnailProcessor';
+import { BlockingConsumer } from '../lib/blocking-consumer';
 
-class JobStatusConsumer {
-  private isRunning = false;
-
-  async start() {
-    if (this.isRunning) {
-      logger.warn('Job status consumer already running');
-      return;
-    }
-
-    this.isRunning = true;
-    logger.info('Starting unified job status consumer...');
-
-    // Create consumer groups once at startup
-    await redisStreams.ensureGroupOnce('job:status:stream', 'core-status-processors');
-    await redisStreams.ensureGroupOnce('thumbnail:stream', 'thumbnail-processors');
-
-    this.consumeMessages();
-
-    logger.info('Job status consumer started successfully');
+class JobStatusConsumer extends BlockingConsumer {
+  constructor() {
+    super('job-status-consumer');
   }
 
-  private async consumeMessages() {
+  protected async onStart() {
+    await this.streams.ensureGroupOnce('job:status:stream', 'core-status-processors');
+    await this.streams.ensureGroupOnce('thumbnail:stream', 'thumbnail-processors');
+  }
+
+  protected async consumeLoop() {
     const consumerName = `status-processor-${process.pid}`;
 
     while (this.isRunning) {
       try {
         // Read from both streams in parallel (different consumer groups)
         const [statusResult, thumbnailResult] = await Promise.all([
-          redisStreams.consume('job:status:stream', 'core-status-processors', consumerName, {
+          this.streams.consume('job:status:stream', 'core-status-processors', consumerName, {
             block: 2000,
             count: 1,
           }),
-          redisStreams.consume('thumbnail:stream', 'thumbnail-processors', consumerName, {
+          this.streams.consume('thumbnail:stream', 'thumbnail-processors', consumerName, {
             block: 2000,
             count: 1,
           }),
@@ -51,7 +41,7 @@ class JobStatusConsumer {
           } catch (error) {
             logger.error({ error, messageId: statusResult.id }, 'Error processing status update');
             // Still ACK to avoid reprocessing bad messages
-            await redisStreams.ack('job:status:stream', 'core-status-processors', statusResult.id);
+            await this.streams.ack('job:status:stream', 'core-status-processors', statusResult.id);
           }
         }
 
@@ -62,7 +52,7 @@ class JobStatusConsumer {
           } catch (error) {
             logger.error({ error, messageId: thumbnailResult.id }, 'Error processing thumbnail');
             // Still ACK to avoid reprocessing bad messages
-            await redisStreams.ack('thumbnail:stream', 'thumbnail-processors', thumbnailResult.id);
+            await this.streams.ack('thumbnail:stream', 'thumbnail-processors', thumbnailResult.id);
           }
         }
       } catch (error) {
@@ -81,13 +71,13 @@ class JobStatusConsumer {
 
     if (!mediaId) {
       logger.error({ data: message.data }, 'Status update missing mediaId');
-      await redisStreams.ack(streamName, groupName, message.id);
+      await this.streams.ack(streamName, groupName, message.id);
       return;
     }
 
     if (!status) {
       logger.error({ data: message.data }, 'Status update missing status field');
-      await redisStreams.ack(streamName, groupName, message.id);
+      await this.streams.ack(streamName, groupName, message.id);
       return;
     }
 
@@ -104,7 +94,7 @@ class JobStatusConsumer {
     } else if (status === 'completed') {
       if (!s3Key) {
         logger.error({ mediaId }, 'Completed status missing s3Key');
-        await redisStreams.ack(streamName, groupName, message.id);
+        await this.streams.ack(streamName, groupName, message.id);
         return;
       }
 
@@ -117,7 +107,7 @@ class JobStatusConsumer {
 
       if (job?.cancelledAt) {
         logger.info({ mediaId }, 'Ignoring completed message for cancelled job');
-        await redisStreams.ack(streamName, groupName, message.id);
+        await this.streams.ack(streamName, groupName, message.id);
         return;
       }
 
@@ -128,8 +118,8 @@ class JobStatusConsumer {
 
       logger.info({ mediaId, s3Key }, 'Updated media status to completed');
 
-      // Queue thumbnail generation
-      await redisStreams.add('thumbnail:stream', { mediaId });
+      // Queue thumbnail generation (use shared client for producer operations)
+      await sharedRedisStreams.add('thumbnail:stream', { mediaId });
     } else if (status === 'failed') {
       // Check if job was cancelled
       const [job] = await db
@@ -140,7 +130,7 @@ class JobStatusConsumer {
 
       if (job?.cancelledAt) {
         logger.info({ mediaId }, 'Ignoring failed message for cancelled job');
-        await redisStreams.ack(streamName, groupName, message.id);
+        await this.streams.ack(streamName, groupName, message.id);
         return;
       }
 
@@ -156,7 +146,7 @@ class JobStatusConsumer {
     await this.broadcastMediaUpdate(mediaId);
 
     // ACK message
-    await redisStreams.ack(streamName, groupName, message.id);
+    await this.streams.ack(streamName, groupName, message.id);
   }
 
   private async handleThumbnail(
@@ -168,14 +158,14 @@ class JobStatusConsumer {
 
     if (!mediaId) {
       logger.error({ data: message.data }, 'Thumbnail message missing mediaId');
-      await redisStreams.ack(streamName, groupName, message.id);
+      await this.streams.ack(streamName, groupName, message.id);
       return;
     }
 
     logger.info({ mediaId }, 'Processing thumbnail generation');
     try {
       await thumbnailProcessor.processThumbnail(mediaId);
-      await redisStreams.ack(streamName, groupName, message.id);
+      await this.streams.ack(streamName, groupName, message.id);
       logger.info({ mediaId }, 'Thumbnail completed and ACKed');
     } catch (error) {
       logger.error({ error, mediaId }, 'Thumbnail failed, will retry');
@@ -198,16 +188,6 @@ class JobStatusConsumer {
     } catch (error) {
       logger.error({ error, mediaId }, 'Failed to broadcast media update');
     }
-  }
-
-  async stop() {
-    if (!this.isRunning) {
-      return;
-    }
-
-    logger.info('Stopping job status consumer...');
-    this.isRunning = false;
-    logger.info('Job status consumer stopped');
   }
 }
 

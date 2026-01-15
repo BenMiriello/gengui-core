@@ -36,6 +36,8 @@ export interface GenerationRequest {
 
 export class GenerationsService {
   async create(userId: string, request: GenerationRequest) {
+    const startTime = Date.now();
+
     const seed = request.seed ?? Math.floor(Math.random() * 1000000);
     const width = request.width ?? 1024;
     const height = request.height ?? 1024;
@@ -133,8 +135,6 @@ export class GenerationsService {
           height: height.toString(),
         });
 
-        logger.info({ mediaId: newMedia.id, documentId: request.documentId }, 'Augmentation queued in Redis stream');
-
         // Track augmentation for rate limiting
         const now = new Date();
         const todayUTC = new Date(
@@ -205,6 +205,7 @@ export class GenerationsService {
       throw error;
     }
 
+    logger.info({ userId, mediaId: newMedia.id, totalElapsed: Date.now() - startTime }, '[TIMING] generationsService.create COMPLETE');
     return newMedia;
   }
 

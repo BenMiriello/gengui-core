@@ -19,7 +19,11 @@ class GenerationListener {
     logger.info('Starting generation listener...');
 
     try {
-      await redis.subscribe('generation:*', async (channel, message) => {
+      // Use dedicated subscriber client to avoid blocking shared client
+      const subscriber = redis.getSubscriber();
+      await subscriber.psubscribe('generation:*');
+
+      subscriber.on('pmessage', async (pattern, channel, message) => {
         try {
           const data = JSON.parse(message);
           await this.handleGenerationEvent(channel, data);
@@ -105,8 +109,8 @@ class GenerationListener {
     }
 
     logger.info('Stopping generation listener...');
-    await redis.disconnect();
     this.isListening = false;
+    // Note: Subscriber client cleanup is handled by RedisService shutdown
     logger.info('Generation listener stopped');
   }
 }

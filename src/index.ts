@@ -7,6 +7,12 @@ import { textAnalysisService } from './services/textAnalysisService';
 import { promptAugmentationService } from './services/promptAugmentationService';
 import { startReconciliationJob } from './jobs/reconcileGenerations';
 import { startCleanupJob } from './jobs/cleanupSoftDeleted';
+import blocked from 'blocked-at';
+
+// Monitor event loop blocking (log if blocked > 100ms)
+blocked((time, stack) => {
+  logger.warn({ time, stack: stack.slice(0, 5) }, `[EVENT LOOP BLOCKED] for ${time}ms`);
+}, { threshold: 100 });
 
 const app = createApp();
 

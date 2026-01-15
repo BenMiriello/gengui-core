@@ -11,13 +11,18 @@ class RedisService {
       throw new Error('REDIS_URL environment variable is not set');
     }
 
+    logger.info({ redisUrl }, 'Connecting to Redis');
+
     this.client = new Redis(redisUrl, {
       maxRetriesPerRequest: 0,
       commandTimeout: 15000,
       connectTimeout: 10000,
       enableReadyCheck: true,
       lazyConnect: false,
-      enableOfflineQueue: true,
+      enableOfflineQueue: true, // Allow queueing during startup
+      keepAlive: 0, // Disable TCP keepalive (was causing issues)
+      family: 4, // Force IPv4
+      enableAutoPipelining: false, // Disable auto pipelining (was causing queue buildup)
     });
 
     this.subscriber = new Redis(redisUrl, {
@@ -27,6 +32,9 @@ class RedisService {
       enableReadyCheck: true,
       lazyConnect: false,
       enableOfflineQueue: true,
+      keepAlive: 0,
+      family: 4,
+      enableAutoPipelining: false,
     });
 
     this.client.on('connect', () => {
@@ -34,7 +42,7 @@ class RedisService {
     });
 
     this.client.on('ready', () => {
-      logger.info('Redis client ready');
+      logger.info({ status: this.client.status, mode: this.client.mode }, 'Redis client ready');
     });
 
     this.client.on('error', (error) => {
@@ -48,6 +56,18 @@ class RedisService {
     this.client.on('reconnecting', () => {
       logger.info('Redis client reconnecting');
     });
+
+    // Monitor command queue size
+    setInterval(() => {
+      const commandQueue = (this.client as any).commandQueue;
+      const offlineQueue = (this.client as any).offlineQueue;
+      if (commandQueue && commandQueue.length > 0) {
+        logger.warn({ queueLength: commandQueue.length }, '[REDIS] Commands in queue');
+      }
+      if (offlineQueue && offlineQueue.length > 0) {
+        logger.warn({ offlineQueueLength: offlineQueue.length }, '[REDIS] Commands in offline queue');
+      }
+    }, 1000);
 
     this.subscriber.on('connect', () => {
       logger.info('Redis subscriber connected');
@@ -126,7 +146,18 @@ class RedisService {
   }
 
   async zadd(key: string, score: number, member: string): Promise<number> {
-    return this.client.zadd(key, score, member);
+    const start = Date.now();
+    const result = await this.client.zadd(key, score, member);
+    const elapsed = Date.now() - start;
+
+    if (elapsed > 100) {
+      logger.warn({
+        key,
+        elapsed,
+        connectionStatus: this.client.status
+      }, '[REDIS SLOW] zadd');
+    }
+    return result;
   }
 
   async zcard(key: string): Promise<number> {
@@ -146,7 +177,13 @@ class RedisService {
   }
 
   async expire(key: string, seconds: number): Promise<number> {
-    return this.client.expire(key, seconds);
+    const start = Date.now();
+    const result = await this.client.expire(key, seconds);
+    const elapsed = Date.now() - start;
+    if (elapsed > 100) {
+      logger.warn({ key, seconds, elapsed, connectionStatus: this.client.status }, '[REDIS SLOW] expire');
+    }
+    return result;
   }
 
   async disconnect(): Promise<void> {
@@ -163,6 +200,17 @@ class RedisService {
 
   getClient(): Redis {
     return this.client;
+  }
+
+  /**
+   * Get dedicated subscriber client for Pub/Sub operations
+   *
+   * CRITICAL: Pub/Sub subscribe() is a blocking operation that puts the connection
+   * in subscriber mode. Always use this dedicated client for Pub/Sub, never the
+   * main client.
+   */
+  getSubscriber(): Redis {
+    return this.subscriber;
   }
 }
 

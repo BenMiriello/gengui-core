@@ -3,25 +3,25 @@ import { media, documentMedia } from '../models/schema';
 import { eq } from 'drizzle-orm';
 import { logger } from '../utils/logger';
 import { sseService } from './sse';
-import { redisStreams } from './redis-streams';
+import { BlockingConsumer } from '../lib/blocking-consumer';
+import type { StreamMessage } from './redis-streams';
 
-class GenerationQueueConsumer {
-  private isRunning = false;
+class GenerationQueueConsumer extends BlockingConsumer {
+  constructor() {
+    super('generation-queue-consumer');
+  }
 
-  async start() {
-    if (this.isRunning) {
-      logger.warn('Generation queue consumer already running');
-      return;
-    }
+  protected async onStart() {
+    await this.streams.ensureGroupOnce('generation:processing:stream', 'core-processors');
+    await this.streams.ensureGroupOnce('generation:completed:stream', 'core-completers');
+    await this.streams.ensureGroupOnce('generation:failed:stream', 'core-failers');
+  }
 
-    this.isRunning = true;
-    logger.info('Starting generation queue consumer...');
-
+  protected consumeLoop() {
+    // Start three concurrent consumer loops
     this.consumeProcessing();
     this.consumeCompleted();
     this.consumeFailed();
-
-    logger.info('Generation queue consumer started successfully');
   }
 
   private async consumeProcessing() {
@@ -31,7 +31,7 @@ class GenerationQueueConsumer {
 
     while (this.isRunning) {
       try {
-        const result = await redisStreams.consume(streamName, groupName, consumerName, {
+        const result = await this.streams.consume(streamName, groupName, consumerName, {
           block: 10000
         });
 
@@ -42,7 +42,7 @@ class GenerationQueueConsumer {
 
         if (!mediaId) {
           logger.error({ data }, 'Processing stream message missing mediaId');
-          await redisStreams.ack(streamName, groupName, id);
+          await this.streams.ack(streamName, groupName, id);
           continue;
         }
 
@@ -53,7 +53,7 @@ class GenerationQueueConsumer {
 
         logger.info({ mediaId }, 'Updated generation status to processing');
         await this.broadcastMediaUpdate(mediaId);
-        await redisStreams.ack(streamName, groupName, id);
+        await this.streams.ack(streamName, groupName, id);
       } catch (error) {
         logger.error({ error }, 'Error processing "processing" stream');
         await new Promise(resolve => setTimeout(resolve, 1000));
@@ -68,7 +68,7 @@ class GenerationQueueConsumer {
 
     while (this.isRunning) {
       try {
-        const result = await redisStreams.consume(streamName, groupName, consumerName, {
+        const result = await this.streams.consume(streamName, groupName, consumerName, {
           block: 10000
         });
 
@@ -79,7 +79,7 @@ class GenerationQueueConsumer {
 
         if (!mediaId || !s3Key) {
           logger.error({ data }, 'Completed stream message missing required fields');
-          await redisStreams.ack(streamName, groupName, id);
+          await this.streams.ack(streamName, groupName, id);
           continue;
         }
 
@@ -92,7 +92,7 @@ class GenerationQueueConsumer {
 
         if (job?.cancelledAt) {
           logger.info({ mediaId }, 'Ignoring completed message for cancelled job');
-          await redisStreams.ack(streamName, groupName, id);
+          await this.streams.ack(streamName, groupName, id);
           continue;
         }
 
@@ -104,7 +104,7 @@ class GenerationQueueConsumer {
 
         logger.info({ mediaId, s3Key }, 'Generation completed successfully');
         await this.broadcastMediaUpdate(mediaId);
-        await redisStreams.ack(streamName, groupName, id);
+        await this.streams.ack(streamName, groupName, id);
       } catch (error) {
         logger.error({ error }, 'Error processing "completed" stream');
         await new Promise(resolve => setTimeout(resolve, 1000));
@@ -119,7 +119,7 @@ class GenerationQueueConsumer {
 
     while (this.isRunning) {
       try {
-        const result = await redisStreams.consume(streamName, groupName, consumerName, {
+        const result = await this.streams.consume(streamName, groupName, consumerName, {
           block: 10000
         });
 
@@ -130,7 +130,7 @@ class GenerationQueueConsumer {
 
         if (!mediaId) {
           logger.error({ data }, 'Failed stream message missing mediaId');
-          await redisStreams.ack(streamName, groupName, id);
+          await this.streams.ack(streamName, groupName, id);
           continue;
         }
 
@@ -143,7 +143,7 @@ class GenerationQueueConsumer {
 
         if (job?.cancelledAt) {
           logger.info({ mediaId }, 'Ignoring failed message for cancelled job');
-          await redisStreams.ack(streamName, groupName, id);
+          await this.streams.ack(streamName, groupName, id);
           continue;
         }
 
@@ -154,7 +154,7 @@ class GenerationQueueConsumer {
 
         logger.error({ mediaId, error }, 'Generation failed');
         await this.broadcastMediaUpdate(mediaId);
-        await redisStreams.ack(streamName, groupName, id);
+        await this.streams.ack(streamName, groupName, id);
       } catch (err) {
         logger.error({ error: err }, 'Error processing "failed" stream');
         await new Promise(resolve => setTimeout(resolve, 1000));
@@ -178,16 +178,6 @@ class GenerationQueueConsumer {
     } catch (error) {
       logger.error({ error, mediaId }, 'Failed to broadcast media update');
     }
-  }
-
-  async stop() {
-    if (!this.isRunning) {
-      return;
-    }
-
-    logger.info('Stopping generation queue consumer...');
-    this.isRunning = false;
-    logger.info('Generation queue consumer stopped');
   }
 }
 
