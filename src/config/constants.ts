@@ -7,8 +7,20 @@ const MIN_HEIGHT = 256;
 const MAX_PROMPT_LENGTH = 10000;
 
 // Rate Limiting Constants
-const USER_DAILY_LIMIT = parseInt(process.env.RATE_LIMIT_USER_DAILY || '20', 10);
-const ADMIN_DAILY_LIMIT = parseInt(process.env.RATE_LIMIT_ADMIN_DAILY || '200', 10);
+export const RATE_LIMITS = {
+  generation: {
+    user: parseInt(process.env.RATE_LIMIT_USER_DAILY || '20', 10),
+    admin: parseInt(process.env.RATE_LIMIT_ADMIN_DAILY || '200', 10),
+  },
+  augmentation: {
+    user: parseInt(process.env.AUGMENTATION_LIMIT_USER_DAILY || '20', 10),
+    admin: parseInt(process.env.AUGMENTATION_LIMIT_ADMIN_DAILY || '200', 10),
+  }
+};
+
+// Backwards compatibility
+const USER_DAILY_LIMIT = RATE_LIMITS.generation.user;
+const ADMIN_DAILY_LIMIT = RATE_LIMITS.generation.admin;
 
 // Cache Constants
 const PRESIGNED_S3_URL_EXPIRATION = 900; // 15 minutes in seconds

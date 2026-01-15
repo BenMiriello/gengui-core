@@ -1,13 +1,32 @@
+# Complete Docker stack for deployment/testing
+# Uses different ports to avoid conflicts with native Mac development
+#
+# Native Mac Stack (default):
+#   - Postgres.app on port 5432
+#   - Homebrew Redis on port 6379
+#   - Native Node.js
+#
+# Docker Stack (deployment/CI/testing):
+#   - Docker Postgres on port 5434
+#   - Docker Redis on port 6380
+#   - Docker Node.js (core API)
+#
+# Usage:
+#   docker-compose up -d           # Start all services
+#   docker-compose logs -f core    # View core API logs
+#   docker-compose down            # Stop all services
+#   docker-compose down -v         # Stop and remove volumes (fresh start)
+
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: gengui-postgres
+    container_name: gengui-postgres-docker
     environment:
       POSTGRES_USER: gengui
       POSTGRES_PASSWORD: gengui_dev_pass
       POSTGRES_DB: gengui_media
     ports:
-      - "5433:5432"
+      - "5434:5432"  # Host 5434 -> Container 5432
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -15,12 +34,14 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - gengui-network
 
   redis:
     image: redis:7-alpine
-    container_name: gengui-redis
+    container_name: gengui-redis-docker
     ports:
-      - "6379:6379"
+      - "6380:6379"  # Host 6380 -> Container 6379
     volumes:
       - redis_data:/data
     command: redis-server --appendonly yes
@@ -29,7 +50,51 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+    networks:
+      - gengui-network
+
+  core:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: gengui-core-docker
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      # Database (connects to postgres service internally)
+      DB_HOST: postgres
+      DB_PORT: 5432  # Internal container port
+      DB_USER: gengui
+      DB_PASSWORD: gengui_dev_pass
+      DB_NAME: gengui_media
+      # Redis (connects to redis service internally)
+      REDIS_URL: redis://redis:6379
+      # S3 (copy from .env or set here)
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_REGION: ${AWS_REGION:-us-east-2}
+      S3_BUCKET: ${S3_BUCKET:-gengui-media}
+      # Gemini API
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      # Optional: RunPod
+      ENABLE_RUNPOD: ${ENABLE_RUNPOD:-false}
+      RUNPOD_API_KEY: ${RUNPOD_API_KEY:-}
+      RUNPOD_ENDPOINT_ID: ${RUNPOD_ENDPOINT_ID:-}
+    ports:
+      - "3001:3000"  # Host 3001 -> Container 3000 (avoid conflict with native)
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - gengui-network
+    restart: unless-stopped
 
 volumes:
   postgres_data:
   redis_data:
+
+networks:
+  gengui-network:
+    driver: bridge

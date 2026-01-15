@@ -6,43 +6,90 @@ Backend API service for GenGui media generation platform.
 
 ### Prerequisites
 - Node.js 20+
-- Docker & Docker Compose
-- AWS credentials (for S3 access)
+- **Native Mac Stack (Recommended):**
+  - Postgres.app (https://postgresapp.com)
+  - Homebrew Redis (`brew install redis`)
+- **OR Docker Stack (Alternative):**
+  - Docker & Docker Compose
 
-### First-Time Setup
+### Development Stacks
 
-1. **Start infrastructure services:**
+Two setups available - choose one:
+
+#### Option 1: Native Mac Stack (Recommended for Dev)
+
+**Why:** Faster startup, native performance, persistent across restarts
+
+1. **Install Postgres.app:**
+   - Download from https://postgresapp.com
+   - Open Postgres.app and initialize (creates database on port 5432)
+
+2. **Install and start Redis:**
    ```bash
-   docker compose up -d
+   brew install redis
+   brew services start redis
    ```
-   This starts:
-   - PostgreSQL on port 5433
-   - Redis on port 6379
 
-2. **Copy environment file:**
+3. **Copy environment file:**
    ```bash
    cp .env.example .env
    ```
-   Then edit `.env` with your AWS credentials:
-   - `AWS_ACCESS_KEY_ID`
-   - `AWS_SECRET_ACCESS_KEY`
-   - `S3_BUCKET`
+   Edit `.env` - verify these settings:
+   - `DB_PORT=5432`
+   - `REDIS_URL=redis://127.0.0.1:6379`
+   - Add your AWS credentials
 
-3. **Install dependencies:**
+4. **Install dependencies:**
    ```bash
    npm install
    ```
 
-4. **Run database migrations:**
+5. **Run database migrations:**
    ```bash
-   npm run db:push
+   npm run db:migrate
    ```
 
-5. **Start core service:**
+6. **Start core service:**
    ```bash
    npm run dev
    ```
    Core runs on port 3000 with hot-reload.
+
+#### Option 2: Docker Stack (Deployment/Testing)
+
+**Why:** Complete isolated stack, identical to production, good for CI/CD
+
+**Ports:** Uses different ports to avoid conflicts with native setup
+- Postgres: 5434 (instead of 5432)
+- Redis: 6380 (instead of 6379)
+- Core API: 3001 (instead of 3000)
+
+1. **Copy environment file:**
+   ```bash
+   cp .env.docker.example .env
+   ```
+   Edit `.env` with your AWS and Gemini credentials.
+
+2. **Start all services:**
+   ```bash
+   docker-compose up -d
+   ```
+   This starts Postgres, Redis, AND the Core API in containers.
+
+3. **View logs:**
+   ```bash
+   docker-compose logs -f core
+   ```
+
+4. **Run migrations (first time only):**
+   ```bash
+   docker-compose exec core npm run db:migrate
+   ```
+
+**Access:**
+- API: http://localhost:3001
+- Postgres: localhost:5434
+- Redis: localhost:6380
 
 ### Email Configuration (Optional)
 
@@ -68,12 +115,15 @@ Set `SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM` in `.env`. Optional: `SMTP_USER`, `SMT
 
 ### Subsequent Startups
 
+**Native Mac Stack:**
 ```bash
-# Ensure docker services are running
-docker compose up -d
-
-# Start core (in separate terminal)
+# Services auto-start on boot (Postgres.app, Redis via brew services)
 npm run dev
+```
+
+**Docker Stack:**
+```bash
+docker-compose up -d  # Starts all services including core API
 ```
 
 ## What's Running
@@ -99,7 +149,7 @@ core/
 │   ├── services/        # Business logic, queue consumers
 │   ├── scripts/         # One-off scripts (migrations, backfills)
 │   └── utils/           # Helpers, logger, errors
-├── docker-compose.yml   # Local postgres & redis
+├── docker-compose.yml   # Complete Docker stack (alternative to native)
 └── drizzle.config.ts    # Database migrations config
 ```
 
@@ -121,27 +171,49 @@ npm run docker:logs      # Stream container logs
 
 ## Stopping Services
 
+**Native Mac Stack:**
 ```bash
 # Stop core: Ctrl+C in terminal
+# Postgres.app and Redis keep running (persistent)
 
-# Stop docker services
-docker compose down
+# To stop Redis:
+brew services stop redis
+```
+
+**Docker Stack:**
+```bash
+# Stop all services
+docker-compose down
 
 # Stop and remove volumes (DELETES DATA)
-docker compose down -v
+docker-compose down -v
 ```
 
 ## Troubleshooting
 
 ### "Redis connection failed"
-- Run `docker ps` - ensure `gengui-redis` is running
-- Check `REDIS_URL` in `.env` matches `redis://localhost:6379`
-- Try: `docker compose restart redis`
+
+**Native Stack:**
+- Check if Redis is running: `brew services list | grep redis`
+- Start Redis: `brew services start redis`
+- Verify `.env` has `REDIS_URL=redis://127.0.0.1:6379`
+
+**Docker Stack:**
+- Check containers: `docker-compose ps`
+- Restart: `docker-compose restart redis`
+- Check logs: `docker-compose logs redis`
 
 ### "Database connection failed"
-- Run `docker ps` - ensure `gengui-postgres` is running
-- Check `DB_PORT` is `5433` (not 5432)
-- Try: `docker compose restart postgres`
+
+**Native Stack:**
+- Check Postgres.app is running (elephant icon in menu bar)
+- Verify `.env` has `DB_PORT=5432`
+- Test connection: `psql -h localhost -p 5432 -U gengui -d gengui_media`
+
+**Docker Stack:**
+- Check containers: `docker-compose ps`
+- Restart: `docker-compose restart postgres`
+- Check logs: `docker-compose logs postgres`
 
 ### "Thumbnails not generating"
 - Redis must be running (thumbnails use Redis queue)

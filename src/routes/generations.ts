@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { generationsService } from '../services/generationsService';
 import { requireAuth, requireEmailVerified } from '../middleware/auth';
 import { generationRateLimiter } from '../middleware/generationRateLimiter';
+import { augmentationRateLimiter } from '../middleware/augmentationRateLimiter';
 import { z } from 'zod';
 import {
   MAX_PROMPT_LENGTH,
@@ -12,6 +13,16 @@ import {
 } from '../config/constants';
 
 const router = Router();
+
+const promptEnhancementSchema = z.object({
+  enabled: z.boolean(),
+  charsBefore: z.number().int().min(0).max(2000),
+  charsAfter: z.number().int().min(0).max(2000),
+  useNarrativeContext: z.boolean(),
+  sceneTreatment: z.enum(['comprehensive', 'focused', 'selective-detail']),
+  selectiveDetailFocus: z.string().max(200).optional(),
+  strength: z.enum(['low', 'medium', 'high']),
+});
 
 const createGenerationSchema = z.object({
   prompt: z.string().min(1).max(MAX_PROMPT_LENGTH),
@@ -26,9 +37,10 @@ const createGenerationSchema = z.object({
   textOffset: z.number().int().min(0).optional(),
   contextBefore: z.string().optional(),
   contextAfter: z.string().optional(),
+  promptEnhancement: promptEnhancementSchema.optional(),
 });
 
-router.post('/', requireAuth, requireEmailVerified('Email verification required to generate images'), generationRateLimiter, async (req, res, next) => {
+router.post('/', requireAuth, requireEmailVerified('Email verification required to generate images'), augmentationRateLimiter, generationRateLimiter, async (req, res, next) => {
   try {
     const validatedData = createGenerationSchema.parse(req.body);
     const result = await generationsService.create(req.user!.id, validatedData);

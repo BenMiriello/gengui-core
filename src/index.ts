@@ -4,6 +4,7 @@ import { logger } from './utils/logger';
 import { jobStatusConsumer } from './services/jobStatusConsumer';
 import { jobReconciliationService } from './services/runpod';
 import { textAnalysisService } from './services/textAnalysisService';
+import { promptAugmentationService } from './services/promptAugmentationService';
 import { startReconciliationJob } from './jobs/reconcileGenerations';
 import { startCleanupJob } from './jobs/cleanupSoftDeleted';
 
@@ -16,6 +17,7 @@ const server = app.listen(env.PORT, '0.0.0.0', async () => {
     await jobStatusConsumer.start();
     await jobReconciliationService.start();
     await textAnalysisService.start();
+    await promptAugmentationService.start();
     startReconciliationJob();
     startCleanupJob();
   } catch (error) {
@@ -28,6 +30,7 @@ process.on('SIGTERM', async () => {
   await jobStatusConsumer.stop();
   await jobReconciliationService.stop();
   textAnalysisService.stop();
+  promptAugmentationService.stop();
   server.close(() => {
     logger.info('Server closed');
     process.exit(0);
@@ -39,6 +42,7 @@ process.on('SIGINT', async () => {
   await jobStatusConsumer.stop();
   await jobReconciliationService.stop();
   textAnalysisService.stop();
+  promptAugmentationService.stop();
   server.close(() => {
     logger.info('Server closed');
     process.exit(0);

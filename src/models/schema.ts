@@ -16,7 +16,7 @@ import { relations, sql } from 'drizzle-orm';
 
 export const modelTypeEnum = pgEnum('model_type', ['lora', 'checkpoint', 'other']);
 export const mediaTypeEnum = pgEnum('media_type', ['upload', 'generation']);
-export const mediaStatusEnum = pgEnum('media_status', ['queued', 'processing', 'completed', 'failed']);
+export const mediaStatusEnum = pgEnum('media_status', ['queued', 'augmenting', 'processing', 'completed', 'failed']);
 export const userRoleEnum = pgEnum('user_role', ['user', 'admin']);
 export const storyNodeTypeEnum = pgEnum('story_node_type', ['character', 'location', 'event', 'other']);
 

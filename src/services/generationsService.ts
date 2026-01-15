@@ -8,6 +8,16 @@ import { runpodClient, RUNPOD_CONSTANTS } from './runpod';
 import { NotFoundError } from '../utils/errors';
 import { logger } from '../utils/logger';
 
+export interface PromptEnhancement {
+  enabled: boolean;
+  charsBefore: number;
+  charsAfter: number;
+  useNarrativeContext: boolean;
+  sceneTreatment: 'comprehensive' | 'focused' | 'selective-detail';
+  selectiveDetailFocus?: string;
+  strength: 'low' | 'medium' | 'high';
+}
+
 export interface GenerationRequest {
   prompt: string;
   seed?: number;
@@ -21,6 +31,7 @@ export interface GenerationRequest {
   textOffset?: number;
   contextBefore?: string;
   contextAfter?: string;
+  promptEnhancement?: PromptEnhancement;
 }
 
 export class GenerationsService {
@@ -45,12 +56,15 @@ export class GenerationsService {
       }
     }
 
+    // Determine initial status based on whether augmentation is enabled
+    const initialStatus = request.promptEnhancement?.enabled ? 'augmenting' : 'queued';
+
     const [newMedia] = await db
       .insert(media)
       .values({
         userId,
         type: 'generation',
-        status: 'queued',
+        status: initialStatus,
         prompt: request.prompt,
         seed,
         width,
@@ -98,55 +112,90 @@ export class GenerationsService {
     }
 
     try {
-      // Submit to RunPod or Redis based on configuration
-      if (runpodClient.isEnabled()) {
-        // RunPod mode: Submit to RunPod API with per-job timeout
-        const runpodJobId = await runpodClient.submitJob(
-          {
-            mediaId: newMedia.id,
+      // Check if augmentation is enabled
+      if (request.promptEnhancement?.enabled) {
+        // Augmentation flow: Queue to prompt-augmentation:stream
+        if (!request.documentId || request.startChar === undefined || request.endChar === undefined) {
+          throw new Error('Document ID, startChar, and endChar are required for prompt augmentation');
+        }
+
+        await redisStreams.add('prompt-augmentation:stream', {
+          mediaId: newMedia.id,
+          userId,
+          documentId: request.documentId,
+          selectedText: request.sourceText || request.prompt,
+          startChar: request.startChar.toString(),
+          endChar: request.endChar.toString(),
+          settings: JSON.stringify(request.promptEnhancement),
+          stylePrompt: stylePrompt || '',
+          seed: seed.toString(),
+          width: width.toString(),
+          height: height.toString(),
+        });
+
+        logger.info({ mediaId: newMedia.id, documentId: request.documentId }, 'Augmentation queued in Redis stream');
+
+        // Track augmentation for rate limiting
+        const now = new Date();
+        const todayUTC = new Date(
+          Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+        );
+        const dateStr = todayUTC.toISOString().split('T')[0];
+        const augmentationKey = `user:${userId}:augmentations:${dateStr}`;
+        await redis.zadd(augmentationKey, Date.now(), newMedia.id);
+        await redis.expire(augmentationKey, 172800); // 48h TTL for cleanup
+      } else {
+        // Direct generation flow (no augmentation)
+        // Submit to RunPod or Redis based on configuration
+        if (runpodClient.isEnabled()) {
+          // RunPod mode: Submit to RunPod API with per-job timeout
+          const runpodJobId = await runpodClient.submitJob(
+            {
+              mediaId: newMedia.id,
+              userId,
+              prompt: request.prompt,
+              seed: seed.toString(),
+              width: width.toString(),
+              height: height.toString(),
+            },
+            {
+              executionTimeout: RUNPOD_CONSTANTS.EXECUTION_TIMEOUT_MS,
+            }
+          );
+
+          // Store RunPod job ID and submission timestamp in Redis for reconciliation
+          await redis.set(`runpod:job:${newMedia.id}`, runpodJobId, RUNPOD_CONSTANTS.REDIS_JOB_TTL_SECONDS);
+          await redis.set(`runpod:job:${newMedia.id}:submitted`, Date.now().toString(), RUNPOD_CONSTANTS.REDIS_JOB_TTL_SECONDS);
+
+          logger.info(
+            { mediaId: newMedia.id, runpodJobId, prompt: request.prompt },
+            'Generation submitted to RunPod'
+          );
+        } else {
+          // Local/Redis mode: Queue in Redis stream for worker polling
+          await redisStreams.add('generation:stream', {
             userId,
+            mediaId: newMedia.id,
             prompt: request.prompt,
             seed: seed.toString(),
             width: width.toString(),
             height: height.toString(),
-          },
-          {
-            executionTimeout: RUNPOD_CONSTANTS.EXECUTION_TIMEOUT_MS,
-          }
+            status: 'queued',
+          });
+
+          logger.info({ mediaId: newMedia.id, prompt: request.prompt }, 'Generation queued in Redis stream');
+        }
+
+        // Track generation for rate limiting
+        const now = new Date();
+        const todayUTC = new Date(
+          Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
         );
-
-        // Store RunPod job ID and submission timestamp in Redis for reconciliation
-        await redis.set(`runpod:job:${newMedia.id}`, runpodJobId, RUNPOD_CONSTANTS.REDIS_JOB_TTL_SECONDS);
-        await redis.set(`runpod:job:${newMedia.id}:submitted`, Date.now().toString(), RUNPOD_CONSTANTS.REDIS_JOB_TTL_SECONDS);
-
-        logger.info(
-          { mediaId: newMedia.id, runpodJobId, prompt: request.prompt },
-          'Generation submitted to RunPod'
-        );
-      } else {
-        // Local/Redis mode: Queue in Redis stream for worker polling
-        await redisStreams.add('generation:stream', {
-          userId,
-          mediaId: newMedia.id,
-          prompt: request.prompt,
-          seed: seed.toString(),
-          width: width.toString(),
-          height: height.toString(),
-          status: 'queued',
-        });
-
-        logger.info({ mediaId: newMedia.id, prompt: request.prompt }, 'Generation queued in Redis stream');
+        const dateStr = todayUTC.toISOString().split('T')[0];
+        const rateLimitKey = `user:${userId}:generations:${dateStr}`;
+        await redis.zadd(rateLimitKey, Date.now(), newMedia.id);
+        await redis.expire(rateLimitKey, 172800); // 48h TTL for cleanup
       }
-
-      // Track generation for rate limiting
-      const now = new Date();
-      const todayUTC = new Date(
-        Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
-      );
-      const dateStr = todayUTC.toISOString().split('T')[0];
-      const rateLimitKey = `user:${userId}:generations:${dateStr}`;
-      await redis.zadd(rateLimitKey, Date.now(), newMedia.id);
-      await redis.expire(rateLimitKey, 172800); // 48h TTL for cleanup
     } catch (error) {
       logger.error({ error, mediaId: newMedia.id }, 'Failed to queue generation, marking as failed');
       await db
