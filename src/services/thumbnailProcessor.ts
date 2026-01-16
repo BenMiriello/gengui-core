@@ -1,9 +1,10 @@
 import { db } from '../config/database';
-import { media } from '../models/schema';
+import { media, documentMedia } from '../models/schema';
 import { eq } from 'drizzle-orm';
 import { storageProvider } from './storage';
 import { imageProcessor } from './imageProcessor';
 import { logger } from '../utils/logger';
+import { sseService } from './sse';
 import path from 'path';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 
@@ -80,9 +81,30 @@ export class ThumbnailProcessor {
       const duration = Date.now() - startTime;
       logger.info({ mediaId, duration, thumbKey, size: thumbnailBuffer.length }, 'Thumbnail generated successfully');
 
+      // Broadcast SSE update so frontend knows thumbnail is ready
+      await this.broadcastThumbnailUpdate(mediaId);
+
     } catch (error) {
       logger.error({ error, mediaId }, 'Failed to process thumbnail');
       throw error;
+    }
+  }
+
+  private async broadcastThumbnailUpdate(mediaId: string) {
+    try {
+      const docMedia = await db
+        .select({ documentId: documentMedia.documentId })
+        .from(documentMedia)
+        .where(eq(documentMedia.mediaId, mediaId))
+        .limit(1);
+
+      if (docMedia.length > 0) {
+        const documentId = docMedia[0].documentId;
+        sseService.broadcastToDocument(documentId, 'media-update', { mediaId });
+        logger.debug({ mediaId, documentId }, 'Broadcasted thumbnail update via SSE');
+      }
+    } catch (error) {
+      logger.error({ error, mediaId }, 'Failed to broadcast thumbnail update');
     }
   }
 }
