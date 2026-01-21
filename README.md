@@ -91,6 +91,30 @@ Two setups available - choose one:
 - Postgres: localhost:5434
 - Redis: localhost:6380
 
+### GrowthBook (Feature Flags)
+
+GrowthBook provides feature flags and A/B testing. Required for provider switching.
+
+```bash
+# Start MongoDB + GrowthBook
+docker-compose up -d mongodb growthbook
+
+# Stop
+docker-compose down mongodb growthbook
+```
+
+**Access:**
+- Admin UI: http://localhost:3200
+- API: http://localhost:3100
+
+**First run:** First visitor creates admin account. Create SDK Connection, copy client key to `.env`:
+```
+GROWTHBOOK_API_HOST=http://localhost:3100
+GROWTHBOOK_CLIENT_KEY=sdk-...
+```
+
+**Current flags:** `image_provider` (gemini/runpod/local)
+
 ### Email Configuration (Optional)
 
 By default, verification URLs are logged to console in development. For full email testing:
