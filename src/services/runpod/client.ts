@@ -1,4 +1,5 @@
 import { logger } from '../../utils/logger';
+import { env } from '../../config/env';
 import type { RunPodJobInput, RunPodJobPolicy, RunPodJobStatusResponse } from './types';
 
 class RunPodClient {
@@ -10,13 +11,13 @@ class RunPodClient {
     const apiKey = process.env.RUNPOD_API_KEY || '';
     const endpointId = process.env.RUNPOD_ENDPOINT_ID || '';
 
-    this.enabled = process.env.ENABLE_RUNPOD === 'true' && !!apiKey && !!endpointId;
+    this.enabled = env.IMAGE_INFERENCE_PROVIDER === 'runpod' && !!apiKey && !!endpointId;
 
     if (this.enabled) {
       // Dynamic import for ESM module
       this.initPromise = this.initializeEndpoint(apiKey, endpointId);
-    } else {
-      logger.warn('RunPod API key or endpoint ID not configured. RunPod integration disabled.');
+    } else if (env.IMAGE_INFERENCE_PROVIDER === 'runpod') {
+      logger.warn('IMAGE_INFERENCE_PROVIDER=runpod but API key or endpoint ID not configured');
     }
   }
 

@@ -4,7 +4,7 @@ import { eq, and, inArray } from 'drizzle-orm';
 import { logger } from '../utils/logger';
 import { sseService } from './sse';
 import { StreamMessage, redisStreams as sharedRedisStreams } from './redis-streams';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenAI } from '@google/genai';
 import { BlockingConsumer } from '../lib/blocking-consumer';
 
 const apiKey = process.env.GEMINI_API_KEY;
@@ -13,7 +13,7 @@ if (!apiKey) {
   logger.warn('GEMINI_API_KEY not configured');
 }
 
-const genAI = apiKey ? new GoogleGenerativeAI(apiKey) : null;
+const genAI = apiKey ? new GoogleGenAI({ apiKey }) : null;
 
 interface PromptEnhancementSettings {
   enabled: boolean;
@@ -148,18 +148,20 @@ class PromptAugmentationService extends BlockingConsumer {
         })
         .where(eq(media.id, mediaId));
 
-      // Queue generation job (use shared client for producer operations)
-      await sharedRedisStreams.add('generation:stream', {
-        userId,
+      // Submit to configured image generation provider
+      const { getImageProvider } = await import('./image-generation/factory.js');
+      const provider = await getImageProvider();
+
+      await provider.submitJob({
         mediaId,
+        userId,
         prompt: finalPrompt,
-        seed,
-        width,
-        height,
-        status: 'queued',
+        seed: parseInt(seed),
+        width: parseInt(width),
+        height: parseInt(height),
       });
 
-      logger.info({ mediaId }, 'Generation queued after successful augmentation');
+      logger.info({ mediaId }, 'Generation submitted to provider after successful augmentation');
 
       await this.streams.ack(streamName, groupName, message.id);
     } catch (error: any) {
@@ -410,22 +412,19 @@ class PromptAugmentationService extends BlockingConsumer {
       throw new Error('Gemini API client not initialized - GEMINI_API_KEY missing');
     }
 
-    const model = genAI.getGenerativeModel({
-      model: 'gemini-3-flash-preview',
-    });
-
     try {
-      const result = await model.generateContent(geminiPrompt);
+      const result = await genAI.models.generateContent({
+        model: 'gemini-2.0-flash-exp', // v1beta API - experimental has quota
+        contents: geminiPrompt,
+      });
 
-      if (!result?.response) {
+      if (!result) {
         throw new Error('Unable to augment prompt. Please try again.');
       }
 
-      const response = result.response;
-
       // Check if the response was blocked or has no candidates
-      if (!response.candidates || response.candidates.length === 0) {
-        const blockReason = response.promptFeedback?.blockReason;
+      if (!result.candidates || result.candidates.length === 0) {
+        const blockReason = result.promptFeedback?.blockReason;
         if (blockReason) {
           logger.error({ blockReason }, 'Content was blocked');
           throw new Error('Unable to augment prompt. The content may contain inappropriate material.');
@@ -433,7 +432,7 @@ class PromptAugmentationService extends BlockingConsumer {
         throw new Error('Unable to augment prompt. The content may have been filtered. Please try again.');
       }
 
-      const text = response.text();
+      const text = result.text;
 
       if (!text || text.trim().length === 0) {
         logger.error('Gemini returned empty response');

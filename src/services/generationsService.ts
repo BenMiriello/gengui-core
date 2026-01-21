@@ -4,7 +4,7 @@ import { eq, and } from 'drizzle-orm';
 import { notDeleted } from '../utils/db';
 import { redis } from './redis';
 import { redisStreams } from './redis-streams';
-import { runpodClient, RUNPOD_CONSTANTS } from './runpod';
+import { getImageProvider } from './image-generation/factory';
 import { NotFoundError } from '../utils/errors';
 import { logger } from '../utils/logger';
 
@@ -41,6 +41,26 @@ export class GenerationsService {
     const seed = request.seed ?? Math.floor(Math.random() * 1000000);
     const width = request.width ?? 1024;
     const height = request.height ?? 1024;
+
+    // Validate dimensions against provider constraints
+    const provider = await getImageProvider();
+    if (!provider.validateDimensions(width, height)) {
+      const constraints = provider.getSupportedDimensions();
+
+      // Build helpful error message
+      let errorMessage = `Dimensions ${width}x${height} not supported by ${provider.name} provider. `;
+
+      if (Array.isArray(constraints)) {
+        // Fixed dimensions (e.g., Gemini)
+        errorMessage += `Supported sizes: ${constraints.map(s => `${s.width}x${s.height}`).join(', ')}`;
+      } else {
+        // Range-based dimensions (e.g., local/runpod)
+        const { min, max, step } = constraints;
+        errorMessage += `Valid range: ${min}-${max}px, step: ${step}px`;
+      }
+
+      throw new Error(errorMessage);
+    }
 
     let stylePreset: string | null = null;
     let stylePrompt: string | null = null;
@@ -146,45 +166,17 @@ export class GenerationsService {
         await redis.expire(augmentationKey, 172800); // 48h TTL for cleanup
       } else {
         // Direct generation flow (no augmentation)
-        // Submit to RunPod or Redis based on configuration
-        if (runpodClient.isEnabled()) {
-          // RunPod mode: Submit to RunPod API with per-job timeout
-          const runpodJobId = await runpodClient.submitJob(
-            {
-              mediaId: newMedia.id,
-              userId,
-              prompt: request.prompt,
-              seed: seed.toString(),
-              width: width.toString(),
-              height: height.toString(),
-            },
-            {
-              executionTimeout: RUNPOD_CONSTANTS.EXECUTION_TIMEOUT_MS,
-            }
-          );
+        // Submit to configured image generation provider
+        const provider = await getImageProvider();
 
-          // Store RunPod job ID and submission timestamp in Redis for reconciliation
-          await redis.set(`runpod:job:${newMedia.id}`, runpodJobId, RUNPOD_CONSTANTS.REDIS_JOB_TTL_SECONDS);
-          await redis.set(`runpod:job:${newMedia.id}:submitted`, Date.now().toString(), RUNPOD_CONSTANTS.REDIS_JOB_TTL_SECONDS);
-
-          logger.info(
-            { mediaId: newMedia.id, runpodJobId, prompt: request.prompt },
-            'Generation submitted to RunPod'
-          );
-        } else {
-          // Local/Redis mode: Queue in Redis stream for worker polling
-          await redisStreams.add('generation:stream', {
-            userId,
-            mediaId: newMedia.id,
-            prompt: request.prompt,
-            seed: seed.toString(),
-            width: width.toString(),
-            height: height.toString(),
-            status: 'queued',
-          });
-
-          logger.info({ mediaId: newMedia.id, prompt: request.prompt }, 'Generation queued in Redis stream');
-        }
+        await provider.submitJob({
+          mediaId: newMedia.id,
+          userId,
+          prompt: request.prompt,
+          seed,
+          width,
+          height,
+        });
 
         // Track generation for rate limiting
         const now = new Date();

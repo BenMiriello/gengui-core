@@ -17,7 +17,34 @@ const envSchema = z.object({
   MINIO_ACCESS_KEY: z.string().default('minioadmin'),
   MINIO_SECRET_KEY: z.string().default('minioadmin'),
   MINIO_BUCKET: z.string().default('media'),
-});
+
+  // Inference Provider Selection
+  TEXT_INFERENCE_PROVIDER: z.enum(['gemini']).default('gemini'),
+  IMAGE_INFERENCE_PROVIDER: z.enum(['local', 'runpod', 'gemini']).default('gemini'),
+
+  // Provider API Keys
+  GEMINI_API_KEY: z.string().optional(),
+  RUNPOD_API_KEY: z.string().optional(),
+  RUNPOD_ENDPOINT_ID: z.string().optional(),
+})
+.refine(
+  (data) => {
+    // Validate provider-specific API key requirements
+    if (data.TEXT_INFERENCE_PROVIDER === 'gemini' && !data.GEMINI_API_KEY) {
+      return false;
+    }
+    if (data.IMAGE_INFERENCE_PROVIDER === 'gemini' && !data.GEMINI_API_KEY) {
+      return false;
+    }
+    if (data.IMAGE_INFERENCE_PROVIDER === 'runpod') {
+      return !!(data.RUNPOD_API_KEY && data.RUNPOD_ENDPOINT_ID);
+    }
+    return true;
+  },
+  {
+    message: 'Missing required API keys for selected inference provider(s)',
+  }
+);
 
 function validateEnv() {
   try {

@@ -7,6 +7,7 @@ import { validatePassword, validateUsername, validateEmail } from '../utils/vali
 import { ConflictError, UnauthorizedError } from '../utils/errors';
 import { logger } from '../utils/logger';
 import { emailService } from './emailService';
+import { getImageProvider } from './image-generation/factory';
 
 const BCRYPT_ROUNDS = 12;
 const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
@@ -580,6 +581,20 @@ export class AuthService {
 
     if (Object.keys(updates).length === 0) {
       throw new ConflictError('No preferences to update');
+    }
+
+    // Validate dimensions if both are being updated
+    if (updates.defaultImageWidth !== undefined && updates.defaultImageHeight !== undefined) {
+      const provider = await getImageProvider();
+      if (!provider.validateDimensions(updates.defaultImageWidth, updates.defaultImageHeight)) {
+        const supportedDimensions = provider.getSupportedDimensions();
+        const dimensionsStr = supportedDimensions
+          .map((d: any) => `${d.width}x${d.height}`)
+          .join(', ');
+        throw new ConflictError(
+          `Dimensions ${updates.defaultImageWidth}x${updates.defaultImageHeight} not supported by ${provider.name} provider. Supported sizes: ${dimensionsStr}`
+        );
+      }
     }
 
     const [user] = await db

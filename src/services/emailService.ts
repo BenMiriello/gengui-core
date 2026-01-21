@@ -51,7 +51,10 @@ export class EmailService {
   }
 
   async sendVerificationEmail(email: string, token: string): Promise<void> {
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const frontendUrl = process.env.FRONTEND_URL;
+    if (!frontendUrl) {
+      throw new Error('FRONTEND_URL required for email links');
+    }
     const verificationUrl = `${frontendUrl}/verify-email?token=${token}`;
 
     if (!this.enabled || !this.transporter) {
@@ -96,7 +99,10 @@ export class EmailService {
     newEmail: string,
     token: string
   ): Promise<void> {
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const frontendUrl = process.env.FRONTEND_URL;
+    if (!frontendUrl) {
+      throw new Error('FRONTEND_URL required for email links');
+    }
     const verificationUrl = `${frontendUrl}/verify-email-change?token=${token}`;
 
     if (!this.enabled || !this.transporter) {
@@ -138,7 +144,10 @@ export class EmailService {
   }
 
   async sendPasswordResetEmail(email: string, token: string): Promise<void> {
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const frontendUrl = process.env.FRONTEND_URL;
+    if (!frontendUrl) {
+      throw new Error('FRONTEND_URL required for email links');
+    }
     const resetUrl = `${frontendUrl}/reset-password?token=${token}`;
 
     if (!this.enabled || !this.transporter) {

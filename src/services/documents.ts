@@ -4,6 +4,7 @@ import { eq, and, isNull, desc } from 'drizzle-orm';
 import { NotFoundError, ForbiddenError } from '../utils/errors';
 import { logger } from '../utils/logger';
 import { sseService } from './sse';
+import { getImageProvider } from './image-generation/factory';
 
 export class DocumentsService {
   async list(userId: string) {
@@ -83,6 +84,20 @@ export class DocumentsService {
     }
   ) {
     await this.get(documentId, userId);
+
+    // Validate dimensions if both are being updated
+    if (updates.defaultImageWidth !== undefined && updates.defaultImageHeight !== undefined) {
+      const provider = await getImageProvider();
+      if (!provider.validateDimensions(updates.defaultImageWidth, updates.defaultImageHeight)) {
+        const supportedDimensions = provider.getSupportedDimensions();
+        const dimensionsStr = supportedDimensions
+          .map((d) => `${d.width}x${d.height}`)
+          .join(', ');
+        throw new Error(
+          `Dimensions ${updates.defaultImageWidth}x${updates.defaultImageHeight} not supported by ${provider.name} provider. Supported sizes: ${dimensionsStr}`
+        );
+      }
+    }
 
     const [updated] = await db
       .update(documents)

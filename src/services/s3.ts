@@ -71,6 +71,18 @@ class S3Service {
     logger.info({ key }, 'Deleted object from S3');
   }
 
+  async uploadBuffer(buffer: Buffer, key: string, contentType: string = 'application/octet-stream'): Promise<void> {
+    const command = new PutObjectCommand({
+      Bucket: this.bucket,
+      Key: key,
+      Body: buffer,
+      ContentType: contentType,
+    });
+
+    await this.client.send(command);
+    logger.info({ key, size: buffer.length, contentType }, 'Uploaded buffer to S3');
+  }
+
   getBucket(): string {
     return this.bucket;
   }

@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
+import { GoogleGenAI, Type } from '@google/genai';
 import { logger } from '../utils/logger';
 
 const apiKey = process.env.GEMINI_API_KEY;
@@ -7,7 +7,7 @@ if (!apiKey) {
   logger.warn('GEMINI_API_KEY not configured');
 }
 
-const genAI = apiKey ? new GoogleGenerativeAI(apiKey) : null;
+const genAI = apiKey ? new GoogleGenAI({ apiKey }) : null;
 
 export interface StoryNodePassage {
   text: string;
@@ -34,26 +34,26 @@ export interface AnalysisResult {
 }
 
 const responseSchema = {
-  type: SchemaType.OBJECT,
+  type: Type.OBJECT,
   properties: {
     nodes: {
-      type: SchemaType.ARRAY,
+      type: Type.ARRAY,
       items: {
-        type: SchemaType.OBJECT,
+        type: Type.OBJECT,
         properties: {
           type: {
-            type: SchemaType.STRING,
+            type: Type.STRING,
             enum: ['character', 'location', 'event', 'other'],
           },
-          name: { type: SchemaType.STRING },
-          description: { type: SchemaType.STRING },
+          name: { type: Type.STRING },
+          description: { type: Type.STRING },
           passages: {
-            type: SchemaType.ARRAY,
+            type: Type.ARRAY,
             items: {
-              type: SchemaType.OBJECT,
+              type: Type.OBJECT,
               properties: {
-                text: { type: SchemaType.STRING },
-                context: { type: SchemaType.STRING, nullable: true },
+                text: { type: Type.STRING },
+                context: { type: Type.STRING, nullable: true },
               },
               required: ['text'],
             },
@@ -63,13 +63,13 @@ const responseSchema = {
       },
     },
     connections: {
-      type: SchemaType.ARRAY,
+      type: Type.ARRAY,
       items: {
-        type: SchemaType.OBJECT,
+        type: Type.OBJECT,
         properties: {
-          fromName: { type: SchemaType.STRING },
-          toName: { type: SchemaType.STRING },
-          description: { type: SchemaType.STRING },
+          fromName: { type: Type.STRING },
+          toName: { type: Type.STRING },
+          description: { type: Type.STRING },
         },
         required: ['fromName', 'toName', 'description'],
       },
@@ -83,13 +83,6 @@ export async function analyzeText(content: string): Promise<AnalysisResult> {
     throw new Error('Gemini API client not initialized - GEMINI_API_KEY missing');
   }
 
-  const model = genAI.getGenerativeModel({
-    model: 'gemini-3-flash-preview',
-    generationConfig: {
-      responseMimeType: 'application/json',
-      responseSchema: responseSchema as any,
-    },
-  });
   const prompt = `Analyze the following narrative text and extract story elements.
 
 CRITICAL RULES - FOLLOW EXACTLY:
@@ -122,23 +115,27 @@ Text to analyze:
 ${content}`;
 
   try {
-    const result = await model.generateContent(prompt);
+    const result = await genAI.models.generateContent({
+      model: 'gemini-2.0-flash-exp', // v1beta API - experimental has quota
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: responseSchema as any,
+      },
+    });
 
     console.log('=== GEMINI API RESULT ===');
     console.log('result exists:', !!result);
-    console.log('result.response exists:', !!result?.response);
-    console.log('result.response.candidates:', result?.response?.candidates);
+    console.log('result.candidates:', result?.candidates);
     console.log('========================');
 
-    if (!result?.response) {
+    if (!result) {
       throw new Error('Unable to analyze document. Please try again.');
     }
 
-    const response = result.response;
-
     // Check if the response was blocked or has no candidates
-    if (!response.candidates || response.candidates.length === 0) {
-      const blockReason = response.promptFeedback?.blockReason;
+    if (!result.candidates || result.candidates.length === 0) {
+      const blockReason = result.promptFeedback?.blockReason;
       if (blockReason) {
         console.error('Content was blocked:', blockReason);
         throw new Error('Unable to analyze document. The content may contain inappropriate material.');
@@ -146,7 +143,7 @@ ${content}`;
       throw new Error('Unable to analyze document. The content may have been filtered. Please try again.');
     }
 
-    const text = response.text();
+    const text = result.text;
     console.log('Gemini response text length:', text.length);
 
     if (!text || text.trim().length === 0) {

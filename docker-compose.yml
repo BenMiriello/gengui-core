@@ -53,6 +53,39 @@ services:
     networks:
       - gengui-network
 
+  mongodb:
+    image: mongo:7
+    container_name: gengui-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - gengui-network
+    restart: unless-stopped
+
+  growthbook:
+    image: growthbook/growthbook:latest
+    container_name: gengui-growthbook
+    environment:
+      # App config
+      APP_ORIGIN: http://localhost:3200
+      API_HOST: http://localhost:3100
+      NODE_ENV: production
+      # MongoDB connection (GrowthBook requires MongoDB, not Postgres)
+      MONGODB_URI: mongodb://mongodb:27017/growthbook
+      # Secrets (generate and add to .env)
+      JWT_SECRET: ${GROWTHBOOK_JWT_SECRET}
+      ENCRYPTION_KEY: ${GROWTHBOOK_ENCRYPTION_KEY}
+    ports:
+      - "3200:3000"  # GrowthBook UI (Next.js frontend) - host:container
+      - "3100:3100"  # GrowthBook API (backend)
+    depends_on:
+      - mongodb
+    networks:
+      - gengui-network
+    restart: unless-stopped
+
   core:
     build:
       context: .
@@ -80,6 +113,9 @@ services:
       ENABLE_RUNPOD: ${ENABLE_RUNPOD:-false}
       RUNPOD_API_KEY: ${RUNPOD_API_KEY:-}
       RUNPOD_ENDPOINT_ID: ${RUNPOD_ENDPOINT_ID:-}
+      # GrowthBook
+      GROWTHBOOK_API_HOST: ${GROWTHBOOK_API_HOST:-http://growthbook:3100}
+      GROWTHBOOK_CLIENT_KEY: ${GROWTHBOOK_CLIENT_KEY}
     ports:
       - "3001:3000"  # Host 3001 -> Container 3000 (avoid conflict with native)
     depends_on:
@@ -94,6 +130,7 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  mongodb_data:
 
 networks:
   gengui-network:
