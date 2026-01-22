@@ -1,3 +1,10 @@
+export interface ReferenceImage {
+  buffer: Buffer;
+  mimeType: string;
+  nodeId: string;
+  nodeName: string;
+}
+
 export interface GenerationInput {
   mediaId: string;
   userId: string;
@@ -6,6 +13,7 @@ export interface GenerationInput {
   width: number;
   height: number;
   stylePrompt?: string;
+  referenceImages?: ReferenceImage[];
 }
 
 export interface DimensionConstraint {

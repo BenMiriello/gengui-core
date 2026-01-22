@@ -8,6 +8,11 @@ import { getImageProvider } from './image-generation/factory';
 import { NotFoundError } from '../utils/errors';
 import { logger } from '../utils/logger';
 
+export interface CharacterReferences {
+  mode: 'auto' | 'manual';
+  selectedNodeIds?: string[];
+}
+
 export interface PromptEnhancement {
   enabled: boolean;
   charsBefore: number;
@@ -16,6 +21,7 @@ export interface PromptEnhancement {
   sceneTreatment: 'comprehensive' | 'focused' | 'selective-detail';
   selectiveDetailFocus?: string;
   strength: 'low' | 'medium' | 'high';
+  characterReferences?: CharacterReferences;
 }
 
 export interface GenerationRequest {

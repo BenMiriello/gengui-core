@@ -3,14 +3,18 @@ import { logger } from '../utils/logger';
 
 interface SSEClient {
   id: string;
-  documentId: string;
+  channel: string;
   res: Response;
 }
 
 class SSEService {
   private clients: Map<string, SSEClient> = new Map();
 
-  addClient(clientId: string, documentId: string, res: Response) {
+  /**
+   * Add an SSE client subscribed to a channel
+   * Channel format is caller-defined, e.g., "document:abc123", "node:xyz789"
+   */
+  addClient(clientId: string, channel: string, res: Response) {
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
@@ -20,47 +24,47 @@ class SSEService {
 
     res.flushHeaders();
 
-    this.clients.set(clientId, { id: clientId, documentId, res });
+    this.clients.set(clientId, { id: clientId, channel, res });
 
     res.write(`data: ${JSON.stringify({ type: 'connected' })}\n\n`);
 
-    console.log(`SSE client connected: ${clientId} for document ${documentId}`);
-    console.log(`Total SSE clients: ${this.clients.size}`);
+    logger.debug({ clientId, channel, totalClients: this.clients.size }, 'SSE client connected');
 
     res.on('close', () => {
       this.clients.delete(clientId);
-      console.log(`SSE client disconnected: ${clientId}`);
-      console.log(`Total SSE clients: ${this.clients.size}`);
+      logger.debug({ clientId, totalClients: this.clients.size }, 'SSE client disconnected');
     });
 
     res.on('error', (error) => {
-      console.error(`SSE client error for ${clientId}:`, error);
+      logger.error({ error, clientId }, 'SSE client error');
       this.clients.delete(clientId);
     });
 
     if (res.socket) {
       res.socket.on('error', (error) => {
-        console.error(`SSE socket error for ${clientId}:`, error);
+        logger.error({ error, clientId }, 'SSE socket error');
         this.clients.delete(clientId);
       });
     }
   }
 
-  broadcastToDocument(documentId: string, event: string, data: any) {
+  /**
+   * Broadcast an event to all clients subscribed to a channel
+   */
+  broadcast(channel: string, event: string, data: any) {
     const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 
-    const documentClients = Array.from(this.clients.values()).filter(
-      c => c.documentId === documentId
+    const channelClients = Array.from(this.clients.values()).filter(
+      c => c.channel === channel
     );
 
-    // Only log when there are actual clients to broadcast to
-    if (documentClients.length > 0) {
-      logger.debug({ event, documentId, clientCount: documentClients.length }, 'Broadcasting SSE event');
-    }
+    if (channelClients.length === 0) return;
+
+    logger.debug({ event, channel, clientCount: channelClients.length }, 'Broadcasting SSE event');
 
     let successCount = 0;
     for (const [clientId, client] of this.clients) {
-      if (client.documentId === documentId) {
+      if (client.channel === channel) {
         try {
           client.res.write(message);
           successCount++;
@@ -71,13 +75,15 @@ class SSEService {
       }
     }
 
-    // Only log successful broadcasts when clients exist
     if (successCount > 0) {
       logger.debug({ event, successCount }, 'SSE event sent');
     }
   }
 
-  broadcast(event: string, data: any) {
+  /**
+   * Broadcast to all connected clients (regardless of channel)
+   */
+  broadcastAll(event: string, data: any) {
     const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 
     for (const [clientId, client] of this.clients) {
@@ -88,6 +94,15 @@ class SSEService {
         this.clients.delete(clientId);
       }
     }
+  }
+
+  // Convenience wrappers for common channel types
+  broadcastToDocument(documentId: string, event: string, data: any) {
+    this.broadcast(`document:${documentId}`, event, data);
+  }
+
+  broadcastToNode(nodeId: string, event: string, data: any) {
+    this.broadcast(`node:${nodeId}`, event, data);
   }
 
   getClientCount(): number {

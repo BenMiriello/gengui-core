@@ -1,7 +1,7 @@
 import type { GenerationInput, DimensionWhitelist } from './types.js';
 
 export interface ImageGenerationProvider {
-  readonly name: 'local' | 'runpod' | 'gemini';
+  readonly name: 'local' | 'runpod' | 'gemini' | 'gemini-pro-image';
 
   /**
    * Check if this provider is enabled and configured
@@ -22,4 +22,9 @@ export interface ImageGenerationProvider {
    * Validate if the given dimensions are supported by this provider
    */
   validateDimensions(width: number, height: number): boolean;
+
+  /**
+   * Check if this provider supports reference images for character consistency
+   */
+  supportsReferenceImages(): boolean;
 }

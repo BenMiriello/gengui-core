@@ -20,6 +20,7 @@ interface CreateNodesParams {
   documentId: string;
   nodes: StoryNodeResult[];
   documentContent: string;
+  documentStyle?: { preset: string | null; prompt: string | null };
 }
 
 interface CreateConnectionsParams {
@@ -41,6 +42,7 @@ interface ApplyUpdatesParams {
       delete: { fromId: string; toId: string }[];
     };
   };
+  documentStyle?: { preset: string | null; prompt: string | null };
 }
 
 export const storyNodesRepository = {
@@ -69,6 +71,7 @@ export const storyNodesRepository = {
     documentId,
     nodes,
     documentContent,
+    documentStyle,
   }: CreateNodesParams): Promise<Map<string, string>> {
     const nodeNameToId = new Map<string, string>();
 
@@ -87,6 +90,8 @@ export const storyNodesRepository = {
           description: nodeData.description,
           passages: JSON.stringify(passages),
           metadata: nodeData.metadata ? JSON.stringify(nodeData.metadata) : null,
+          stylePreset: documentStyle?.preset,
+          stylePrompt: documentStyle?.prompt,
         })
         .returning({ id: storyNodes.id, name: storyNodes.name });
 
@@ -145,6 +150,7 @@ export const storyNodesRepository = {
     documentContent,
     existingNodes,
     updates,
+    documentStyle,
   }: ApplyUpdatesParams): Promise<{ added: number; updated: number; deleted: number }> {
     let added = 0;
     let updated = 0;
@@ -196,6 +202,8 @@ export const storyNodesRepository = {
           description: nodeData.description,
           passages: JSON.stringify(passages),
           metadata: nodeData.metadata ? JSON.stringify(nodeData.metadata) : null,
+          stylePreset: documentStyle?.preset,
+          stylePrompt: documentStyle?.prompt,
         })
         .returning({ id: storyNodes.id, name: storyNodes.name });
 

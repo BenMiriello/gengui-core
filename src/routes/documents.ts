@@ -6,8 +6,9 @@ import { presenceService } from '../services/presence';
 import { requireAuth } from '../middleware/auth';
 import { redisStreams } from '../services/redis-streams';
 import { db } from '../config/database';
-import { storyNodes, storyNodeConnections } from '../models/schema';
+import { storyNodes, storyNodeConnections, media } from '../models/schema';
 import { eq, and, or, inArray, isNull } from 'drizzle-orm';
+import { s3 } from '../services/s3';
 
 const router = Router();
 
@@ -119,7 +120,7 @@ router.get('/documents/:id/media/stream', requireAuth, async (req: Request, res:
     await documentsService.get(id, userId);
 
     const clientId = `${userId}-${id}-${Date.now()}`;
-    sseService.addClient(clientId, id, res);
+    sseService.addClient(clientId, `document:${id}`, res);
   } catch (error) {
     next(error);
   }
@@ -134,7 +135,7 @@ router.get('/documents/:id/stream', requireAuth, async (req: Request, res: Respo
     const sessionId = req.headers['x-session-id'] as string || `${userId}-${Date.now()}`;
     const clientId = `doc-${id}-${sessionId}`;
 
-    sseService.addClient(clientId, id, res);
+    sseService.addClient(clientId, `document:${id}`, res);
   } catch (error) {
     next(error);
   }
@@ -253,7 +254,37 @@ router.get('/documents/:id/story-nodes', requireAuth, async (req: Request, res: 
           )
       : [];
 
-    res.json({ nodes, connections });
+    // Fetch primary media URLs for nodes that have them
+    const nodesWithPrimaryMedia = nodes.filter(n => n.primaryMediaId);
+    let primaryMediaUrls: Record<string, string> = {};
+
+    if (nodesWithPrimaryMedia.length > 0) {
+      const mediaIds = nodesWithPrimaryMedia.map(n => n.primaryMediaId!);
+      const mediaRecords = await db
+        .select({ id: media.id, s3KeyThumb: media.s3KeyThumb, s3Key: media.s3Key })
+        .from(media)
+        .where(inArray(media.id, mediaIds));
+
+      // Generate presigned URLs for thumbnails (or full image if no thumb)
+      for (const m of mediaRecords) {
+        const key = m.s3KeyThumb || m.s3Key;
+        if (key) {
+          try {
+            primaryMediaUrls[m.id] = await s3.generateDownloadUrl(key);
+          } catch {
+            // Skip if URL generation fails
+          }
+        }
+      }
+    }
+
+    // Augment nodes with primaryMediaUrl
+    const nodesWithUrls = nodes.map(n => ({
+      ...n,
+      primaryMediaUrl: n.primaryMediaId ? primaryMediaUrls[n.primaryMediaId] : null,
+    }));
+
+    res.json({ nodes: nodesWithUrls, connections });
   } catch (error) {
     next(error);
   }

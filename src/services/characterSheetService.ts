@@ -5,16 +5,18 @@ import { db } from '../config/database';
 import { media, storyNodes, nodeMedia } from '../models/schema';
 import { eq, and, isNull } from 'drizzle-orm';
 import { logger } from '../utils/logger';
-import { getImageProvider } from './image-generation/factory';
-import type { CharacterSheetSettings } from '../types/generationSettings';
+import { getImageProvider, getImageProviderName } from './image-generation/factory';
+import type { CharacterSheetSettings, AspectRatio } from '../types/generationSettings';
 import { GENERATION_SETTINGS_SCHEMA_VERSION } from '../types/generationSettings';
+import { getDimensionsForAspectRatio, getModelIdForProvider } from '../config/models';
 
 interface GenerateCharacterSheetParams {
   nodeId: string;
   userId: string;
   settings: CharacterSheetSettings;
-  width?: number;
-  height?: number;
+  aspectRatio?: AspectRatio;
+  stylePreset?: string | null;
+  stylePrompt?: string | null;
 }
 
 export const characterSheetService = {
@@ -25,8 +27,9 @@ export const characterSheetService = {
     nodeId,
     userId,
     settings,
-    width = 1024,
-    height = 1024,
+    aspectRatio,
+    stylePreset,
+    stylePrompt,
   }: GenerateCharacterSheetParams) {
     // Fetch node and verify ownership
     const [node] = await db
@@ -45,8 +48,23 @@ export const characterSheetService = {
       throw new Error('Node not found');
     }
 
-    // Build prompt from node + settings
-    const prompt = this.buildPrompt(node, settings);
+    // Determine aspect ratio: explicit param > settings > default based on node type
+    const defaultAR: AspectRatio =
+      node.type === 'character' ? 'portrait' :
+      node.type === 'location' ? 'landscape' : 'square';
+    const finalAR = aspectRatio ?? settings.aspectRatio ?? defaultAR;
+
+    // Get dimensions for the current provider
+    const providerName = await getImageProviderName();
+    const modelId = getModelIdForProvider(providerName);
+    const { width, height } = getDimensionsForAspectRatio(finalAR, modelId);
+
+    // Use provided style or fall back to node's style
+    const finalStylePreset = stylePreset !== undefined ? stylePreset : node.stylePreset;
+    const finalStylePrompt = stylePrompt !== undefined ? stylePrompt : node.stylePrompt;
+
+    // Build prompt from node + settings + style
+    const prompt = this.buildPrompt(node, settings, finalStylePrompt);
 
     // Create media record
     const [newMedia] = await db
@@ -59,9 +77,11 @@ export const characterSheetService = {
         prompt,
         width,
         height,
+        stylePreset: finalStylePreset,
+        stylePrompt: finalStylePrompt,
         generationSettings: {
           type: 'character_sheet',
-          settings,
+          settings: { ...settings, aspectRatio: finalAR },
         },
         generationSettingsSchemaVersion: GENERATION_SETTINGS_SCHEMA_VERSION,
       })
@@ -79,21 +99,23 @@ export const characterSheetService = {
       mediaId: newMedia.id,
       userId,
       prompt,
+      seed: Math.floor(Math.random() * 1000000),
       width,
       height,
     });
 
-    logger.info({ mediaId: newMedia.id, nodeId }, 'Character sheet generation queued');
+    logger.info({ mediaId: newMedia.id, nodeId, aspectRatio: finalAR, width, height }, 'Character sheet generation queued');
 
     return newMedia;
   },
 
   /**
-   * Build generation prompt from node description and settings.
+   * Build generation prompt from node description, settings, and style.
    */
   buildPrompt(
     node: { type: string; name: string; description: string | null },
-    settings: CharacterSheetSettings
+    settings: CharacterSheetSettings,
+    stylePrompt?: string | null
   ): string {
     const parts: string[] = [];
 
@@ -133,6 +155,11 @@ export const characterSheetService = {
       parts.push('Transparent background, isolated subject, no environment.');
     } else if (settings.background === 'custom' && settings.backgroundCustom) {
       parts.push(`Background: ${settings.backgroundCustom}`);
+    }
+
+    // Add style prompt if provided
+    if (stylePrompt) {
+      parts.push(stylePrompt);
     }
 
     // Add character sheet style hints

@@ -83,6 +83,29 @@ class S3Service {
     logger.info({ key, size: buffer.length, contentType }, 'Uploaded buffer to S3');
   }
 
+  async downloadBuffer(key: string): Promise<Buffer> {
+    const command = new GetObjectCommand({
+      Bucket: this.bucket,
+      Key: key,
+    });
+
+    const response = await this.client.send(command);
+
+    if (!response.Body) {
+      throw new Error(`No body in S3 response for key: ${key}`);
+    }
+
+    // Convert stream to buffer
+    const chunks: Uint8Array[] = [];
+    const stream = response.Body as NodeJS.ReadableStream;
+
+    return new Promise((resolve, reject) => {
+      stream.on('data', (chunk: Uint8Array) => chunks.push(chunk));
+      stream.on('end', () => resolve(Buffer.concat(chunks)));
+      stream.on('error', reject);
+    });
+  }
+
   getBucket(): string {
     return this.bucket;
   }

@@ -3,6 +3,7 @@ import type { ImageGenerationProvider } from './provider.interface.js';
 import { localWorkerProvider } from './providers/local-worker.provider.js';
 import { runpodProvider } from './providers/runpod.provider.js';
 import { geminiImagenProvider } from './providers/gemini-imagen.provider.js';
+import { geminiProImageProvider } from './providers/gemini-pro-image.provider.js';
 import { getGrowthBook } from '../growthbook.js';
 
 let cachedProvider: ImageGenerationProvider | null = null;
@@ -30,6 +31,9 @@ export async function getImageProvider(): Promise<ImageGenerationProvider> {
     case 'runpod':
       cachedProvider = runpodProvider;
       break;
+    case 'gemini-pro-image':
+      cachedProvider = geminiProImageProvider;
+      break;
     case 'gemini':
     default:
       cachedProvider = geminiImagenProvider;
@@ -40,8 +44,25 @@ export async function getImageProvider(): Promise<ImageGenerationProvider> {
 }
 
 /**
+ * Get the provider that supports reference images
+ * Used when character references are included in generation
+ */
+export function getReferenceImageProvider(): ImageGenerationProvider {
+  return geminiProImageProvider;
+}
+
+/**
  * Reset the cached provider (useful for testing)
  */
 export function resetProviderCache(): void {
   cachedProvider = null;
+  cachedProviderName = null;
+}
+
+/**
+ * Get the current provider name (from GrowthBook or env)
+ */
+export async function getImageProviderName(): Promise<string> {
+  const gb = await getGrowthBook();
+  return gb.getFeatureValue('image_provider', env.IMAGE_INFERENCE_PROVIDER);
 }

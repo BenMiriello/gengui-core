@@ -14,6 +14,11 @@ import {
 
 const router = Router();
 
+const characterReferencesSchema = z.object({
+  mode: z.enum(['auto', 'manual']),
+  selectedNodeIds: z.array(z.string().uuid()).optional(),
+});
+
 const promptEnhancementSchema = z.object({
   enabled: z.boolean(),
   charsBefore: z.number().int().min(0).max(2000),
@@ -22,6 +27,7 @@ const promptEnhancementSchema = z.object({
   sceneTreatment: z.enum(['comprehensive', 'focused', 'selective-detail']),
   selectiveDetailFocus: z.string().max(200).optional(),
   strength: z.enum(['low', 'medium', 'high']),
+  characterReferences: characterReferencesSchema.optional(),
 });
 
 const createGenerationSchema = z.object({

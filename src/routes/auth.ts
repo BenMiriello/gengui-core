@@ -216,13 +216,14 @@ router.get('/auth/preferences', requireAuth, async (req: Request, res: Response,
 router.patch('/auth/preferences', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = (req as any).user.id;
-    const { defaultImageWidth, defaultImageHeight, defaultStylePreset, hiddenPresetIds } = req.body;
+    const { defaultImageWidth, defaultImageHeight, defaultStylePreset, hiddenPresetIds, nodeTypeStyleDefaults } = req.body;
 
     const preferences = await authService.updateUserPreferences(userId, {
       defaultImageWidth,
       defaultImageHeight,
       defaultStylePreset,
       hiddenPresetIds,
+      nodeTypeStyleDefaults,
     });
 
     res.json({ preferences });

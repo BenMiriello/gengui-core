@@ -65,6 +65,10 @@ class RunPodProvider implements ImageGenerationProvider {
 
     return true;
   }
+
+  supportsReferenceImages(): boolean {
+    return false;
+  }
 }
 
 export const runpodProvider = new RunPodProvider();

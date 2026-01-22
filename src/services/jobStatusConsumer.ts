@@ -1,6 +1,6 @@
 import { db } from '../config/database';
-import { media, documentMedia } from '../models/schema';
-import { eq } from 'drizzle-orm';
+import { media, documentMedia, nodeMedia, storyNodes } from '../models/schema';
+import { eq, and, isNull } from 'drizzle-orm';
 import { logger } from '../utils/logger';
 import { sseService } from './sse';
 import { StreamMessage, redisStreams as sharedRedisStreams } from './redis-streams';
@@ -120,6 +120,9 @@ class JobStatusConsumer extends BlockingConsumer {
 
       // Queue thumbnail generation (use shared client for producer operations)
       await sharedRedisStreams.add('thumbnail:stream', { mediaId });
+
+      // Auto-set primary for character sheets if node has no primary
+      await this.autoSetPrimaryForCharacterSheet(mediaId);
     } else if (status === 'failed') {
       // Check if job was cancelled
       const [job] = await db
@@ -174,6 +177,7 @@ class JobStatusConsumer extends BlockingConsumer {
 
   private async broadcastMediaUpdate(mediaId: string) {
     try {
+      // Broadcast to document if this media belongs to a document
       const docMedia = await db
         .select({ documentId: documentMedia.documentId })
         .from(documentMedia)
@@ -185,8 +189,71 @@ class JobStatusConsumer extends BlockingConsumer {
         sseService.broadcastToDocument(documentId, 'media-update', { mediaId });
         logger.debug({ mediaId, documentId }, 'Broadcasted media update via SSE');
       }
+
+      // Broadcast to node if this media belongs to a node (character sheet)
+      const nodeMed = await db
+        .select({ nodeId: nodeMedia.nodeId })
+        .from(nodeMedia)
+        .where(eq(nodeMedia.mediaId, mediaId))
+        .limit(1);
+
+      if (nodeMed.length > 0) {
+        const nodeId = nodeMed[0].nodeId;
+        sseService.broadcastToNode(nodeId, 'node-media-update', { mediaId });
+        logger.debug({ mediaId, nodeId }, 'Broadcasted node media update via SSE');
+      }
     } catch (error) {
       logger.error({ error, mediaId }, 'Failed to broadcast media update');
+    }
+  }
+
+  /**
+   * Auto-set primary media for character sheet if the node has no primary.
+   */
+  private async autoSetPrimaryForCharacterSheet(mediaId: string) {
+    try {
+      // Check if this is a character sheet
+      const [mediaRecord] = await db
+        .select({ mediaRole: media.mediaRole })
+        .from(media)
+        .where(eq(media.id, mediaId))
+        .limit(1);
+
+      if (mediaRecord?.mediaRole !== 'character_sheet') {
+        return;
+      }
+
+      // Find the associated node
+      const [nodeMed] = await db
+        .select({ nodeId: nodeMedia.nodeId })
+        .from(nodeMedia)
+        .where(eq(nodeMedia.mediaId, mediaId))
+        .limit(1);
+
+      if (!nodeMed) {
+        return;
+      }
+
+      // Check if node has no primary media
+      const [node] = await db
+        .select({ primaryMediaId: storyNodes.primaryMediaId })
+        .from(storyNodes)
+        .where(and(eq(storyNodes.id, nodeMed.nodeId), isNull(storyNodes.deletedAt)))
+        .limit(1);
+
+      if (!node || node.primaryMediaId) {
+        return;
+      }
+
+      // Set this media as primary
+      await db
+        .update(storyNodes)
+        .set({ primaryMediaId: mediaId, updatedAt: new Date() })
+        .where(eq(storyNodes.id, nodeMed.nodeId));
+
+      logger.info({ nodeId: nodeMed.nodeId, mediaId }, 'Auto-set first completed character sheet as primary');
+    } catch (error) {
+      logger.error({ error, mediaId }, 'Failed to auto-set primary for character sheet');
     }
   }
 }

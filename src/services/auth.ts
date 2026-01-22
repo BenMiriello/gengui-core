@@ -540,6 +540,7 @@ export class AuthService {
         defaultImageHeight: users.defaultImageHeight,
         defaultStylePreset: users.defaultStylePreset,
         hiddenPresetIds: users.hiddenPresetIds,
+        nodeTypeStyleDefaults: users.nodeTypeStyleDefaults,
       })
       .from(users)
       .where(eq(users.id, userId))
@@ -552,6 +553,7 @@ export class AuthService {
     return {
       ...user,
       hiddenPresetIds: user.hiddenPresetIds || [],
+      nodeTypeStyleDefaults: user.nodeTypeStyleDefaults || null,
     };
   }
 
@@ -562,6 +564,7 @@ export class AuthService {
       defaultImageHeight?: number;
       defaultStylePreset?: string;
       hiddenPresetIds?: string[];
+      nodeTypeStyleDefaults?: Record<string, { presetId: string; prompt?: string }> | null;
     }
   ) {
     const updates: any = {};
@@ -577,6 +580,9 @@ export class AuthService {
     }
     if (preferences.hiddenPresetIds !== undefined) {
       updates.hiddenPresetIds = preferences.hiddenPresetIds;
+    }
+    if (preferences.nodeTypeStyleDefaults !== undefined) {
+      updates.nodeTypeStyleDefaults = preferences.nodeTypeStyleDefaults;
     }
 
     if (Object.keys(updates).length === 0) {
@@ -606,6 +612,7 @@ export class AuthService {
         defaultImageHeight: users.defaultImageHeight,
         defaultStylePreset: users.defaultStylePreset,
         hiddenPresetIds: users.hiddenPresetIds,
+        nodeTypeStyleDefaults: users.nodeTypeStyleDefaults,
       });
 
     logger.info({ userId, updates }, 'User preferences updated');
@@ -613,6 +620,7 @@ export class AuthService {
     return {
       ...user,
       hiddenPresetIds: user.hiddenPresetIds || [],
+      nodeTypeStyleDefaults: user.nodeTypeStyleDefaults || null,
     };
   }
 

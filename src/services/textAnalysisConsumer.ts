@@ -89,12 +89,16 @@ class TextAnalysisConsumer extends BlockingConsumer {
       await storyNodesRepository.deleteAllForDocument(documentId, userId);
     }
 
-    // Create nodes and connections
+    // Create nodes and connections (inherit document style)
     const nodeNameToId = await storyNodesRepository.createNodes({
       userId,
       documentId,
       nodes: analysis.nodes,
       documentContent: document.content,
+      documentStyle: {
+        preset: document.defaultStylePreset,
+        prompt: document.defaultStylePrompt,
+      },
     });
 
     const connectionsCreated = await storyNodesRepository.createConnections({
@@ -143,13 +147,17 @@ class TextAnalysisConsumer extends BlockingConsumer {
     logger.info({ documentId, existingNodeCount: existingNodes.length }, 'Calling Gemini updateNodes');
     const updates = await updateNodes(document.content, existingNodes);
 
-    // Apply updates
+    // Apply updates (new nodes inherit document style)
     const result = await storyNodesRepository.applyUpdates({
       userId,
       documentId,
       documentContent: document.content,
       existingNodes: existingDbNodes.map(n => ({ id: n.id, name: n.name })),
       updates,
+      documentStyle: {
+        preset: document.defaultStylePreset,
+        prompt: document.defaultStylePrompt,
+      },
     });
 
     this.broadcast(documentId, 'nodes-updated', result);

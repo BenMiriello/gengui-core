@@ -8,6 +8,7 @@ export const GENERATION_SETTINGS_SCHEMA_VERSION = 1;
 export type CharacterFraming = 'portrait' | 'full_body';
 export type PlacePerspective = 'exterior' | 'interior' | 'custom';
 export type BackgroundType = 'white' | 'black' | 'transparent' | 'custom';
+export type AspectRatio = 'portrait' | 'square' | 'landscape';
 
 export interface CharacterSheetSettings {
   /** For characters: portrait (head/shoulders) or full body */
@@ -26,6 +27,9 @@ export interface CharacterSheetSettings {
 
   /** Custom description (only used if manualEdit=true) */
   customDescription?: string;
+
+  /** Aspect ratio for the generated image */
+  aspectRatio?: AspectRatio;
 }
 
 export interface GenerationSettingsRecord {

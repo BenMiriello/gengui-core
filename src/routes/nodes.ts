@@ -1,7 +1,12 @@
 import { Router } from 'express';
+import { randomUUID } from 'crypto';
 import { requireAuth, requireEmailVerified } from '../middleware/auth';
 import { characterSheetService } from '../services/characterSheetService';
+import { sseService } from '../services/sse';
 import { z } from 'zod';
+import { db } from '../config/database';
+import { storyNodes } from '../models/schema';
+import { eq, and, isNull } from 'drizzle-orm';
 
 const router = Router();
 
@@ -17,12 +22,18 @@ const characterSheetSettingsSchema = z.object({
 
 const generateCharacterSheetSchema = z.object({
   settings: characterSheetSettingsSchema,
-  width: z.number().int().min(512).max(2048).optional(),
-  height: z.number().int().min(512).max(2048).optional(),
+  aspectRatio: z.enum(['portrait', 'square', 'landscape']).optional(),
+  stylePreset: z.string().max(50).nullable().optional(),
+  stylePrompt: z.string().max(2000).nullable().optional(),
 });
 
 const setPrimaryMediaSchema = z.object({
   mediaId: z.string().uuid(),
+});
+
+const updateNodeStyleSchema = z.object({
+  stylePreset: z.string().max(50).nullable(),
+  stylePrompt: z.string().max(2000).nullable(),
 });
 
 // Generate character sheet for a node
@@ -37,8 +48,9 @@ router.post(
         nodeId: req.params.id,
         userId: req.user!.id,
         settings: validatedData.settings,
-        width: validatedData.width,
-        height: validatedData.height,
+        aspectRatio: validatedData.aspectRatio,
+        stylePreset: validatedData.stylePreset,
+        stylePrompt: validatedData.stylePrompt,
       });
 
       res.status(201).json({
@@ -101,6 +113,68 @@ router.get('/nodes/:id', requireAuth, async (req, res, next) => {
   } catch (error) {
     if (error instanceof Error && error.message === 'Node not found') {
       res.status(404).json({ error: { message: 'Node not found', code: 'NOT_FOUND' } });
+      return;
+    }
+    next(error);
+  }
+});
+
+// SSE stream for node media updates
+router.get('/nodes/:id/stream', requireAuth, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    // Verify node exists and user has access
+    await characterSheetService.getNodeMedia(id, req.user!.id);
+
+    const clientId = randomUUID();
+    sseService.addClient(clientId, `node:${id}`, res);
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Node not found') {
+      res.status(404).json({ error: { message: 'Node not found', code: 'NOT_FOUND' } });
+      return;
+    }
+    next(error);
+  }
+});
+
+// Update node style
+router.patch('/nodes/:id/style', requireAuth, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const validatedData = updateNodeStyleSchema.parse(req.body);
+
+    // Verify ownership and update
+    const [updated] = await db
+      .update(storyNodes)
+      .set({
+        stylePreset: validatedData.stylePreset,
+        stylePrompt: validatedData.stylePrompt,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(storyNodes.id, id),
+          eq(storyNodes.userId, req.user!.id),
+          isNull(storyNodes.deletedAt)
+        )
+      )
+      .returning();
+
+    if (!updated) {
+      res.status(404).json({ error: { message: 'Node not found', code: 'NOT_FOUND' } });
+      return;
+    }
+
+    res.json({
+      id: updated.id,
+      stylePreset: updated.stylePreset,
+      stylePrompt: updated.stylePrompt,
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({
+        error: { message: 'Invalid request', code: 'VALIDATION_ERROR', details: error.issues },
+      });
       return;
     }
     next(error);

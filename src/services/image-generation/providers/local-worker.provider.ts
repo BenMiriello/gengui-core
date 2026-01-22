@@ -39,6 +39,10 @@ class LocalWorkerProvider implements ImageGenerationProvider {
 
     return true;
   }
+
+  supportsReferenceImages(): boolean {
+    return false;
+  }
 }
 
 export const localWorkerProvider = new LocalWorkerProvider();
