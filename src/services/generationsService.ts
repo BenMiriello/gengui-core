@@ -85,7 +85,7 @@ export class GenerationsService {
       .insert(media)
       .values({
         userId,
-        type: 'generation',
+        sourceType: 'generation',
         status: initialStatus,
         prompt: request.prompt,
         seed,
@@ -209,7 +209,7 @@ export class GenerationsService {
         and(
           eq(media.id, id),
           eq(media.userId, userId),
-          eq(media.type, 'generation'),
+          eq(media.sourceType, 'generation'),
           notDeleted(media.deletedAt)
         )
       )
@@ -229,7 +229,7 @@ export class GenerationsService {
       .where(
         and(
           eq(media.userId, userId),
-          eq(media.type, 'generation'),
+          eq(media.sourceType, 'generation'),
           notDeleted(media.deletedAt)
         )
       )

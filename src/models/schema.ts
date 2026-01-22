@@ -15,7 +15,7 @@ import {
 import { relations, sql } from 'drizzle-orm';
 
 export const modelTypeEnum = pgEnum('model_type', ['lora', 'checkpoint', 'other']);
-export const mediaTypeEnum = pgEnum('media_type', ['upload', 'generation']);
+export const sourceTypeEnum = pgEnum('source_type', ['upload', 'generation']);
 export const mediaStatusEnum = pgEnum('media_status', ['queued', 'augmenting', 'processing', 'completed', 'failed']);
 export const userRoleEnum = pgEnum('user_role', ['user', 'admin']);
 export const storyNodeTypeEnum = pgEnum('story_node_type', ['character', 'location', 'event', 'other']);
@@ -87,8 +87,9 @@ export const media = pgTable('media', {
   userId: uuid('user_id')
     .notNull()
     .references(() => users.id, { onDelete: 'cascade' }),
-  type: mediaTypeEnum('type').default('upload').notNull(),
+  sourceType: sourceTypeEnum('source_type').default('upload').notNull(),
   status: mediaStatusEnum('status').default('completed').notNull(),
+  mediaRole: varchar('media_role', { length: 20 }),
   storageKey: varchar('storage_key', { length: 512 }),
   s3Key: varchar('s3_key', { length: 512 }),
   s3KeyThumb: varchar('s3_key_thumb', { length: 512 }),
@@ -106,6 +107,8 @@ export const media = pgTable('media', {
   attempts: integer('attempts').default(0).notNull(),
   cancelledAt: timestamp('cancelled_at'),
   generated: boolean('generated').default(false).notNull(),
+  generationSettings: jsonb('generation_settings'),
+  generationSettingsSchemaVersion: integer('generation_settings_schema_version'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),
@@ -113,9 +116,10 @@ export const media = pgTable('media', {
   userIdIdx: index('media_user_id_idx').on(table.userId),
   createdAtIdx: index('media_created_at_idx').on(table.createdAt),
   hashIdx: index('media_hash_idx').on(table.hash),
-  typeStatusIdx: index('media_type_status_idx').on(table.type, table.status),
-  userTypeIdx: index('media_user_type_idx').on(table.userId, table.type),
+  sourceTypeStatusIdx: index('media_source_type_status_idx').on(table.sourceType, table.status),
+  userSourceTypeIdx: index('media_user_source_type_idx').on(table.userId, table.sourceType),
   userCreatedIdx: index('media_user_created_idx').on(table.userId, table.createdAt),
+  mediaRoleIdx: index('media_role_idx').on(table.mediaRole).where(sql`media_role IS NOT NULL`),
   s3KeyThumbIdx: index('media_s3_key_thumb_idx')
     .on(table.s3KeyThumb)
     .where(sql`s3_key_thumb IS NOT NULL`),
@@ -279,6 +283,7 @@ export const mediaRelations = relations(media, ({ one, many }) => ({
   mediaTags: many(mediaTags),
   modelInputs: many(modelInputs),
   documentMedia: many(documentMedia),
+  nodeMedia: many(nodeMedia),
 }));
 
 export const tagsRelations = relations(tags, ({ one, many }) => ({
@@ -358,11 +363,16 @@ export const storyNodes = pgTable('story_nodes', {
   description: text('description'),
   passages: jsonb('passages'),
   metadata: jsonb('metadata'),
+  primaryMediaId: uuid('primary_media_id').references(() => media.id),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  deletedAt: timestamp('deleted_at'),
 }, (table) => ({
   userIdIdx: index('story_nodes_user_id_idx').on(table.userId),
   documentIdIdx: index('story_nodes_document_id_idx').on(table.documentId),
+  activeIdx: index('story_nodes_active_idx')
+    .on(table.documentId, table.userId)
+    .where(sql`deleted_at IS NULL`),
 }));
 
 export const storyNodeConnections = pgTable('story_node_connections', {
@@ -376,9 +386,29 @@ export const storyNodeConnections = pgTable('story_node_connections', {
   description: text('description'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  deletedAt: timestamp('deleted_at'),
 }, (table) => ({
   fromNodeIdIdx: index('story_node_connections_from_node_id_idx').on(table.fromNodeId),
   toNodeIdIdx: index('story_node_connections_to_node_id_idx').on(table.toNodeId),
+  activeIdx: index('story_node_connections_active_idx')
+    .on(table.fromNodeId, table.toNodeId)
+    .where(sql`deleted_at IS NULL`),
+}));
+
+export const nodeMedia = pgTable('node_media', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  nodeId: uuid('node_id')
+    .notNull()
+    .references(() => storyNodes.id, { onDelete: 'cascade' }),
+  mediaId: uuid('media_id')
+    .notNull()
+    .references(() => media.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  deletedAt: timestamp('deleted_at'),
+}, (table) => ({
+  nodeIdIdx: index('node_media_node_idx').on(table.nodeId).where(sql`deleted_at IS NULL`),
+  mediaIdIdx: index('node_media_media_idx').on(table.mediaId).where(sql`deleted_at IS NULL`),
+  uniqueNodeMedia: uniqueIndex('node_media_unique').on(table.nodeId, table.mediaId),
 }));
 
 export const documentMediaRelations = relations(documentMedia, ({ one }) => ({
@@ -408,8 +438,13 @@ export const storyNodesRelations = relations(storyNodes, ({ one, many }) => ({
     fields: [storyNodes.documentId],
     references: [documents.id],
   }),
+  primaryMedia: one(media, {
+    fields: [storyNodes.primaryMediaId],
+    references: [media.id],
+  }),
   connectionsFrom: many(storyNodeConnections, { relationName: 'fromNode' }),
   connectionsTo: many(storyNodeConnections, { relationName: 'toNode' }),
+  nodeMedia: many(nodeMedia),
 }));
 
 export const storyNodeConnectionsRelations = relations(storyNodeConnections, ({ one }) => ({
@@ -422,5 +457,16 @@ export const storyNodeConnectionsRelations = relations(storyNodeConnections, ({ 
     fields: [storyNodeConnections.toNodeId],
     references: [storyNodes.id],
     relationName: 'toNode',
+  }),
+}));
+
+export const nodeMediaRelations = relations(nodeMedia, ({ one }) => ({
+  node: one(storyNodes, {
+    fields: [nodeMedia.nodeId],
+    references: [storyNodes.id],
+  }),
+  media: one(media, {
+    fields: [nodeMedia.mediaId],
+    references: [media.id],
   }),
 }));

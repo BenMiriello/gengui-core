@@ -209,7 +209,7 @@ async getDocumentsByMediaId(mediaId: string, userId: string, requestedFields?: s
       .select({
         id: media.id,
         userId: media.userId,
-        type: media.type,
+        sourceType: media.sourceType,
         status: media.status,
         storageKey: media.storageKey,
         s3Key: media.s3Key,

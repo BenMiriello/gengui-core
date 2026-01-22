@@ -86,7 +86,7 @@ class JobReconciliationService {
       .from(media)
       .where(
         and(
-          eq(media.type, 'generation'),
+          eq(media.sourceType, 'generation'),
           or(eq(media.status, 'queued'), eq(media.status, 'processing')),
           isNull(media.cancelledAt), // Skip cancelled jobs
           lt(media.updatedAt, stalenessThreshold)

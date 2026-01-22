@@ -137,7 +137,7 @@ export class AdminService {
         .where(
           and(
             inArray(media.userId, userIds),
-            eq(media.type, 'generation')
+            eq(media.sourceType, 'generation')
           )
         )
         .groupBy(media.userId);
@@ -242,7 +242,7 @@ export class AdminService {
       .select({ value: count() })
       .from(media)
       .where(
-        sql`${media.userId} = ${userId} AND ${media.type} = 'generation'`
+        sql`${media.userId} = ${userId} AND ${media.sourceType} = 'generation'`
       );
 
     // Get account age
