@@ -3,7 +3,7 @@ import { createApp } from './app';
 import { logger } from './utils/logger';
 import { jobStatusConsumer } from './services/jobStatusConsumer';
 import { jobReconciliationService } from './services/runpod';
-import { textAnalysisService } from './services/textAnalysisService';
+import { textAnalysisConsumer } from './services/textAnalysisConsumer';
 import { promptAugmentationService } from './services/promptAugmentationService';
 import { startReconciliationJob } from './jobs/reconcileGenerations';
 import { startCleanupJob } from './jobs/cleanupSoftDeleted';
@@ -22,7 +22,7 @@ const server = app.listen(env.PORT, '0.0.0.0', async () => {
   try {
     await jobStatusConsumer.start();
     await jobReconciliationService.start();
-    await textAnalysisService.start();
+    await textAnalysisConsumer.start();
     await promptAugmentationService.start();
     startReconciliationJob();
     startCleanupJob();
@@ -35,7 +35,7 @@ process.on('SIGTERM', async () => {
   logger.info('SIGTERM received, shutting down gracefully');
   await jobStatusConsumer.stop();
   await jobReconciliationService.stop();
-  textAnalysisService.stop();
+  textAnalysisConsumer.stop();
   promptAugmentationService.stop();
   server.close(() => {
     logger.info('Server closed');
@@ -47,7 +47,7 @@ process.on('SIGINT', async () => {
   logger.info('SIGINT received, shutting down gracefully');
   await jobStatusConsumer.stop();
   await jobReconciliationService.stop();
-  textAnalysisService.stop();
+  textAnalysisConsumer.stop();
   promptAugmentationService.stop();
   server.close(() => {
     logger.info('Server closed');

@@ -7,7 +7,7 @@ import { requireAuth } from '../middleware/auth';
 import { redisStreams } from '../services/redis-streams';
 import { db } from '../config/database';
 import { storyNodes, storyNodeConnections } from '../models/schema';
-import { eq, and, or, inArray } from 'drizzle-orm';
+import { eq, and, or, inArray, isNull } from 'drizzle-orm';
 
 const router = Router();
 
@@ -224,22 +224,31 @@ router.get('/documents/:id/story-nodes', requireAuth, async (req: Request, res: 
     const userId = (req as any).user.id;
     const { id } = req.params;
 
-    // Fetch story nodes
+    // Fetch active story nodes (not soft deleted)
     const nodes = await db
       .select()
       .from(storyNodes)
-      .where(and(eq(storyNodes.documentId, id), eq(storyNodes.userId, userId)));
+      .where(
+        and(
+          eq(storyNodes.documentId, id),
+          eq(storyNodes.userId, userId),
+          isNull(storyNodes.deletedAt)
+        )
+      );
 
-    // Fetch connections for these nodes
+    // Fetch active connections for these nodes
     const nodeIds = nodes.map(n => n.id);
     const connections = nodeIds.length > 0
       ? await db
           .select()
           .from(storyNodeConnections)
           .where(
-            or(
-              inArray(storyNodeConnections.fromNodeId, nodeIds),
-              inArray(storyNodeConnections.toNodeId, nodeIds)
+            and(
+              or(
+                inArray(storyNodeConnections.fromNodeId, nodeIds),
+                inArray(storyNodeConnections.toNodeId, nodeIds)
+              ),
+              isNull(storyNodeConnections.deletedAt)
             )
           )
       : [];
@@ -250,15 +259,36 @@ router.get('/documents/:id/story-nodes', requireAuth, async (req: Request, res: 
   }
 });
 
+router.patch('/documents/:id/story-nodes', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = (req as any).user.id;
+    const { id } = req.params;
+
+    // Verify user owns document
+    await documentsService.get(id, userId);
+
+    // Queue update request
+    await redisStreams.add('text-analysis:stream', {
+      documentId: id,
+      userId,
+      updateMode: 'true',
+    });
+
+    res.status(202).json({ message: 'Update queued' });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.delete('/documents/:id/story-nodes', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = (req as any).user.id;
     const { id } = req.params;
 
-    // Delete all story nodes for this document
-    // Connections will cascade delete via foreign key constraint
+    // Soft delete all story nodes for this document
     await db
-      .delete(storyNodes)
+      .update(storyNodes)
+      .set({ deletedAt: new Date() })
       .where(and(eq(storyNodes.documentId, id), eq(storyNodes.userId, userId)));
 
     res.json({ success: true });
