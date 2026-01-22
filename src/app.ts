@@ -12,6 +12,7 @@ import generationsRoutes from './routes/generations';
 import documentsRoutes from './routes/documents';
 import customStylePromptsRoutes from './routes/customStylePrompts';
 import adminRoutes from './routes/admin';
+import nodesRoutes from './routes/nodes';
 
 export function createApp() {
   const app = express();
@@ -64,6 +65,7 @@ export function createApp() {
   app.use('/api', documentsRoutes);
   app.use('/api', customStylePromptsRoutes);
   app.use('/api', adminRoutes);
+  app.use('/api', nodesRoutes);
 
   app.use(errorHandler);
 
