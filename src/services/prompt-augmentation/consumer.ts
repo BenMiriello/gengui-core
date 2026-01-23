@@ -23,7 +23,7 @@ interface AugmentationJobData {
   selectedText: string;
   startChar: number;
   endChar: number;
-  settings: PromptEnhancementSettings;
+  settings: string; // JSON string from Redis - must be parsed
   stylePrompt: string;
   seed: string;
   width: string;
@@ -79,7 +79,10 @@ class PromptAugmentationConsumer extends BlockingConsumer {
     message: StreamMessage
   ) {
     const jobData = message.data as unknown as AugmentationJobData;
-    const { mediaId, userId, documentId, selectedText, startChar, endChar, settings, stylePrompt, seed, width, height } = jobData;
+    const { mediaId, userId, documentId, selectedText, startChar, endChar, stylePrompt, seed, width, height } = jobData;
+
+    // Parse settings from JSON string (Redis stores all values as strings)
+    const settings: PromptEnhancementSettings = JSON.parse(jobData.settings);
 
     if (!mediaId || !userId || !documentId) {
       logger.error({ data: message.data }, 'Augmentation request missing required fields');
