@@ -4,7 +4,7 @@ import { logger } from './utils/logger';
 import { jobStatusConsumer } from './services/jobStatusConsumer';
 import { jobReconciliationService } from './services/runpod';
 import { textAnalysisConsumer } from './services/textAnalysisConsumer';
-import { promptAugmentationService } from './services/promptAugmentationService';
+import { promptAugmentationService } from './services/prompt-augmentation';
 import { startReconciliationJob } from './jobs/reconcileGenerations';
 import { startCleanupJob } from './jobs/cleanupSoftDeleted';
 import blocked from 'blocked-at';

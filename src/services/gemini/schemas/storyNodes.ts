@@ -2,28 +2,28 @@
  * Gemini-specific JSON schemas for structured output.
  * These define the expected response format from Gemini API.
  */
-import { Type } from '@google/genai';
+import { GeminiType } from '../core';
 
 const passageSchema = {
-  type: Type.OBJECT,
+  type: GeminiType.OBJECT,
   properties: {
-    text: { type: Type.STRING },
-    context: { type: Type.STRING, nullable: true },
+    text: { type: GeminiType.STRING },
+    context: { type: GeminiType.STRING, nullable: true },
   },
   required: ['text'],
 };
 
 const nodeSchema = {
-  type: Type.OBJECT,
+  type: GeminiType.OBJECT,
   properties: {
     type: {
-      type: Type.STRING,
+      type: GeminiType.STRING,
       enum: ['character', 'location', 'event', 'other'],
     },
-    name: { type: Type.STRING },
-    description: { type: Type.STRING },
+    name: { type: GeminiType.STRING },
+    description: { type: GeminiType.STRING },
     passages: {
-      type: Type.ARRAY,
+      type: GeminiType.ARRAY,
       items: passageSchema,
     },
   },
@@ -31,25 +31,25 @@ const nodeSchema = {
 };
 
 const connectionSchema = {
-  type: Type.OBJECT,
+  type: GeminiType.OBJECT,
   properties: {
-    fromName: { type: Type.STRING },
-    toName: { type: Type.STRING },
-    description: { type: Type.STRING },
+    fromName: { type: GeminiType.STRING },
+    toName: { type: GeminiType.STRING },
+    description: { type: GeminiType.STRING },
   },
   required: ['fromName', 'toName', 'description'],
 };
 
 /** Schema for fresh text analysis */
 export const analyzeResponseSchema = {
-  type: Type.OBJECT,
+  type: GeminiType.OBJECT,
   properties: {
     nodes: {
-      type: Type.ARRAY,
+      type: GeminiType.ARRAY,
       items: nodeSchema,
     },
     connections: {
-      type: Type.ARRAY,
+      type: GeminiType.ARRAY,
       items: connectionSchema,
     },
   },
@@ -58,22 +58,22 @@ export const analyzeResponseSchema = {
 
 /** Schema for incremental node updates */
 export const updateNodesResponseSchema = {
-  type: Type.OBJECT,
+  type: GeminiType.OBJECT,
   properties: {
     add: {
-      type: Type.ARRAY,
+      type: GeminiType.ARRAY,
       items: nodeSchema,
     },
     update: {
-      type: Type.ARRAY,
+      type: GeminiType.ARRAY,
       items: {
-        type: Type.OBJECT,
+        type: GeminiType.OBJECT,
         properties: {
-          id: { type: Type.STRING },
-          name: { type: Type.STRING, nullable: true },
-          description: { type: Type.STRING, nullable: true },
+          id: { type: GeminiType.STRING },
+          name: { type: GeminiType.STRING, nullable: true },
+          description: { type: GeminiType.STRING, nullable: true },
           passages: {
-            type: Type.ARRAY,
+            type: GeminiType.ARRAY,
             nullable: true,
             items: passageSchema,
           },
@@ -82,33 +82,33 @@ export const updateNodesResponseSchema = {
       },
     },
     delete: {
-      type: Type.ARRAY,
-      items: { type: Type.STRING },
+      type: GeminiType.ARRAY,
+      items: { type: GeminiType.STRING },
     },
     connectionUpdates: {
-      type: Type.OBJECT,
+      type: GeminiType.OBJECT,
       properties: {
         add: {
-          type: Type.ARRAY,
+          type: GeminiType.ARRAY,
           items: {
-            type: Type.OBJECT,
+            type: GeminiType.OBJECT,
             properties: {
-              fromId: { type: Type.STRING, nullable: true },
-              toId: { type: Type.STRING, nullable: true },
-              fromName: { type: Type.STRING, nullable: true },
-              toName: { type: Type.STRING, nullable: true },
-              description: { type: Type.STRING },
+              fromId: { type: GeminiType.STRING, nullable: true },
+              toId: { type: GeminiType.STRING, nullable: true },
+              fromName: { type: GeminiType.STRING, nullable: true },
+              toName: { type: GeminiType.STRING, nullable: true },
+              description: { type: GeminiType.STRING },
             },
             required: ['description'],
           },
         },
         delete: {
-          type: Type.ARRAY,
+          type: GeminiType.ARRAY,
           items: {
-            type: Type.OBJECT,
+            type: GeminiType.OBJECT,
             properties: {
-              fromId: { type: Type.STRING },
-              toId: { type: Type.STRING },
+              fromId: { type: GeminiType.STRING },
+              toId: { type: GeminiType.STRING },
             },
             required: ['fromId', 'toId'],
           },

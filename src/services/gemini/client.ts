@@ -2,7 +2,6 @@
  * Gemini API client for story node analysis.
  * Thin wrapper handling API calls, retries, and error handling.
  */
-import { GoogleGenAI } from '@google/genai';
 import { logger } from '../../utils/logger';
 import type {
   AnalysisResult,
@@ -14,14 +13,7 @@ import {
   analyzeResponseSchema,
   updateNodesResponseSchema,
 } from './schemas/storyNodes';
-
-const apiKey = process.env.GEMINI_API_KEY;
-
-if (!apiKey) {
-  logger.warn('GEMINI_API_KEY not configured');
-}
-
-const genAI = apiKey ? new GoogleGenAI({ apiKey }) : null;
+import { getGeminiClient } from './core';
 
 const MAX_RETRIES = 3;
 const RETRY_DELAYS = [1000, 2000, 4000];
@@ -30,14 +22,15 @@ const RETRY_DELAYS = [1000, 2000, 4000];
  * Analyze narrative text and extract story elements.
  */
 export async function analyzeText(content: string): Promise<AnalysisResult> {
-  if (!genAI) {
+  const client = await getGeminiClient();
+  if (!client) {
     throw new Error('Gemini API client not initialized - GEMINI_API_KEY missing');
   }
 
   const prompt = analyzeTextPrompt.build({ content });
 
   try {
-    const result = await genAI.models.generateContent({
+    const result = await client.models.generateContent({
       model: analyzeTextPrompt.model,
       contents: prompt,
       config: {
@@ -67,7 +60,8 @@ export async function updateNodes(
   content: string,
   existingNodes: ExistingNode[]
 ): Promise<NodeUpdatesResult> {
-  if (!genAI) {
+  const client = await getGeminiClient();
+  if (!client) {
     throw new Error('Gemini API client not initialized - GEMINI_API_KEY missing');
   }
 
@@ -76,7 +70,7 @@ export async function updateNodes(
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
-      const result = await genAI.models.generateContent({
+      const result = await client.models.generateContent({
         model: updateNodesPrompt.model,
         contents: prompt,
         config: {
