@@ -31,26 +31,30 @@ const server = app.listen(env.PORT, '0.0.0.0', async () => {
   }
 });
 
-process.on('SIGTERM', async () => {
-  logger.info('SIGTERM received, shutting down gracefully');
-  await jobStatusConsumer.stop();
-  await jobReconciliationService.stop();
-  textAnalysisConsumer.stop();
-  promptAugmentationService.stop();
-  server.close(() => {
-    logger.info('Server closed');
-    process.exit(0);
-  });
-});
+const shutdown = async (signal: string) => {
+  logger.info(`${signal} received, shutting down gracefully`);
 
-process.on('SIGINT', async () => {
-  logger.info('SIGINT received, shutting down gracefully');
-  await jobStatusConsumer.stop();
-  await jobReconciliationService.stop();
-  textAnalysisConsumer.stop();
-  promptAugmentationService.stop();
-  server.close(() => {
-    logger.info('Server closed');
-    process.exit(0);
-  });
-});
+  // Force exit after 5s if graceful shutdown hangs
+  const forceExit = setTimeout(() => {
+    logger.warn('Graceful shutdown timed out, forcing exit');
+    process.exit(1);
+  }, 5000);
+
+  try {
+    await jobStatusConsumer.stop();
+    await jobReconciliationService.stop();
+    textAnalysisConsumer.stop();
+    promptAugmentationService.stop();
+    server.close(() => {
+      clearTimeout(forceExit);
+      logger.info('Server closed');
+      process.exit(0);
+    });
+  } catch (err) {
+    logger.error({ err }, 'Error during shutdown');
+    process.exit(1);
+  }
+};
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));

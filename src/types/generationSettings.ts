@@ -18,8 +18,8 @@ export interface CharacterSheetSettings {
   perspective?: PlacePerspective;
   perspectiveCustom?: string;
 
-  /** Background style */
-  background: BackgroundType;
+  /** Background style (optional - omit for locations) */
+  background?: BackgroundType;
   backgroundCustom?: string;
 
   /** If true, user provided custom description instead of auto-generated */

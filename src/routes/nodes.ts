@@ -14,7 +14,7 @@ const characterSheetSettingsSchema = z.object({
   framing: z.enum(['portrait', 'full_body']).optional(),
   perspective: z.enum(['exterior', 'interior', 'custom']).optional(),
   perspectiveCustom: z.string().max(200).optional(),
-  background: z.enum(['white', 'black', 'transparent', 'custom']),
+  background: z.enum(['white', 'black', 'transparent', 'custom']).optional(),
   backgroundCustom: z.string().max(200).optional(),
   manualEdit: z.boolean(),
   customDescription: z.string().max(2000).optional(),
