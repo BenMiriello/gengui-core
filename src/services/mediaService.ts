@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { db } from '../config/database';
 import { media, documents, documentMedia, nodeMedia, storyNodes } from '../models/schema';
-import { eq, and, desc, getTableColumns } from 'drizzle-orm';
+import { eq, and, desc, getTableColumns, or, isNull, notInArray } from 'drizzle-orm';
 import { notDeleted } from '../utils/db';
 import { storageProvider } from './storage';
 import { redisStreams } from './redis-streams';
@@ -100,11 +100,22 @@ export class MediaService {
     return { id: result.id, storageKey: result.storageKey, url };
   }
 
-  async list(userId: string, limit: number = 50, _cursor?: string) {
+  async list(userId: string, limit: number = 50, options?: { excludeRoles?: string[] }) {
+    const conditions = [eq(media.userId, userId), notDeleted(media.deletedAt)];
+
+    if (options?.excludeRoles?.length) {
+      conditions.push(
+        or(
+          isNull(media.mediaRole),
+          notInArray(media.mediaRole, options.excludeRoles)
+        )!
+      );
+    }
+
     const query = db
       .select()
       .from(media)
-      .where(and(eq(media.userId, userId), notDeleted(media.deletedAt)))
+      .where(and(...conditions))
       .orderBy(desc(media.createdAt))
       .limit(limit);
 

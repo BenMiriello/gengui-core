@@ -1,4 +1,4 @@
-import cron from 'node-cron';
+import cron, { type ScheduledTask } from 'node-cron';
 import { db } from '../config/database';
 import { media } from '../models/schema';
 import { inArray, eq } from 'drizzle-orm';
@@ -7,8 +7,8 @@ import { logger } from '../utils/logger';
 
 const RECONCILIATION_JOB_INTERVAL_MINUTES = 2;
 
-export function startReconciliationJob() {
-  cron.schedule(`*/${RECONCILIATION_JOB_INTERVAL_MINUTES} * * * *`, async () => {
+export function startReconciliationJob(): ScheduledTask {
+  const task = cron.schedule(`*/${RECONCILIATION_JOB_INTERVAL_MINUTES} * * * *`, async () => {
     try {
       const stuckMedia = await db
         .select({ id: media.id })
@@ -49,4 +49,5 @@ export function startReconciliationJob() {
   });
 
   logger.info(`Reconciliation job scheduled (runs every ${RECONCILIATION_JOB_INTERVAL_MINUTES} minutes)`);
+  return task;
 }

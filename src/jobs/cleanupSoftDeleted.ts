@@ -1,4 +1,4 @@
-import cron from 'node-cron';
+import cron, { type ScheduledTask } from 'node-cron';
 import { db } from '../config/database';
 import { storyNodes, storyNodeConnections, nodeMedia } from '../models/schema';
 import { lt } from 'drizzle-orm';
@@ -14,8 +14,8 @@ function getDaysAgo(days: number): Date {
   return date;
 }
 
-export function startCleanupJob() {
-  cron.schedule(CLEANUP_JOB_SCHEDULE, async () => {
+export function startCleanupJob(): ScheduledTask {
+  const task = cron.schedule(CLEANUP_JOB_SCHEDULE, async () => {
     const threshold = getDaysAgo(RETENTION_DAYS);
     const results: Record<string, number> = {};
 
@@ -54,4 +54,5 @@ export function startCleanupJob() {
   });
 
   logger.info('Soft delete cleanup job scheduled (runs daily at 2 AM)');
+  return task;
 }

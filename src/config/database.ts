@@ -23,3 +23,7 @@ export async function testConnection() {
     return false;
   }
 }
+
+export async function closeDatabase() {
+  await queryClient.end();
+}

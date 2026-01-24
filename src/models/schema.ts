@@ -206,6 +206,8 @@ export const documents = pgTable('documents', {
   defaultStylePrompt: text('default_style_prompt'),
   defaultImageWidth: integer('default_image_width').default(1024),
   defaultImageHeight: integer('default_image_height').default(1024),
+  narrativeModeEnabled: boolean('narrative_mode_enabled').default(false).notNull(),
+  mediaModeEnabled: boolean('media_mode_enabled').default(false).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),

@@ -14,6 +14,8 @@ export class DocumentsService {
         userId: documents.userId,
         title: documents.title,
         content: documents.content,
+        narrativeModeEnabled: documents.narrativeModeEnabled,
+        mediaModeEnabled: documents.mediaModeEnabled,
         createdAt: documents.createdAt,
         updatedAt: documents.updatedAt,
       })
@@ -81,6 +83,8 @@ export class DocumentsService {
       defaultStylePrompt?: string | null;
       defaultImageWidth?: number;
       defaultImageHeight?: number;
+      narrativeModeEnabled?: boolean;
+      mediaModeEnabled?: boolean;
     }
   ) {
     await this.get(documentId, userId);
@@ -109,6 +113,8 @@ export class DocumentsService {
         ...(updates.defaultStylePrompt !== undefined && { defaultStylePrompt: updates.defaultStylePrompt }),
         ...(updates.defaultImageWidth !== undefined && { defaultImageWidth: updates.defaultImageWidth }),
         ...(updates.defaultImageHeight !== undefined && { defaultImageHeight: updates.defaultImageHeight }),
+        ...(updates.narrativeModeEnabled !== undefined && { narrativeModeEnabled: updates.narrativeModeEnabled }),
+        ...(updates.mediaModeEnabled !== undefined && { mediaModeEnabled: updates.mediaModeEnabled }),
         updatedAt: new Date(),
       })
       .where(eq(documents.id, documentId))

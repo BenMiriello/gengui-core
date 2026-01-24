@@ -69,6 +69,8 @@ router.patch('/documents/:id', requireAuth, async (req: Request, res: Response, 
       defaultStylePrompt,
       defaultImageWidth,
       defaultImageHeight,
+      narrativeModeEnabled,
+      mediaModeEnabled,
     } = req.body;
 
     const document = await documentsService.update(
@@ -82,6 +84,28 @@ router.patch('/documents/:id', requireAuth, async (req: Request, res: Response, 
         defaultStylePrompt,
         defaultImageWidth,
         defaultImageHeight,
+        narrativeModeEnabled,
+        mediaModeEnabled,
+      }
+    );
+    res.json({ document });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.patch('/documents/:id/modes', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = (req as any).user.id;
+    const { id } = req.params;
+    const { narrativeModeEnabled, mediaModeEnabled } = req.body;
+
+    const document = await documentsService.update(
+      id,
+      userId,
+      {
+        narrativeModeEnabled,
+        mediaModeEnabled,
       }
     );
     res.json({ document });

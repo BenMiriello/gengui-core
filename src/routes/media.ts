@@ -31,9 +31,10 @@ router.post('/', requireAuth, upload.single('file'), async (req, res, next) => {
 router.get('/', requireAuth, async (req, res, next) => {
   try {
     const limit = parseInt(req.query.limit as string) || 50;
-    const cursor = req.query.cursor as string | undefined;
+    const excludeRolesParam = req.query.excludeRoles as string | undefined;
+    const excludeRoles = excludeRolesParam ? excludeRolesParam.split(',') : undefined;
 
-    const results = await mediaService.list(req.user!.id, limit, cursor);
+    const results = await mediaService.list(req.user!.id, limit, { excludeRoles });
 
     res.json({ media: results, count: results.length });
   } catch (error) {

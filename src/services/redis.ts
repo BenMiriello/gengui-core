@@ -4,6 +4,7 @@ import { logger } from '../utils/logger';
 class RedisService {
   private client: Redis;
   private subscriber: Redis;
+  private monitorInterval: NodeJS.Timeout | null = null;
 
   constructor() {
     const redisUrl = process.env.REDIS_URL;
@@ -58,7 +59,7 @@ class RedisService {
     });
 
     // Monitor command queue size
-    setInterval(() => {
+    this.monitorInterval = setInterval(() => {
       const commandQueue = (this.client as any).commandQueue;
       const offlineQueue = (this.client as any).offlineQueue;
       if (commandQueue && commandQueue.length > 0) {
@@ -187,6 +188,10 @@ class RedisService {
   }
 
   async disconnect(): Promise<void> {
+    if (this.monitorInterval) {
+      clearInterval(this.monitorInterval);
+      this.monitorInterval = null;
+    }
     await this.client.quit();
     await this.subscriber.quit();
     logger.info('Redis connections closed');
