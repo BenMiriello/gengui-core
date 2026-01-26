@@ -358,6 +358,11 @@ See `.env.example` for all configuration options.
 - `LOG_LEVEL` - Logging level (default: info)
 - `NODE_ENV` - Environment (development/production)
 
+**Database Pool (tune for prod):**
+- `DB_POOL_MAX` - Max connections (default: 5 dev, 10 prod)
+- `DB_IDLE_TIMEOUT` - Close idle connections after N seconds (default: 20)
+- `DB_CONNECT_TIMEOUT` - Connection timeout seconds (default: 10 dev, 5 prod)
+
 **RunPod Integration (for serverless GPU workers):**
 - `ENABLE_RUNPOD` - Set to `true` to use RunPod serverless workers (default: `false`)
 - `RUNPOD_API_KEY` - RunPod API key (required if `ENABLE_RUNPOD=true`)

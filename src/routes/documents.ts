@@ -126,11 +126,14 @@ router.delete('/documents/:id', requireAuth, async (req: Request, res: Response,
 });
 
 router.get('/documents/:id/media', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  const start = Date.now();
   try {
     const userId = (req as any).user.id;
     const { id } = req.params;
     await documentsService.get(id, userId);
+    console.log(`[GET /documents/${id}/media] Auth check took ${Date.now() - start}ms`);
     const media = await mediaService.getDocumentMedia(id);
+    console.log(`[GET /documents/${id}/media] Total took ${Date.now() - start}ms`);
     res.json({ media });
   } catch (error) {
     next(error);
