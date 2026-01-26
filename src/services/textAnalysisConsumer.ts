@@ -25,7 +25,7 @@ class TextAnalysisConsumer extends BlockingConsumer {
     await this.streams.ensureGroupOnce('text-analysis:stream', 'text-analysis-processors');
   }
 
-  protected async consumeLoop() {
+  protected async consumeLoop(): Promise<void> {
     const consumerName = `text-analysis-processor-${process.pid}`;
 
     while (this.isRunning) {
@@ -40,7 +40,15 @@ class TextAnalysisConsumer extends BlockingConsumer {
         if (result) {
           await this.handleMessage(result);
         }
-      } catch (error) {
+      } catch (error: any) {
+        // Shutdown in progress - exit gracefully
+        if (!this.isRunning) break;
+
+        // Redis disconnected during shutdown
+        if (error?.message?.includes('Connection') || error?.code === 'ERR_CONNECTION_CLOSED') {
+          break;
+        }
+
         logger.error({ error }, 'Error in text analysis consumer loop');
         await new Promise(resolve => setTimeout(resolve, 1000));
       }

@@ -39,7 +39,7 @@ class PromptAugmentationConsumer extends BlockingConsumer {
     await this.streams.ensureGroupOnce('prompt-augmentation:stream', 'prompt-augmentation-processors');
   }
 
-  protected async consumeLoop() {
+  protected async consumeLoop(): Promise<void> {
     const consumerName = `prompt-augmentation-processor-${process.pid}`;
 
     while (this.isRunning) {
@@ -66,7 +66,15 @@ class PromptAugmentationConsumer extends BlockingConsumer {
             await this.streams.ack('prompt-augmentation:stream', 'prompt-augmentation-processors', result.id);
           }
         }
-      } catch (error) {
+      } catch (error: any) {
+        // Shutdown in progress - exit gracefully
+        if (!this.isRunning) break;
+
+        // Redis disconnected during shutdown
+        if (error?.message?.includes('Connection') || error?.code === 'ERR_CONNECTION_CLOSED') {
+          break;
+        }
+
         logger.error({ error }, 'Error in prompt augmentation consumer loop');
         await new Promise(resolve => setTimeout(resolve, 1000));
       }

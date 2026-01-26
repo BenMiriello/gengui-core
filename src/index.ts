@@ -9,6 +9,7 @@ import { startReconciliationJob } from './jobs/reconcileGenerations';
 import { startCleanupJob } from './jobs/cleanupSoftDeleted';
 import { redis } from './services/redis';
 import { closeDatabase } from './config/database';
+import { sseService } from './services/sse';
 import type { ScheduledTask } from 'node-cron';
 import blocked from 'blocked-at';
 
@@ -48,34 +49,53 @@ const shutdown = async (signal: string) => {
 
   logger.info(`${signal} received, shutting down gracefully`);
 
-  // Force exit after 5s if graceful shutdown hangs
+  // Force exit after 10s if graceful shutdown hangs
   const forceExit = setTimeout(() => {
     logger.warn('Graceful shutdown timed out, forcing exit');
     process.exit(1);
-  }, 5000);
+  }, 10000);
 
   try {
-    // Stop cron jobs first
+    // Stop cron jobs first (quick)
     if (reconciliationTask) reconciliationTask.stop();
     if (cleanupTask) cleanupTask.stop();
 
-    // Stop consumers
-    await jobStatusConsumer.stop();
-    await jobReconciliationService.stop();
-    textAnalysisConsumer.stop();
-    promptAugmentationService.stop();
+    // Stop all consumers in parallel (each has dedicated Redis connection)
+    await Promise.all([
+      jobStatusConsumer.stop(),
+      jobReconciliationService.stop(),
+      textAnalysisConsumer.stop(),
+      promptAugmentationService.stop(),
+    ]);
 
-    // Close connections
+    // Close SSE connections before closing server
+    sseService.closeAll();
+
+    // Close shared Redis connections
     await redis.disconnect();
+
+    // Close database
     await closeDatabase();
 
-    server.close(() => {
-      clearTimeout(forceExit);
-      logger.info('Server closed');
-      process.exit(0);
+    // Close HTTP server with timeout
+    await new Promise<void>((resolve) => {
+      const closeTimeout = setTimeout(() => {
+        logger.warn('Server close timed out, continuing shutdown');
+        resolve();
+      }, 3000);
+
+      server.close(() => {
+        clearTimeout(closeTimeout);
+        resolve();
+      });
     });
+
+    clearTimeout(forceExit);
+    logger.info('Graceful shutdown complete');
+    process.exit(0);
   } catch (err) {
     logger.error({ err }, 'Error during shutdown');
+    clearTimeout(forceExit);
     process.exit(1);
   }
 };

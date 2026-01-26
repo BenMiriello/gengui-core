@@ -39,6 +39,7 @@ export abstract class BlockingConsumer {
   protected redisClient: Redis;
   protected streams: ConsumerStreams;
   private serviceName: string;
+  private loopPromise: Promise<void> | null = null;
 
   constructor(serviceName: string) {
     this.serviceName = serviceName;
@@ -73,7 +74,7 @@ export abstract class BlockingConsumer {
     logger.info({ service: this.serviceName }, 'Starting consumer...');
 
     await this.onStart();
-    this.consumeLoop();
+    this.loopPromise = this.consumeLoop();
 
     logger.info({ service: this.serviceName }, 'Consumer started successfully');
   }
@@ -83,8 +84,17 @@ export abstract class BlockingConsumer {
 
     logger.info({ service: this.serviceName }, 'Stopping consumer...');
     this.isRunning = false;
+
+    // Force disconnect to unblock any pending XREADGROUP calls
+    this.redisClient.disconnect();
+
+    // Wait for the consume loop to exit
+    if (this.loopPromise) {
+      await this.loopPromise;
+      this.loopPromise = null;
+    }
+
     await this.onStop();
-    await this.redisClient.quit();
     logger.info({ service: this.serviceName }, 'Consumer stopped');
   }
 
@@ -100,6 +110,7 @@ export abstract class BlockingConsumer {
 
   /**
    * Implement the main consume loop. This method should run while this.isRunning is true.
+   * Must handle Redis disconnect errors gracefully (check !this.isRunning before logging errors).
    */
-  protected abstract consumeLoop(): void;
+  protected abstract consumeLoop(): Promise<void>;
 }

@@ -38,6 +38,8 @@ const {
  */
 class JobReconciliationService {
   private isRunning = false;
+  private loopPromise: Promise<void> | null = null;
+  private sleepResolve: (() => void) | null = null;
 
   async start() {
     if (this.isRunning) {
@@ -59,12 +61,12 @@ class JobReconciliationService {
       'Starting job reconciliation service...'
     );
 
-    this.reconcileLoop();
+    this.loopPromise = this.reconcileLoop();
 
     logger.info('Job reconciliation service started successfully');
   }
 
-  private async reconcileLoop() {
+  private async reconcileLoop(): Promise<void> {
     while (this.isRunning) {
       try {
         await this.reconcileStuckJobs();
@@ -72,9 +74,25 @@ class JobReconciliationService {
         logger.error({ error }, 'Error in reconciliation loop');
       }
 
-      // Wait for next interval
-      await new Promise(resolve => setTimeout(resolve, RECONCILIATION_INTERVAL_MS));
+      // Interruptible wait for next interval
+      if (this.isRunning) {
+        await this.interruptibleSleep(RECONCILIATION_INTERVAL_MS);
+      }
     }
+  }
+
+  private interruptibleSleep(ms: number): Promise<void> {
+    return new Promise(resolve => {
+      const timeout = setTimeout(() => {
+        this.sleepResolve = null;
+        resolve();
+      }, ms);
+
+      this.sleepResolve = () => {
+        clearTimeout(timeout);
+        resolve();
+      };
+    });
   }
 
   private async reconcileStuckJobs() {
@@ -408,6 +426,19 @@ class JobReconciliationService {
 
     logger.info('Stopping job reconciliation service...');
     this.isRunning = false;
+
+    // Wake up from interruptible sleep
+    if (this.sleepResolve) {
+      this.sleepResolve();
+      this.sleepResolve = null;
+    }
+
+    // Wait for loop to exit
+    if (this.loopPromise) {
+      await this.loopPromise;
+      this.loopPromise = null;
+    }
+
     logger.info('Job reconciliation service stopped');
   }
 }

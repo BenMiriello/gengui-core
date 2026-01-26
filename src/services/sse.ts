@@ -108,6 +108,26 @@ class SSEService {
   getClientCount(): number {
     return this.clients.size;
   }
+
+  /**
+   * Force-close all SSE connections during shutdown
+   */
+  closeAll(): void {
+    if (this.clients.size === 0) return;
+
+    logger.info({ clientCount: this.clients.size }, 'Closing all SSE connections');
+
+    for (const [, client] of this.clients) {
+      try {
+        client.res.write(`event: shutdown\ndata: ${JSON.stringify({ reason: 'server_shutdown' })}\n\n`);
+        client.res.end();
+      } catch {
+        // Connection may already be closed
+      }
+    }
+
+    this.clients.clear();
+  }
 }
 
 export const sseService = new SSEService();

@@ -17,7 +17,7 @@ class JobStatusConsumer extends BlockingConsumer {
     await this.streams.ensureGroupOnce('thumbnail:stream', 'thumbnail-processors');
   }
 
-  protected async consumeLoop() {
+  protected async consumeLoop(): Promise<void> {
     const consumerName = `status-processor-${process.pid}`;
 
     while (this.isRunning) {
@@ -55,7 +55,15 @@ class JobStatusConsumer extends BlockingConsumer {
             await this.streams.ack('thumbnail:stream', 'thumbnail-processors', thumbnailResult.id);
           }
         }
-      } catch (error) {
+      } catch (error: any) {
+        // Shutdown in progress - exit gracefully
+        if (!this.isRunning) break;
+
+        // Redis disconnected during shutdown
+        if (error?.message?.includes('Connection') || error?.code === 'ERR_CONNECTION_CLOSED') {
+          break;
+        }
+
         logger.error({ error }, 'Error in job status consumer loop');
         await new Promise(resolve => setTimeout(resolve, 1000));
       }
