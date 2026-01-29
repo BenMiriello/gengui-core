@@ -10,10 +10,10 @@ import { startCleanupJob } from './jobs/cleanupSoftDeleted';
 import { redis } from './services/redis';
 import { closeDatabase } from './config/database';
 import { sseService } from './services/sse';
+import { graphService } from './services/graph/graph.service';
 import type { ScheduledTask } from 'node-cron';
 import blocked from 'blocked-at';
 
-// Monitor event loop blocking
 blocked((time, stack) => {
   logger.warn({ time, stack: stack.slice(0, 5) }, `[EVENT LOOP BLOCKED] for ${time}ms`);
 }, { threshold: 100 });
@@ -49,18 +49,15 @@ const shutdown = async (signal: string) => {
 
   logger.info(`${signal} received, shutting down gracefully`);
 
-  // Force exit after 10s if graceful shutdown hangs
   const forceExit = setTimeout(() => {
     logger.warn('Graceful shutdown timed out, forcing exit');
     process.exit(1);
-  }, 10000);
+  }, 5000);
 
   try {
-    // Stop cron jobs first (quick)
     if (reconciliationTask) reconciliationTask.stop();
     if (cleanupTask) cleanupTask.stop();
 
-    // Stop all consumers in parallel (each has dedicated Redis connection)
     await Promise.all([
       jobStatusConsumer.stop(),
       jobReconciliationService.stop(),
@@ -68,16 +65,14 @@ const shutdown = async (signal: string) => {
       promptAugmentationService.stop(),
     ]);
 
-    // Close SSE connections before closing server
     sseService.closeAll();
 
-    // Close shared Redis connections
     await redis.disconnect();
 
-    // Close database
+    await graphService.disconnect();
+
     await closeDatabase();
 
-    // Close HTTP server with timeout
     await new Promise<void>((resolve) => {
       const closeTimeout = setTimeout(() => {
         logger.warn('Server close timed out, continuing shutdown');

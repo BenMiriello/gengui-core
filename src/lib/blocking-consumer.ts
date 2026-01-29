@@ -88,9 +88,15 @@ export abstract class BlockingConsumer {
     // Force disconnect to unblock any pending XREADGROUP calls
     this.redisClient.disconnect();
 
-    // Wait for the consume loop to exit
+    // Wait for the consume loop to exit, but with a timeout
     if (this.loopPromise) {
-      await this.loopPromise;
+      const loopTimeout = new Promise<void>((resolve) => {
+        setTimeout(() => {
+          logger.warn({ service: this.serviceName }, 'Consumer loop did not exit in time, continuing shutdown');
+          resolve();
+        }, 3000);
+      });
+      await Promise.race([this.loopPromise, loopTimeout]);
       this.loopPromise = null;
     }
 

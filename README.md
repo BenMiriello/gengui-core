@@ -264,8 +264,8 @@ core/
 npm run dev              # Start with hot-reload
 npm run build            # Compile TypeScript
 npm start                # Run production build
-npm run db:push          # Push schema changes to DB
-npm run db:migrate       # Run migrations
+npm run db:generate      # Generate migration from schema changes
+npm run db:migrate       # Run pending migrations
 npm run db:seed          # Insert test user
 
 # Docker
@@ -273,6 +273,20 @@ npm run docker:up        # Start docker services
 npm run docker:down      # Stop docker services
 npm run docker:logs      # Stream container logs
 ```
+
+## Database Migrations
+
+Schema changes use Drizzle Kit migrations (never `db:push` in shared environments).
+
+**Workflow:**
+1. Edit `src/models/schema.ts`
+2. `npm run db:generate` - creates migration SQL in `drizzle/`
+3. Review generated SQL
+4. `npm run db:migrate` - applies to database
+
+**Fresh environment:** `npm run db:migrate` applies all migrations sequentially.
+
+**Files:** `drizzle/*.sql` (migrations), `drizzle/meta/` (snapshots + journal)
 
 ## Stopping Services
 

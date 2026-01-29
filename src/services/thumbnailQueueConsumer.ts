@@ -19,7 +19,7 @@ class ThumbnailQueueConsumer extends BlockingConsumer {
     while (this.isRunning) {
       try {
         const result = await this.streams.consume(streamName, groupName, consumerName, {
-          block: 10000
+          block: 2000
         });
 
         if (!result) continue;

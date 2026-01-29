@@ -53,6 +53,25 @@ services:
     networks:
       - gengui-network
 
+  falkordb:
+    image: falkordb/falkordb:latest
+    container_name: gengui-falkordb
+    ports:
+      - "6381:6379"
+    volumes:
+      - falkordb_data:/var/lib/falkordb/data
+    environment:
+      - FALKORDB_THREADCOUNT=4
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "6379",
+  "GRAPH.QUERY", "test", "RETURN 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - gengui-network
+    restart: unless-stopped
+
   mongodb:
     image: mongo:7
     container_name: gengui-mongodb
@@ -130,6 +149,7 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  falkordb_data:
   mongodb_data:
 
 networks:

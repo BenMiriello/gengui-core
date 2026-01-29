@@ -5,6 +5,7 @@ import { NotFoundError, ForbiddenError } from '../utils/errors';
 import { logger } from '../utils/logger';
 import { sseService } from './sse';
 import { getImageProvider } from './image-generation/factory';
+import { versioningService } from './versioning';
 
 export class DocumentsService {
   async list(userId: string) {
@@ -77,7 +78,7 @@ export class DocumentsService {
     userId: string,
     updates: {
       content?: string;
-      contentJson?: any;
+      yjsState?: string;
       title?: string;
       defaultStylePreset?: string | null;
       defaultStylePrompt?: string | null;
@@ -103,11 +104,16 @@ export class DocumentsService {
       }
     }
 
+    // Create version if yjsState is provided (content save)
+    if (updates.yjsState && updates.content !== undefined) {
+      await versioningService.createVersion(documentId, updates.yjsState, updates.content);
+    }
+
     const [updated] = await db
       .update(documents)
       .set({
         ...(updates.content !== undefined && { content: updates.content }),
-        ...(updates.contentJson !== undefined && { contentJson: updates.contentJson }),
+        ...(updates.yjsState !== undefined && { yjsState: updates.yjsState }),
         ...(updates.title !== undefined && { title: updates.title }),
         ...(updates.defaultStylePreset !== undefined && { defaultStylePreset: updates.defaultStylePreset }),
         ...(updates.defaultStylePrompt !== undefined && { defaultStylePrompt: updates.defaultStylePrompt }),

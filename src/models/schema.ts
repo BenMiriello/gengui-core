@@ -36,9 +36,9 @@ export const users = pgTable('users', {
   hiddenPresetIds: text('hidden_preset_ids').array(),
   nodeTypeStyleDefaults: jsonb('node_type_style_defaults'),
   failedLoginAttempts: integer('failed_login_attempts').default(0).notNull(),
-  lockedUntil: timestamp('locked_until'),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  lockedUntil: timestamp('locked_until', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
 export const sessions = pgTable('sessions', {
@@ -47,9 +47,9 @@ export const sessions = pgTable('sessions', {
     .notNull()
     .references(() => users.id, { onDelete: 'cascade' }),
   token: varchar('token', { length: 255 }).notNull().unique(),
-  expiresAt: timestamp('expires_at').notNull(),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  lastActivityAt: timestamp('last_activity_at'),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  lastActivityAt: timestamp('last_activity_at', { withTimezone: true }),
   ipAddress: varchar('ip_address', { length: 45 }),
   userAgent: text('user_agent'),
 }, (table) => ({
@@ -63,8 +63,8 @@ export const passwordResetTokens = pgTable('password_reset_tokens', {
     .notNull()
     .references(() => users.id, { onDelete: 'cascade' }),
   token: varchar('token', { length: 255 }).notNull().unique(),
-  expiresAt: timestamp('expires_at').notNull(),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
   tokenIdx: index('password_reset_tokens_token_idx').on(table.token),
 }));
@@ -76,8 +76,8 @@ export const emailVerificationTokens = pgTable('email_verification_tokens', {
     .references(() => users.id, { onDelete: 'cascade' }),
   token: varchar('token', { length: 255 }).notNull().unique(),
   email: varchar('email', { length: 255 }).notNull(),
-  expiresAt: timestamp('expires_at').notNull(),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
   tokenIdx: index('email_verification_tokens_token_idx').on(table.token),
   userIdIdx: index('email_verification_tokens_user_id_idx').on(table.userId),
@@ -106,13 +106,13 @@ export const media = pgTable('media', {
   seed: integer('seed'),
   error: text('error'),
   attempts: integer('attempts').default(0).notNull(),
-  cancelledAt: timestamp('cancelled_at'),
+  cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
   generated: boolean('generated').default(false).notNull(),
   generationSettings: jsonb('generation_settings'),
   generationSettingsSchemaVersion: integer('generation_settings_schema_version'),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
-  deletedAt: timestamp('deleted_at'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
 }, (table) => ({
   userIdIdx: index('media_user_id_idx').on(table.userId),
   createdAtIdx: index('media_created_at_idx').on(table.createdAt),
@@ -141,8 +141,8 @@ export const tags = pgTable('tags', {
     .notNull()
     .references(() => users.id, { onDelete: 'cascade' }),
   name: varchar('name', { length: 100 }).notNull(),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
 export const mediaTags = pgTable(
@@ -169,9 +169,9 @@ export const models = pgTable('models', {
   name: varchar('name', { length: 255 }).notNull(),
   type: modelTypeEnum('type').notNull(),
   filePath: varchar('file_path', { length: 512 }).notNull(),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
-  deletedAt: timestamp('deleted_at'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
 }, (table) => ({
   userActiveIdx: index('models_user_active_idx')
     .on(table.userId)
@@ -208,9 +208,12 @@ export const documents = pgTable('documents', {
   defaultImageHeight: integer('default_image_height').default(1024),
   narrativeModeEnabled: boolean('narrative_mode_enabled').default(false).notNull(),
   mediaModeEnabled: boolean('media_mode_enabled').default(false).notNull(),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
-  deletedAt: timestamp('deleted_at'),
+  currentVersion: integer('current_version').default(0).notNull(),
+  segmentSequence: jsonb('segment_sequence').default([]).notNull(),
+  yjsState: text('yjs_state'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
 }, (table) => ({
   userIdIdx: index('documents_user_id_idx').on(table.userId),
   updatedAtIdx: index('documents_updated_at_idx').on(table.updatedAt),
@@ -235,14 +238,50 @@ export const documentMedia = pgTable('document_media', {
   contextBefore: text('context_before'),
   contextAfter: text('context_after'),
   requestedPrompt: text('requested_prompt'),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  deletedAt: timestamp('deleted_at'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
 }, (table) => ({
   documentIdIdx: index('document_media_document_id_idx').on(table.documentId),
   mediaIdIdx: index('document_media_media_id_idx').on(table.mediaId),
   documentActiveIdx: index('document_media_document_active_idx')
     .on(table.documentId)
     .where(sql`deleted_at IS NULL`),
+}));
+
+export const documentVersions = pgTable('document_versions', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  documentId: uuid('document_id')
+    .notNull()
+    .references(() => documents.id, { onDelete: 'cascade' }),
+  versionNumber: integer('version_number').notNull(),
+  yjsState: text('yjs_state').notNull(),
+  content: text('content').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  uniqueVersion: uniqueIndex('document_versions_unique').on(table.documentId, table.versionNumber),
+  versionLookup: index('document_versions_lookup_idx').on(table.documentId, table.versionNumber),
+}));
+
+export const mentions = pgTable('mentions', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  nodeId: varchar('node_id', { length: 255 }).notNull(),
+  documentId: uuid('document_id')
+    .notNull()
+    .references(() => documents.id, { onDelete: 'cascade' }),
+  segmentId: varchar('segment_id', { length: 255 }).notNull(),
+  relativeStart: integer('relative_start').notNull(),
+  relativeEnd: integer('relative_end').notNull(),
+  originalText: text('original_text').notNull(),
+  textHash: varchar('text_hash', { length: 64 }).notNull(),
+  confidence: integer('confidence').default(100).notNull(),
+  versionNumber: integer('version_number').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  nodeIdx: index('mentions_node_idx').on(table.nodeId),
+  segmentIdx: index('mentions_segment_idx').on(table.documentId, table.segmentId),
+  versionIdx: index('mentions_version_idx').on(table.documentId, table.versionNumber),
+  confidenceIdx: index('mentions_confidence_idx').on(table.confidence),
 }));
 
 export const usersRelations = relations(users, ({ many }) => ({
@@ -334,6 +373,8 @@ export const documentsRelations = relations(documents, ({ one, many }) => ({
   }),
   documentMedia: many(documentMedia),
   storyNodes: many(storyNodes),
+  versions: many(documentVersions),
+  mentions: many(mentions),
 }));
 
 export const userStylePrompts = pgTable('user_style_prompts', {
@@ -343,9 +384,9 @@ export const userStylePrompts = pgTable('user_style_prompts', {
     .references(() => users.id, { onDelete: 'cascade' }),
   name: varchar('name', { length: 100 }).notNull(),
   prompt: text('prompt').notNull(),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
-  deletedAt: timestamp('deleted_at'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
 }, (table) => ({
   userIdIdx: index('user_style_prompts_user_id_idx').on(table.userId),
   userActiveIdx: index('user_style_prompts_user_active_idx')
@@ -369,9 +410,9 @@ export const storyNodes = pgTable('story_nodes', {
   primaryMediaId: uuid('primary_media_id').references(() => media.id),
   stylePreset: varchar('style_preset', { length: 50 }),
   stylePrompt: text('style_prompt'),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
-  deletedAt: timestamp('deleted_at'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
 }, (table) => ({
   userIdIdx: index('story_nodes_user_id_idx').on(table.userId),
   documentIdIdx: index('story_nodes_document_id_idx').on(table.documentId),
@@ -389,9 +430,9 @@ export const storyNodeConnections = pgTable('story_node_connections', {
     .notNull()
     .references(() => storyNodes.id, { onDelete: 'cascade' }),
   description: text('description'),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
-  deletedAt: timestamp('deleted_at'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
 }, (table) => ({
   fromNodeIdIdx: index('story_node_connections_from_node_id_idx').on(table.fromNodeId),
   toNodeIdIdx: index('story_node_connections_to_node_id_idx').on(table.toNodeId),
@@ -408,8 +449,8 @@ export const nodeMedia = pgTable('node_media', {
   mediaId: uuid('media_id')
     .notNull()
     .references(() => media.id, { onDelete: 'cascade' }),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  deletedAt: timestamp('deleted_at'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
 }, (table) => ({
   nodeIdIdx: index('node_media_node_idx').on(table.nodeId).where(sql`deleted_at IS NULL`),
   mediaIdIdx: index('node_media_media_idx').on(table.mediaId).where(sql`deleted_at IS NULL`),
@@ -473,5 +514,19 @@ export const nodeMediaRelations = relations(nodeMedia, ({ one }) => ({
   media: one(media, {
     fields: [nodeMedia.mediaId],
     references: [media.id],
+  }),
+}));
+
+export const documentVersionsRelations = relations(documentVersions, ({ one }) => ({
+  document: one(documents, {
+    fields: [documentVersions.documentId],
+    references: [documents.id],
+  }),
+}));
+
+export const mentionsRelations = relations(mentions, ({ one }) => ({
+  document: one(documents, {
+    fields: [mentions.documentId],
+    references: [documents.id],
   }),
 }));

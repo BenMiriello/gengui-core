@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { documentsService } from '../services/documents';
+import { versioningService } from '../services/versioning';
 import { mediaService } from '../services/mediaService';
 import { sseService } from '../services/sse';
 import { presenceService } from '../services/presence';
@@ -24,17 +25,10 @@ router.get('/documents', requireAuth, async (req: Request, res: Response, next: 
 
 router.get('/documents/:id', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const start = Date.now();
     const userId = (req as any).user.id;
     const { id } = req.params;
-
     const document = await documentsService.get(id, userId);
-    console.log(`[GET /documents/${id}] DB fetch took ${Date.now() - start}ms`);
-
-    res.json({
-      document,
-    });
-    console.log(`[GET /documents/${id}] Total request took ${Date.now() - start}ms`);
+    res.json({ document });
   } catch (error) {
     next(error);
   }
@@ -63,7 +57,7 @@ router.patch('/documents/:id', requireAuth, async (req: Request, res: Response, 
     const { id } = req.params;
     const {
       content,
-      contentJson,
+      yjsState,
       title,
       defaultStylePreset,
       defaultStylePrompt,
@@ -78,7 +72,7 @@ router.patch('/documents/:id', requireAuth, async (req: Request, res: Response, 
       userId,
       {
         content,
-        contentJson,
+        yjsState,
         title,
         defaultStylePreset,
         defaultStylePrompt,
@@ -89,6 +83,39 @@ router.patch('/documents/:id', requireAuth, async (req: Request, res: Response, 
       }
     );
     res.json({ document });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/documents/:id/versions', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = (req as any).user.id;
+    const { id } = req.params;
+    const limit = parseInt(req.query.limit as string) || 50;
+
+    await documentsService.get(id, userId);
+    const versions = await versioningService.getVersions(id, limit);
+    res.json({ versions });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/documents/:id/versions/:versionNumber', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = (req as any).user.id;
+    const { id, versionNumber } = req.params;
+
+    await documentsService.get(id, userId);
+    const version = await versioningService.getVersion(id, parseInt(versionNumber));
+
+    if (!version) {
+      res.status(404).json({ error: { message: 'Version not found', code: 'NOT_FOUND' } });
+      return;
+    }
+
+    res.json({ version });
   } catch (error) {
     next(error);
   }
@@ -126,14 +153,11 @@ router.delete('/documents/:id', requireAuth, async (req: Request, res: Response,
 });
 
 router.get('/documents/:id/media', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
-  const start = Date.now();
   try {
     const userId = (req as any).user.id;
     const { id } = req.params;
     await documentsService.get(id, userId);
-    console.log(`[GET /documents/${id}/media] Auth check took ${Date.now() - start}ms`);
     const media = await mediaService.getDocumentMedia(id);
-    console.log(`[GET /documents/${id}/media] Total took ${Date.now() - start}ms`);
     res.json({ media });
   } catch (error) {
     next(error);

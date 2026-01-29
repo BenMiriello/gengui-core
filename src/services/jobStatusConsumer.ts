@@ -22,17 +22,18 @@ class JobStatusConsumer extends BlockingConsumer {
 
     while (this.isRunning) {
       try {
-        // Read from both streams in parallel (different consumer groups)
-        const [statusResult, thumbnailResult] = await Promise.all([
-          this.streams.consume('job:status:stream', 'core-status-processors', consumerName, {
-            block: 2000,
-            count: 1,
-          }),
-          this.streams.consume('thumbnail:stream', 'thumbnail-processors', consumerName, {
-            block: 2000,
-            count: 1,
-          }),
-        ]);
+        // Read from streams sequentially with short block times for faster shutdown
+        const statusResult = await this.streams.consume('job:status:stream', 'core-status-processors', consumerName, {
+          block: 1000,
+          count: 1,
+        });
+
+        if (!this.isRunning) break;
+
+        const thumbnailResult = await this.streams.consume('thumbnail:stream', 'thumbnail-processors', consumerName, {
+          block: 1000,
+          count: 1,
+        });
 
         // Process status updates
         if (statusResult) {
