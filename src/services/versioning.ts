@@ -15,7 +15,7 @@ export class VersioningService {
       // Skip if content unchanged from previous version
       if (currentVersion > 0) {
         const [latestVersion] = await tx
-          .select({ yjsState: documentVersions.yjsState })
+          .select({ yjsState: documentVersions.yjsState, content: documentVersions.content })
           .from(documentVersions)
           .where(
             and(
@@ -25,7 +25,7 @@ export class VersioningService {
           )
           .limit(1);
 
-        if (latestVersion?.yjsState === yjsState) {
+        if (latestVersion?.content === content && latestVersion?.yjsState === yjsState) {
           logger.debug({ documentId, versionNumber: currentVersion }, 'Skipped duplicate version');
           return currentVersion;
         }

@@ -127,9 +127,16 @@ export class DocumentsService {
       }
     }
 
-    // Create version if yjsState is provided (content save)
-    if (updates.yjsState && updates.content !== undefined) {
-      await versioningService.createVersion(documentId, updates.yjsState, updates.content);
+    // Snapshot the current DB state before overwriting
+    if (updates.content !== undefined) {
+      const current = await this.get(documentId, userId);
+      if (current.content || current.yjsState) {
+        await versioningService.createVersion(
+          documentId,
+          current.yjsState ?? '',
+          current.content ?? '',
+        );
+      }
     }
 
     const [updated] = await db
