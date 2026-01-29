@@ -78,6 +78,13 @@ router.patch('/documents/:id', requireAuth, async (req: Request, res: Response, 
       mediaModeEnabled,
     } = req.body;
 
+    const sessionId = (req.headers['x-tab-id'] as string) || req.sessionId!;
+    const isPrimary = await presenceService.isPrimaryEditor(id, sessionId);
+    if (!isPrimary) {
+      res.status(409).json({ error: 'Not primary editor' });
+      return;
+    }
+
     const document = await documentsService.update(
       id,
       userId,
@@ -194,10 +201,20 @@ router.get('/documents/:id/stream', requireAuth, async (req: Request, res: Respo
     const { id } = req.params;
     await documentsService.get(id, userId);
 
-    const sessionId = req.headers['x-session-id'] as string || `${userId}-${Date.now()}`;
+    const sessionId = (req.query.sessionId as string) || `${userId}-${Date.now()}`;
     const clientId = `doc-${id}-${sessionId}`;
 
-    sseService.addClient(clientId, `document:${id}`, res);
+    sseService.addClient(clientId, `document:${id}`, res, async () => {
+      await presenceService.removeEditor(id, sessionId);
+      const editorCount = await presenceService.getActiveEditorCount(id);
+      const primaryEditor = await presenceService.getPrimaryEditor(id);
+      sseService.broadcastToDocument(id, 'presence-update', {
+        editorCount,
+        primaryEditor,
+        sessionId,
+        timestamp: new Date().toISOString(),
+      });
+    });
   } catch (error) {
     next(error);
   }
@@ -207,7 +224,7 @@ router.put('/documents/:id/heartbeat', requireAuth, async (req: Request, res: Re
   try {
     const userId = (req as any).user.id;
     const { id } = req.params;
-    const sessionId = req.sessionId!;
+    const sessionId = (req.headers['x-tab-id'] as string) || req.sessionId!;
 
     await documentsService.get(id, userId);
     await presenceService.recordHeartbeat(id, sessionId);
@@ -223,13 +240,15 @@ router.put('/documents/:id/heartbeat', requireAuth, async (req: Request, res: Re
     }
 
     const editorCount = await presenceService.getActiveEditorCount(id);
+    const primaryEditor = await presenceService.getPrimaryEditor(id);
     sseService.broadcastToDocument(id, 'presence-update', {
       editorCount,
+      primaryEditor,
       sessionId,
       timestamp: new Date().toISOString(),
     });
 
-    res.json({ success: true });
+    res.json({ success: true, editorCount, primaryEditor });
   } catch (error) {
     next(error);
   }
@@ -239,7 +258,8 @@ router.post('/documents/:id/takeover', requireAuth, async (req: Request, res: Re
   try {
     const userId = (req as any).user.id;
     const { id } = req.params;
-    const sessionId = req.sessionId!;
+    // Use x-tab-id header for per-tab identification, fallback to auth sessionId
+    const sessionId = (req.headers['x-tab-id'] as string) || req.sessionId!;
 
     await documentsService.get(id, userId);
 
@@ -360,7 +380,6 @@ router.patch('/documents/:id/story-nodes', requireAuth, async (req: Request, res
     // Verify user owns document
     await documentsService.get(id, userId);
 
-    // Queue update request
     await redisStreams.add('text-analysis:stream', {
       documentId: id,
       userId,

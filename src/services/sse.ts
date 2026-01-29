@@ -14,7 +14,7 @@ class SSEService {
    * Add an SSE client subscribed to a channel
    * Channel format is caller-defined, e.g., "document:abc123", "node:xyz789"
    */
-  addClient(clientId: string, channel: string, res: Response) {
+  addClient(clientId: string, channel: string, res: Response, onDisconnect?: () => void) {
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
@@ -32,6 +32,7 @@ class SSEService {
 
     res.on('close', () => {
       this.clients.delete(clientId);
+      onDisconnect?.();
       logger.debug({ clientId, totalClients: this.clients.size }, 'SSE client disconnected');
     });
 

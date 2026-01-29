@@ -86,8 +86,8 @@ export class DocumentsService {
         yjsState: source.yjsState,
         defaultImageWidth: source.defaultImageWidth,
         defaultImageHeight: source.defaultImageHeight,
-        mediaModeEnabled: source.mediaModeEnabled,
-        narrativeModeEnabled: source.narrativeModeEnabled,
+        mediaModeEnabled: false,
+        narrativeModeEnabled: false,
       })
       .returning();
 

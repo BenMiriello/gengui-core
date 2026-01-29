@@ -165,6 +165,10 @@ class RedisService {
     return this.client.zcard(key);
   }
 
+  async zrem(key: string, member: string): Promise<number> {
+    return this.client.zrem(key, member);
+  }
+
   async zremrangebyscore(key: string, min: number, max: number): Promise<number> {
     return this.client.zremrangebyscore(key, min, max);
   }

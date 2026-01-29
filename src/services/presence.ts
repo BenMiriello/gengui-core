@@ -30,6 +30,7 @@ class PresenceService {
   }
 
   async getActiveEditorCount(documentId: string): Promise<number> {
+    await this.cleanupStaleEditors(documentId);
     const key = `doc:${documentId}:editors`;
     return redis.zcard(key);
   }
@@ -85,6 +86,19 @@ class PresenceService {
     }
 
     return false;
+  }
+
+  async removeEditor(documentId: string, sessionId: string): Promise<void> {
+    const key = `doc:${documentId}:editors`;
+    await redis.zrem(key, sessionId);
+
+    const primaryKey = `doc:${documentId}:primary`;
+    const currentPrimary = await redis.get(primaryKey);
+    if (currentPrimary === sessionId) {
+      await redis.del(primaryKey);
+    }
+
+    logger.debug({ documentId, sessionId }, 'Editor removed on disconnect');
   }
 
   async isPrimaryEditor(documentId: string, sessionId: string): Promise<boolean> {
