@@ -51,6 +51,17 @@ router.post('/documents', requireAuth, async (req: Request, res: Response, next:
   }
 });
 
+router.post('/documents/:id/copy', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = (req as any).user.id;
+    const { title } = req.body;
+    const document = await documentsService.copy(req.params.id, userId, title || 'Untitled');
+    res.status(201).json({ document });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.patch('/documents/:id', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = (req as any).user.id;

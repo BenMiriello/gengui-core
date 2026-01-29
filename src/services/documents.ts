@@ -73,6 +73,29 @@ export class DocumentsService {
     return document;
   }
 
+  async copy(sourceDocumentId: string, userId: string, newTitle: string) {
+    const source = await this.get(sourceDocumentId, userId);
+
+    const [document] = await db
+      .insert(documents)
+      .values({
+        userId,
+        title: newTitle,
+        content: source.content,
+        contentJson: source.contentJson,
+        yjsState: source.yjsState,
+        defaultImageWidth: source.defaultImageWidth,
+        defaultImageHeight: source.defaultImageHeight,
+        mediaModeEnabled: source.mediaModeEnabled,
+        narrativeModeEnabled: source.narrativeModeEnabled,
+      })
+      .returning();
+
+    logger.info({ userId, documentId: document.id, sourceDocumentId }, 'Document copied');
+
+    return document;
+  }
+
   async update(
     documentId: string,
     userId: string,
