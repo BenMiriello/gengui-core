@@ -52,10 +52,10 @@ export const sessions = pgTable('sessions', {
   lastActivityAt: timestamp('last_activity_at', { withTimezone: true }),
   ipAddress: varchar('ip_address', { length: 45 }),
   userAgent: text('user_agent'),
-}, (table) => ({
-  tokenIdx: index('sessions_token_idx').on(table.token),
-  userExpiresIdx: index('sessions_user_expires_idx').on(table.userId, table.expiresAt),
-}));
+}, (table) => ([
+  index('sessions_token_idx').on(table.token),
+  index('sessions_user_expires_idx').on(table.userId, table.expiresAt),
+]));
 
 export const passwordResetTokens = pgTable('password_reset_tokens', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -65,9 +65,9 @@ export const passwordResetTokens = pgTable('password_reset_tokens', {
   token: varchar('token', { length: 255 }).notNull().unique(),
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-}, (table) => ({
-  tokenIdx: index('password_reset_tokens_token_idx').on(table.token),
-}));
+}, (table) => ([
+  index('password_reset_tokens_token_idx').on(table.token),
+]));
 
 export const emailVerificationTokens = pgTable('email_verification_tokens', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -78,10 +78,10 @@ export const emailVerificationTokens = pgTable('email_verification_tokens', {
   email: varchar('email', { length: 255 }).notNull(),
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-}, (table) => ({
-  tokenIdx: index('email_verification_tokens_token_idx').on(table.token),
-  userIdIdx: index('email_verification_tokens_user_id_idx').on(table.userId),
-}));
+}, (table) => ([
+  index('email_verification_tokens_token_idx').on(table.token),
+  index('email_verification_tokens_user_id_idx').on(table.userId),
+]));
 
 export const media = pgTable('media', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -113,27 +113,27 @@ export const media = pgTable('media', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
-}, (table) => ({
-  userIdIdx: index('media_user_id_idx').on(table.userId),
-  createdAtIdx: index('media_created_at_idx').on(table.createdAt),
-  hashIdx: index('media_hash_idx').on(table.hash),
-  sourceTypeStatusIdx: index('media_source_type_status_idx').on(table.sourceType, table.status),
-  userSourceTypeIdx: index('media_user_source_type_idx').on(table.userId, table.sourceType),
-  userCreatedIdx: index('media_user_created_idx').on(table.userId, table.createdAt),
-  mediaRoleIdx: index('media_role_idx').on(table.mediaRole).where(sql`media_role IS NOT NULL`),
-  s3KeyThumbIdx: index('media_s3_key_thumb_idx')
+}, (table) => ([
+  index('media_user_id_idx').on(table.userId),
+  index('media_created_at_idx').on(table.createdAt),
+  index('media_hash_idx').on(table.hash),
+  index('media_source_type_status_idx').on(table.sourceType, table.status),
+  index('media_user_source_type_idx').on(table.userId, table.sourceType),
+  index('media_user_created_idx').on(table.userId, table.createdAt),
+  index('media_role_idx').on(table.mediaRole).where(sql`media_role IS NOT NULL`),
+  index('media_s3_key_thumb_idx')
     .on(table.s3KeyThumb)
     .where(sql`s3_key_thumb IS NOT NULL`),
-  userHashActiveIdx: index('media_user_hash_active_idx')
+  index('media_user_hash_active_idx')
     .on(table.userId, table.hash)
     .where(sql`deleted_at IS NULL`),
-  userCreatedActiveIdx: index('media_user_created_active_idx')
+  index('media_user_created_active_idx')
     .on(table.userId, table.createdAt)
     .where(sql`deleted_at IS NULL`),
-  uniqueUserHash: uniqueIndex('media_user_hash_unique')
+  uniqueIndex('media_user_hash_unique')
     .on(table.userId, table.hash)
     .where(sql`deleted_at IS NULL`),
-}));
+]));
 
 export const tags = pgTable('tags', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -155,10 +155,10 @@ export const mediaTags = pgTable(
       .notNull()
       .references(() => tags.id, { onDelete: 'cascade' }),
   },
-  (table) => ({
-    pk: primaryKey({ columns: [table.mediaId, table.tagId] }),
-    tagIdIdx: index('media_tags_tag_id_idx').on(table.tagId),
-  })
+  (table) => ([
+    primaryKey({ columns: [table.mediaId, table.tagId] }),
+    index('media_tags_tag_id_idx').on(table.tagId),
+  ])
 );
 
 export const models = pgTable('models', {
@@ -172,11 +172,11 @@ export const models = pgTable('models', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
-}, (table) => ({
-  userActiveIdx: index('models_user_active_idx')
+}, (table) => ([
+  index('models_user_active_idx')
     .on(table.userId)
     .where(sql`deleted_at IS NULL`),
-}));
+]));
 
 export const modelInputs = pgTable(
   'model_inputs',
@@ -188,10 +188,10 @@ export const modelInputs = pgTable(
       .notNull()
       .references(() => media.id, { onDelete: 'cascade' }),
   },
-  (table) => ({
-    pk: primaryKey({ columns: [table.modelId, table.mediaId] }),
-    modelIdIdx: index('model_inputs_model_id_idx').on(table.modelId),
-  })
+  (table) => ([
+    primaryKey({ columns: [table.modelId, table.mediaId] }),
+    index('model_inputs_model_id_idx').on(table.modelId),
+  ])
 );
 
 export const documents = pgTable('documents', {
@@ -214,13 +214,13 @@ export const documents = pgTable('documents', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
-}, (table) => ({
-  userIdIdx: index('documents_user_id_idx').on(table.userId),
-  updatedAtIdx: index('documents_updated_at_idx').on(table.updatedAt),
-  userActiveIdx: index('documents_user_active_idx')
+}, (table) => ([
+  index('documents_user_id_idx').on(table.userId),
+  index('documents_updated_at_idx').on(table.updatedAt),
+  index('documents_user_active_idx')
     .on(table.userId, table.deletedAt)
     .where(sql`deleted_at IS NULL`),
-}));
+]));
 
 export const documentMedia = pgTable('document_media', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -240,13 +240,13 @@ export const documentMedia = pgTable('document_media', {
   requestedPrompt: text('requested_prompt'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
-}, (table) => ({
-  documentIdIdx: index('document_media_document_id_idx').on(table.documentId),
-  mediaIdIdx: index('document_media_media_id_idx').on(table.mediaId),
-  documentActiveIdx: index('document_media_document_active_idx')
+}, (table) => ([
+  index('document_media_document_id_idx').on(table.documentId),
+  index('document_media_media_id_idx').on(table.mediaId),
+  index('document_media_document_active_idx')
     .on(table.documentId)
     .where(sql`deleted_at IS NULL`),
-}));
+]));
 
 export const documentVersions = pgTable('document_versions', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -257,10 +257,10 @@ export const documentVersions = pgTable('document_versions', {
   yjsState: text('yjs_state').notNull(),
   content: text('content').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-}, (table) => ({
-  uniqueVersion: uniqueIndex('document_versions_unique').on(table.documentId, table.versionNumber),
-  versionLookup: index('document_versions_lookup_idx').on(table.documentId, table.versionNumber),
-}));
+}, (table) => ([
+  uniqueIndex('document_versions_unique').on(table.documentId, table.versionNumber),
+  index('document_versions_lookup_idx').on(table.documentId, table.versionNumber),
+]));
 
 export const mentions = pgTable('mentions', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -277,12 +277,12 @@ export const mentions = pgTable('mentions', {
   versionNumber: integer('version_number').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-}, (table) => ({
-  nodeIdx: index('mentions_node_idx').on(table.nodeId),
-  segmentIdx: index('mentions_segment_idx').on(table.documentId, table.segmentId),
-  versionIdx: index('mentions_version_idx').on(table.documentId, table.versionNumber),
-  confidenceIdx: index('mentions_confidence_idx').on(table.confidence),
-}));
+}, (table) => ([
+  index('mentions_node_idx').on(table.nodeId),
+  index('mentions_segment_idx').on(table.documentId, table.segmentId),
+  index('mentions_version_idx').on(table.documentId, table.versionNumber),
+  index('mentions_confidence_idx').on(table.confidence),
+]));
 
 export const usersRelations = relations(users, ({ many }) => ({
   media: many(media),
@@ -387,12 +387,12 @@ export const userStylePrompts = pgTable('user_style_prompts', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
-}, (table) => ({
-  userIdIdx: index('user_style_prompts_user_id_idx').on(table.userId),
-  userActiveIdx: index('user_style_prompts_user_active_idx')
+}, (table) => ([
+  index('user_style_prompts_user_id_idx').on(table.userId),
+  index('user_style_prompts_user_active_idx')
     .on(table.userId)
     .where(sql`deleted_at IS NULL`),
-}));
+]));
 
 export const storyNodes = pgTable('story_nodes', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -413,13 +413,13 @@ export const storyNodes = pgTable('story_nodes', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
-}, (table) => ({
-  userIdIdx: index('story_nodes_user_id_idx').on(table.userId),
-  documentIdIdx: index('story_nodes_document_id_idx').on(table.documentId),
-  activeIdx: index('story_nodes_active_idx')
+}, (table) => ([
+  index('story_nodes_user_id_idx').on(table.userId),
+  index('story_nodes_document_id_idx').on(table.documentId),
+  index('story_nodes_active_idx')
     .on(table.documentId, table.userId)
     .where(sql`deleted_at IS NULL`),
-}));
+]));
 
 export const storyNodeConnections = pgTable('story_node_connections', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -433,13 +433,13 @@ export const storyNodeConnections = pgTable('story_node_connections', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
-}, (table) => ({
-  fromNodeIdIdx: index('story_node_connections_from_node_id_idx').on(table.fromNodeId),
-  toNodeIdIdx: index('story_node_connections_to_node_id_idx').on(table.toNodeId),
-  activeIdx: index('story_node_connections_active_idx')
+}, (table) => ([
+  index('story_node_connections_from_node_id_idx').on(table.fromNodeId),
+  index('story_node_connections_to_node_id_idx').on(table.toNodeId),
+  index('story_node_connections_active_idx')
     .on(table.fromNodeId, table.toNodeId)
     .where(sql`deleted_at IS NULL`),
-}));
+]));
 
 export const nodeMedia = pgTable('node_media', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -451,11 +451,11 @@ export const nodeMedia = pgTable('node_media', {
     .references(() => media.id, { onDelete: 'cascade' }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
-}, (table) => ({
-  nodeIdIdx: index('node_media_node_idx').on(table.nodeId).where(sql`deleted_at IS NULL`),
-  mediaIdIdx: index('node_media_media_idx').on(table.mediaId).where(sql`deleted_at IS NULL`),
-  uniqueNodeMedia: uniqueIndex('node_media_unique').on(table.nodeId, table.mediaId),
-}));
+}, (table) => ([
+  index('node_media_node_idx').on(table.nodeId).where(sql`deleted_at IS NULL`),
+  index('node_media_media_idx').on(table.mediaId).where(sql`deleted_at IS NULL`),
+  uniqueIndex('node_media_unique').on(table.nodeId, table.mediaId),
+]));
 
 export const documentMediaRelations = relations(documentMedia, ({ one }) => ({
   document: one(documents, {
