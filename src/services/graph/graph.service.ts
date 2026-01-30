@@ -739,6 +739,48 @@ class GraphService {
     `;
     await this.query(cypher);
   }
+
+  async getNodeSimilaritiesForDocument(
+    documentId: string,
+    userId: string,
+    k: number = 10,
+    cutoff: number = 0.3
+  ): Promise<{ source: string; target: string; similarity: number }[]> {
+    // Single query: pass source.embedding directly to vector index (never leaves FalkorDB)
+    const cypher = `
+      MATCH (source:StoryNode)
+      WHERE source.documentId = '${documentId}' AND source.userId = '${userId}'
+        AND source.deletedAt IS NULL AND source.embedding IS NOT NULL
+      CALL db.idx.vector.queryNodes('StoryNode', 'embedding', ${k + 1}, source.embedding)
+      YIELD node, score
+      WHERE node.documentId = '${documentId}' AND node.userId = '${userId}'
+        AND node.deletedAt IS NULL AND node.id <> source.id AND score >= ${cutoff}
+      RETURN source.id AS sourceId, node.id AS targetId, score
+    `;
+    const result = await this.query(cypher);
+
+    const similarities: { source: string; target: string; similarity: number }[] = [];
+    const seen = new Set<string>();
+
+    for (const row of result.data) {
+      const sourceId = row[0] as string;
+      const targetId = row[1] as string;
+      const score = row[2] as number;
+
+      // Dedupe symmetric pairs (A→B and B→A)
+      const pairKey = [sourceId, targetId].sort().join('-');
+      if (seen.has(pairKey)) continue;
+      seen.add(pairKey);
+
+      similarities.push({
+        source: sourceId,
+        target: targetId,
+        similarity: score,
+      });
+    }
+
+    return similarities;
+  }
 }
 
 export const graphService = new GraphService();

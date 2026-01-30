@@ -9,7 +9,7 @@ import { logger } from '../utils/logger';
 import { sseService } from './sse';
 import type { StreamMessage } from './redis-streams';
 import { analyzeText, updateNodes } from './gemini';
-import { storyNodesRepository, parsePassages } from './storyNodes';
+import { graphStoryNodesRepository, parsePassages } from './storyNodes';
 import { BlockingConsumer } from '../lib/blocking-consumer';
 import type { ExistingNode } from '../types/storyNodes';
 
@@ -94,11 +94,11 @@ class TextAnalysisConsumer extends BlockingConsumer {
     // Delete existing if reanalyze
     if (reanalyze) {
       logger.info({ documentId }, 'Re-analyzing: deleting existing nodes');
-      await storyNodesRepository.deleteAllForDocument(documentId, userId);
+      await graphStoryNodesRepository.deleteAllForDocument(documentId, userId);
     }
 
     // Create nodes, connections, and narrative threads (inherit document style)
-    const nodeNameToId = await storyNodesRepository.createNodes({
+    const nodeNameToId = await graphStoryNodesRepository.createNodes({
       userId,
       documentId,
       nodes: analysis.nodes,
@@ -129,7 +129,7 @@ class TextAnalysisConsumer extends BlockingConsumer {
     if (!document) return;
 
     // Fetch existing nodes
-    const existingDbNodes = await storyNodesRepository.getActiveNodes(documentId, userId);
+    const existingDbNodes = await graphStoryNodesRepository.getActiveNodes(documentId, userId);
 
     if (existingDbNodes.length === 0) {
       logger.info({ documentId }, 'No existing nodes to update');
@@ -153,7 +153,7 @@ class TextAnalysisConsumer extends BlockingConsumer {
     const updates = await updateNodes(document.content, existingNodes);
 
     // Apply updates (new nodes inherit document style)
-    const result = await storyNodesRepository.applyUpdates({
+    const result = await graphStoryNodesRepository.applyUpdates({
       userId,
       documentId,
       documentContent: document.content,

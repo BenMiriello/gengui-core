@@ -10,7 +10,8 @@ import { db } from '../config/database';
 import { media } from '../models/schema';
 import { inArray } from 'drizzle-orm';
 import { s3 } from '../services/s3';
-import { storyNodesRepository } from '../services/storyNodes';
+import { graphStoryNodesRepository } from '../services/storyNodes';
+import { graphService } from '../services/graph/graph.service';
 
 const router = Router();
 
@@ -309,14 +310,13 @@ router.get('/documents/:id/story-nodes', requireAuth, async (req: Request, res: 
     const { id } = req.params;
 
     // Fetch active story nodes from FalkorDB
-    const nodes = await storyNodesRepository.getActiveNodes(id, userId);
+    const nodes = await graphStoryNodesRepository.getActiveNodes(id, userId);
 
     // Fetch active connections from FalkorDB
     const connections = nodes.length > 0
-      ? await storyNodesRepository.getConnectionsForDocument(id)
+      ? await graphStoryNodesRepository.getConnectionsForDocument(id)
       : [];
 
-    // Fetch primary media URLs for nodes that have them
     const nodesWithPrimaryMedia = nodes.filter(n => n.primaryMediaId);
     let primaryMediaUrls: Record<string, string> = {};
 
@@ -339,7 +339,6 @@ router.get('/documents/:id/story-nodes', requireAuth, async (req: Request, res: 
       }
     }
 
-    // Augment nodes with primaryMediaUrl
     const nodesWithUrls = nodes.map(n => ({
       ...n,
       primaryMediaUrl: n.primaryMediaId ? primaryMediaUrls[n.primaryMediaId] : null,
@@ -377,9 +376,26 @@ router.delete('/documents/:id/story-nodes', requireAuth, async (req: Request, re
     const { id } = req.params;
 
     // Delete all story nodes for this document from FalkorDB
-    await storyNodesRepository.deleteAllForDocument(id, userId);
+    await graphStoryNodesRepository.deleteAllForDocument(id, userId);
 
     res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/documents/:id/node-similarities', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = (req as any).user.id;
+    const { id } = req.params;
+    const k = parseInt(req.query.k as string) || 10;
+    const cutoff = parseFloat(req.query.cutoff as string) || 0.3;
+
+    await documentsService.get(id, userId);
+
+    const similarities = await graphService.getNodeSimilaritiesForDocument(id, userId, k, cutoff);
+
+    res.json({ similarities });
   } catch (error) {
     next(error);
   }
