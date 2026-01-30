@@ -7,9 +7,10 @@ import { presenceService } from '../services/presence';
 import { requireAuth } from '../middleware/auth';
 import { redisStreams } from '../services/redis-streams';
 import { db } from '../config/database';
-import { storyNodes, storyNodeConnections, media } from '../models/schema';
-import { eq, and, or, inArray, isNull } from 'drizzle-orm';
+import { media } from '../models/schema';
+import { inArray } from 'drizzle-orm';
 import { s3 } from '../services/s3';
+import { storyNodesRepository } from '../services/storyNodes';
 
 const router = Router();
 
@@ -307,33 +308,12 @@ router.get('/documents/:id/story-nodes', requireAuth, async (req: Request, res: 
     const userId = (req as any).user.id;
     const { id } = req.params;
 
-    // Fetch active story nodes (not soft deleted)
-    const nodes = await db
-      .select()
-      .from(storyNodes)
-      .where(
-        and(
-          eq(storyNodes.documentId, id),
-          eq(storyNodes.userId, userId),
-          isNull(storyNodes.deletedAt)
-        )
-      );
+    // Fetch active story nodes from FalkorDB
+    const nodes = await storyNodesRepository.getActiveNodes(id, userId);
 
-    // Fetch active connections for these nodes
-    const nodeIds = nodes.map(n => n.id);
-    const connections = nodeIds.length > 0
-      ? await db
-          .select()
-          .from(storyNodeConnections)
-          .where(
-            and(
-              or(
-                inArray(storyNodeConnections.fromNodeId, nodeIds),
-                inArray(storyNodeConnections.toNodeId, nodeIds)
-              ),
-              isNull(storyNodeConnections.deletedAt)
-            )
-          )
+    // Fetch active connections from FalkorDB
+    const connections = nodes.length > 0
+      ? await storyNodesRepository.getConnectionsForDocument(id)
       : [];
 
     // Fetch primary media URLs for nodes that have them
@@ -347,7 +327,6 @@ router.get('/documents/:id/story-nodes', requireAuth, async (req: Request, res: 
         .from(media)
         .where(inArray(media.id, mediaIds));
 
-      // Generate presigned URLs for thumbnails (or full image if no thumb)
       for (const m of mediaRecords) {
         const key = m.s3KeyThumb || m.s3Key;
         if (key) {
@@ -397,11 +376,8 @@ router.delete('/documents/:id/story-nodes', requireAuth, async (req: Request, re
     const userId = (req as any).user.id;
     const { id } = req.params;
 
-    // Soft delete all story nodes for this document
-    await db
-      .update(storyNodes)
-      .set({ deletedAt: new Date() })
-      .where(and(eq(storyNodes.documentId, id), eq(storyNodes.userId, userId)));
+    // Delete all story nodes for this document from FalkorDB
+    await storyNodesRepository.deleteAllForDocument(id, userId);
 
     res.json({ success: true });
   } catch (error) {

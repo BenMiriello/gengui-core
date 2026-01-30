@@ -1,8 +1,9 @@
 import cron, { type ScheduledTask } from 'node-cron';
 import { db } from '../config/database';
-import { storyNodes, storyNodeConnections, nodeMedia } from '../models/schema';
+import { nodeMedia } from '../models/schema';
 import { lt } from 'drizzle-orm';
 import { customStylePromptsService } from '../services/customStylePrompts';
+import { graphService } from '../services/graph/graph.service';
 import { logger } from '../utils/logger';
 
 const CLEANUP_JOB_SCHEDULE = '0 2 * * *';
@@ -24,26 +25,17 @@ export function startCleanupJob(): ScheduledTask {
       const stylePromptsCount = await customStylePromptsService.cleanupDeleted();
       if (stylePromptsCount > 0) results.stylePrompts = stylePromptsCount;
 
-      // Clean up story node connections (must be before nodes due to FK)
-      const deletedConnections = await db
-        .delete(storyNodeConnections)
-        .where(lt(storyNodeConnections.deletedAt, threshold))
-        .returning({ id: storyNodeConnections.id });
-      if (deletedConnections.length > 0) results.connections = deletedConnections.length;
-
-      // Clean up node_media associations
+      // Clean up node_media associations (still in Postgres)
       const deletedNodeMedia = await db
         .delete(nodeMedia)
         .where(lt(nodeMedia.deletedAt, threshold))
         .returning({ id: nodeMedia.id });
       if (deletedNodeMedia.length > 0) results.nodeMedia = deletedNodeMedia.length;
 
-      // Clean up story nodes
-      const deletedNodes = await db
-        .delete(storyNodes)
-        .where(lt(storyNodes.deletedAt, threshold))
-        .returning({ id: storyNodes.id });
-      if (deletedNodes.length > 0) results.nodes = deletedNodes.length;
+      // Clean up story nodes and connections from FalkorDB
+      const graphCleanup = await graphService.cleanupSoftDeleted(threshold);
+      if (graphCleanup.nodes > 0) results.nodes = graphCleanup.nodes;
+      if (graphCleanup.connections > 0) results.connections = graphCleanup.connections;
 
       if (Object.keys(results).length > 0) {
         logger.info({ results }, 'Soft delete cleanup job completed');

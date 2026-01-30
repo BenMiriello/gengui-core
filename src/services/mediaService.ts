@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { db } from '../config/database';
-import { media, documents, documentMedia, nodeMedia, storyNodes } from '../models/schema';
+import { media, documents, documentMedia, nodeMedia } from '../models/schema';
 import { eq, and, desc, getTableColumns, or, isNull, notInArray } from 'drizzle-orm';
 import { notDeleted } from '../utils/db';
 import { storageProvider } from './storage';
@@ -10,7 +10,7 @@ import { logger } from '../utils/logger';
 import { imageProcessor } from './imageProcessor';
 import { cache, type MediaUrlType } from './cache';
 import { PRESIGNED_S3_URL_EXPIRATION } from '../config/constants';
-import { redis } from './redis';
+import { graphService } from './graph/graph.service';
 
 export class MediaService {
   async upload(
@@ -175,24 +175,32 @@ async getDocumentsByMediaId(mediaId: string, userId: string, requestedFields?: s
 }
 
   async getNodeByMediaId(mediaId: string, userId: string) {
-    const results = await db
-      .select({
-        id: storyNodes.id,
-        type: storyNodes.type,
-        name: storyNodes.name,
-        documentId: storyNodes.documentId,
-      })
-      .from(storyNodes)
-      .innerJoin(nodeMedia, eq(storyNodes.id, nodeMedia.nodeId))
+    // First get the nodeId from the Postgres nodeMedia table
+    const [nodeMed] = await db
+      .select({ nodeId: nodeMedia.nodeId })
+      .from(nodeMedia)
       .where(and(
         eq(nodeMedia.mediaId, mediaId),
-        eq(storyNodes.userId, userId),
-        notDeleted(storyNodes.deletedAt),
         notDeleted(nodeMedia.deletedAt)
       ))
       .limit(1);
 
-    return results.length > 0 ? results[0] : null;
+    if (!nodeMed) {
+      return null;
+    }
+
+    // Then fetch the node from FalkorDB
+    const node = await graphService.getStoryNodeById(nodeMed.nodeId, userId);
+    if (!node) {
+      return null;
+    }
+
+    return {
+      id: node.id,
+      type: node.type,
+      name: node.name,
+      documentId: node.documentId,
+    };
   }
 
   async getSignedUrl(id: string, userId: string, expiresIn: number = PRESIGNED_S3_URL_EXPIRATION, type: MediaUrlType = 'full') {

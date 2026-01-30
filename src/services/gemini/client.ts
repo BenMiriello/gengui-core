@@ -172,7 +172,7 @@ function handleApiError(error: any, operation: string): Error {
     return new Error('Rate limit exceeded. Please wait a moment and try again.');
   }
   if (message.includes('404')) {
-    return new Error('Analysis service not available. Please contact support.');
+    return new Error('Analysis model not found. Check GEMINI_API_KEY and model configuration.');
   }
   if (message.includes('blocked') || message.includes('inappropriate')) {
     return error;

@@ -4,9 +4,7 @@ import { requireAuth, requireEmailVerified } from '../middleware/auth';
 import { characterSheetService } from '../services/characterSheetService';
 import { sseService } from '../services/sse';
 import { z } from 'zod';
-import { db } from '../config/database';
-import { storyNodes } from '../models/schema';
-import { eq, and, isNull } from 'drizzle-orm';
+import { graphService } from '../services/graph/graph.service';
 
 const router = Router();
 
@@ -143,24 +141,14 @@ router.patch('/nodes/:id/style', requireAuth, async (req, res, next) => {
     const { id } = req.params;
     const validatedData = updateNodeStyleSchema.parse(req.body);
 
-    // Verify ownership and update
-    const [updated] = await db
-      .update(storyNodes)
-      .set({
-        stylePreset: validatedData.stylePreset,
-        stylePrompt: validatedData.stylePrompt,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(storyNodes.id, id),
-          eq(storyNodes.userId, req.user!.id),
-          isNull(storyNodes.deletedAt)
-        )
-      )
-      .returning();
+    // Verify ownership and update in FalkorDB
+    const updated = await graphService.updateStoryNodeStyle(
+      id,
+      validatedData.stylePreset,
+      validatedData.stylePrompt
+    );
 
-    if (!updated) {
+    if (!updated || updated.userId !== req.user!.id) {
       res.status(404).json({ error: { message: 'Node not found', code: 'NOT_FOUND' } });
       return;
     }

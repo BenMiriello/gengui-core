@@ -1,11 +1,12 @@
 import { db } from '../config/database';
-import { media, documentMedia, nodeMedia, storyNodes } from '../models/schema';
-import { eq, and, isNull } from 'drizzle-orm';
+import { media, documentMedia, nodeMedia } from '../models/schema';
+import { eq } from 'drizzle-orm';
 import { logger } from '../utils/logger';
 import { sseService } from './sse';
 import { StreamMessage, redisStreams as sharedRedisStreams } from './redis-streams';
 import { thumbnailProcessor } from './thumbnailProcessor';
 import { BlockingConsumer } from '../lib/blocking-consumer';
+import { graphService } from './graph/graph.service';
 
 class JobStatusConsumer extends BlockingConsumer {
   constructor() {
@@ -243,22 +244,15 @@ class JobStatusConsumer extends BlockingConsumer {
         return;
       }
 
-      // Check if node has no primary media
-      const [node] = await db
-        .select({ primaryMediaId: storyNodes.primaryMediaId })
-        .from(storyNodes)
-        .where(and(eq(storyNodes.id, nodeMed.nodeId), isNull(storyNodes.deletedAt)))
-        .limit(1);
+      // Check if node has no primary media (from FalkorDB)
+      const node = await graphService.getStoryNodeByIdInternal(nodeMed.nodeId);
 
       if (!node || node.primaryMediaId) {
         return;
       }
 
-      // Set this media as primary
-      await db
-        .update(storyNodes)
-        .set({ primaryMediaId: mediaId, updatedAt: new Date() })
-        .where(eq(storyNodes.id, nodeMed.nodeId));
+      // Set this media as primary in FalkorDB
+      await graphService.updateStoryNodePrimaryMedia(nodeMed.nodeId, mediaId);
 
       logger.info({ nodeId: nodeMed.nodeId, mediaId }, 'Auto-set first completed character sheet as primary');
     } catch (error) {

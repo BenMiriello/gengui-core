@@ -2,13 +2,14 @@
  * Service for generating character sheet images from story nodes.
  */
 import { db } from '../config/database';
-import { media, storyNodes, nodeMedia } from '../models/schema';
+import { media, nodeMedia } from '../models/schema';
 import { eq, and, isNull } from 'drizzle-orm';
 import { logger } from '../utils/logger';
 import { getImageProvider, getImageProviderName } from './image-generation/factory';
 import type { CharacterSheetSettings, AspectRatio } from '../types/generationSettings';
 import { GENERATION_SETTINGS_SCHEMA_VERSION } from '../types/generationSettings';
 import { getDimensionsForAspectRatio, getModelIdForProvider } from '../config/models';
+import { graphService } from './graph/graph.service';
 
 interface GenerateCharacterSheetParams {
   nodeId: string;
@@ -31,18 +32,8 @@ export const characterSheetService = {
     stylePreset,
     stylePrompt,
   }: GenerateCharacterSheetParams) {
-    // Fetch node and verify ownership
-    const [node] = await db
-      .select()
-      .from(storyNodes)
-      .where(
-        and(
-          eq(storyNodes.id, nodeId),
-          eq(storyNodes.userId, userId),
-          isNull(storyNodes.deletedAt)
-        )
-      )
-      .limit(1);
+    // Fetch node and verify ownership from FalkorDB
+    const node = await graphService.getStoryNodeById(nodeId, userId);
 
     if (!node) {
       throw new Error('Node not found');
@@ -172,24 +163,14 @@ export const characterSheetService = {
    * Set the primary media for a node.
    */
   async setPrimaryMedia(nodeId: string, mediaId: string, userId: string) {
-    // Verify node ownership
-    const [node] = await db
-      .select()
-      .from(storyNodes)
-      .where(
-        and(
-          eq(storyNodes.id, nodeId),
-          eq(storyNodes.userId, userId),
-          isNull(storyNodes.deletedAt)
-        )
-      )
-      .limit(1);
+    // Verify node ownership from FalkorDB
+    const node = await graphService.getStoryNodeById(nodeId, userId);
 
     if (!node) {
       throw new Error('Node not found');
     }
 
-    // Verify media exists and is associated with node
+    // Verify media exists and is associated with node (still in Postgres)
     const [association] = await db
       .select()
       .from(nodeMedia)
@@ -206,11 +187,8 @@ export const characterSheetService = {
       throw new Error('Media is not associated with this node');
     }
 
-    // Update primary media
-    await db
-      .update(storyNodes)
-      .set({ primaryMediaId: mediaId, updatedAt: new Date() })
-      .where(eq(storyNodes.id, nodeId));
+    // Update primary media in FalkorDB
+    await graphService.updateStoryNodePrimaryMedia(nodeId, mediaId);
 
     logger.info({ nodeId, mediaId }, 'Primary media set for node');
 
@@ -221,24 +199,14 @@ export const characterSheetService = {
    * Get all character sheets for a node.
    */
   async getNodeMedia(nodeId: string, userId: string) {
-    // Verify node ownership
-    const [node] = await db
-      .select()
-      .from(storyNodes)
-      .where(
-        and(
-          eq(storyNodes.id, nodeId),
-          eq(storyNodes.userId, userId),
-          isNull(storyNodes.deletedAt)
-        )
-      )
-      .limit(1);
+    // Verify node ownership from FalkorDB
+    const node = await graphService.getStoryNodeById(nodeId, userId);
 
     if (!node) {
       throw new Error('Node not found');
     }
 
-    // Get associated media
+    // Get associated media (still in Postgres)
     const results = await db
       .select({
         id: media.id,

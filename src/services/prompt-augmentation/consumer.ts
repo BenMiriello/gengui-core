@@ -209,7 +209,7 @@ class PromptAugmentationConsumer extends BlockingConsumer {
 
     try {
       const result = await client.models.generateContent({
-        model: 'gemini-2.0-flash-exp', // v1beta API - experimental has quota
+        model: 'gemini-2.5-flash',
         contents: geminiPrompt,
       });
 

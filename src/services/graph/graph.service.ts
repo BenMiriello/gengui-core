@@ -1,8 +1,47 @@
 import Redis from 'ioredis';
+import { randomUUID } from 'crypto';
 import { logger } from '../../utils/logger';
+import type {
+  StoryNodeResult,
+  StoryNodePassage,
+  StoryNodeType,
+  StoryEdgeType,
+  NarrativeThreadResult,
+} from '../../types/storyNodes';
 
 export interface NodeProperties {
   [key: string]: string | number | boolean | null;
+}
+
+export interface StoredStoryNode {
+  id: string;
+  documentId: string;
+  userId: string;
+  type: StoryNodeType;
+  name: string;
+  description: string | null;
+  passages: string | null;
+  metadata: string | null;
+  primaryMediaId: string | null;
+  stylePreset: string | null;
+  stylePrompt: string | null;
+  narrativeOrder: number | null;
+  documentOrder: number | null;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
+export interface StoredStoryConnection {
+  id: string;
+  fromNodeId: string;
+  toNodeId: string;
+  edgeType: StoryEdgeType;
+  description: string | null;
+  strength: number | null;
+  narrativeDistance: number | null;
+  createdAt: string;
+  deletedAt: string | null;
 }
 
 export interface QueryResult {
@@ -222,6 +261,483 @@ class GraphService {
 
   getConnectionStatus(): boolean {
     return this.client?.status === 'ready';
+  }
+
+  // ========== Vector Index Methods ==========
+
+  async createVectorIndex(): Promise<void> {
+    try {
+      await this.query(
+        `CREATE VECTOR INDEX FOR (n:StoryNode) ON (n.embedding) OPTIONS {dimension: 1536, similarityFunction: 'cosine'}`
+      );
+      logger.info('Created vector index on StoryNode.embedding');
+    } catch (err: any) {
+      if (err?.message?.includes('already exists') || err?.message?.includes('already indexed')) {
+        logger.debug('Vector index already exists');
+      } else {
+        logger.error({ error: err }, 'Failed to create vector index');
+        throw err;
+      }
+    }
+  }
+
+  async setNodeEmbedding(nodeId: string, embedding: number[]): Promise<void> {
+    const vecString = embedding.join(',');
+    const cypher = `
+      MATCH (n:StoryNode {id: '${nodeId}'})
+      SET n.embedding = vecf32([${vecString}])
+    `;
+    await this.query(cypher);
+  }
+
+  async findSimilarNodes(
+    embedding: number[],
+    documentId: string,
+    userId: string,
+    limit: number = 10
+  ): Promise<(StoredStoryNode & { score: number })[]> {
+    const overFetchLimit = limit * 3;
+    const vecString = embedding.join(',');
+    const cypher = `
+      CALL db.idx.vector.queryNodes('StoryNode', 'embedding', ${overFetchLimit}, vecf32([${vecString}]))
+      YIELD node, score
+      WHERE node.documentId = '${documentId}' AND node.userId = '${userId}' AND node.deletedAt IS NULL
+      RETURN node.id, node.documentId, node.userId, node.type, node.name, node.description,
+             node.passages, node.metadata, node.primaryMediaId, node.stylePreset, node.stylePrompt,
+             node.narrativeOrder, node.documentOrder,
+             node.createdAt, node.updatedAt, node.deletedAt, score
+      LIMIT ${limit}
+    `;
+    const result = await this.query(cypher);
+
+    return result.data.map(row => ({
+      id: row[0] as string,
+      documentId: row[1] as string,
+      userId: row[2] as string,
+      type: row[3] as StoryNodeType,
+      name: row[4] as string,
+      description: row[5] as string | null,
+      passages: row[6] as string | null,
+      metadata: row[7] as string | null,
+      primaryMediaId: row[8] as string | null,
+      stylePreset: row[9] as string | null,
+      stylePrompt: row[10] as string | null,
+      narrativeOrder: row[11] as number | null,
+      documentOrder: row[12] as number | null,
+      createdAt: row[13] as string,
+      updatedAt: row[14] as string,
+      deletedAt: row[15] as string | null,
+      score: row[16] as number,
+    }));
+  }
+
+  // ========== StoryNode-Specific Methods ==========
+
+  private getLabelForType(type: StoryNodeType): string {
+    switch (type) {
+      case 'character': return 'Character';
+      case 'location': return 'Location';
+      case 'event': return 'Event';
+      case 'concept': return 'Concept';
+      default: return 'Other';
+    }
+  }
+
+  async createStoryNode(
+    documentId: string,
+    userId: string,
+    node: StoryNodeResult,
+    options?: {
+      stylePreset?: string | null;
+      stylePrompt?: string | null;
+    }
+  ): Promise<string> {
+    const label = this.getLabelForType(node.type);
+    const nodeId = randomUUID();
+    const now = new Date().toISOString();
+
+    const props: NodeProperties = {
+      id: nodeId,
+      documentId,
+      userId,
+      type: node.type,
+      name: node.name,
+      description: node.description || null,
+      passages: node.passages ? JSON.stringify(node.passages) : null,
+      metadata: node.metadata ? JSON.stringify(node.metadata) : null,
+      primaryMediaId: null,
+      stylePreset: options?.stylePreset ?? null,
+      stylePrompt: options?.stylePrompt ?? null,
+      narrativeOrder: node.narrativeOrder ?? null,
+      documentOrder: node.documentOrder ?? null,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    };
+
+    const propsString = this.propsToString(props);
+    const cypher = `CREATE (n:StoryNode:${label} ${propsString}) RETURN n.id as nodeId`;
+    const result = await this.query(cypher);
+
+    if (result.data.length === 0 || result.data[0].length === 0) {
+      throw new Error('Failed to create story node');
+    }
+
+    logger.info({ nodeId, nodeName: node.name, type: node.type }, 'Story node created in FalkorDB');
+    return nodeId;
+  }
+
+  async createStoryConnection(
+    fromId: string,
+    toId: string,
+    edgeType: StoryEdgeType,
+    description: string | null,
+    properties?: { strength?: number; narrativeDistance?: number }
+  ): Promise<string> {
+    const connectionId = randomUUID();
+    const now = new Date().toISOString();
+
+    const props: NodeProperties = {
+      id: connectionId,
+      description: description ?? null,
+      strength: properties?.strength ?? null,
+      narrativeDistance: properties?.narrativeDistance ?? null,
+      createdAt: now,
+      deletedAt: null,
+    };
+
+    const propsString = this.propsToString(props);
+    const cypher = `
+      MATCH (a:StoryNode {id: '${fromId}'}), (b:StoryNode {id: '${toId}'})
+      WHERE a.deletedAt IS NULL AND b.deletedAt IS NULL
+      CREATE (a)-[r:${edgeType} ${propsString}]->(b)
+      RETURN r.id as connectionId
+    `;
+    const result = await this.query(cypher);
+
+    if (result.data.length === 0 || result.data[0].length === 0) {
+      throw new Error('Failed to create story connection');
+    }
+
+    logger.info({ connectionId, fromId, toId, edgeType }, 'Story connection created in FalkorDB');
+    return connectionId;
+  }
+
+  async getStoryNodesForDocument(
+    documentId: string,
+    userId: string
+  ): Promise<StoredStoryNode[]> {
+    const cypher = `
+      MATCH (n:StoryNode)
+      WHERE n.documentId = '${documentId}' AND n.userId = '${userId}' AND n.deletedAt IS NULL
+      RETURN n.id, n.documentId, n.userId, n.type, n.name, n.description,
+             n.passages, n.metadata, n.primaryMediaId, n.stylePreset, n.stylePrompt,
+             n.narrativeOrder, n.documentOrder,
+             n.createdAt, n.updatedAt, n.deletedAt
+    `;
+    const result = await this.query(cypher);
+
+    return result.data.map(row => ({
+      id: row[0] as string,
+      documentId: row[1] as string,
+      userId: row[2] as string,
+      type: row[3] as StoryNodeType,
+      name: row[4] as string,
+      description: row[5] as string | null,
+      passages: row[6] as string | null,
+      metadata: row[7] as string | null,
+      primaryMediaId: row[8] as string | null,
+      stylePreset: row[9] as string | null,
+      stylePrompt: row[10] as string | null,
+      narrativeOrder: row[11] as number | null,
+      documentOrder: row[12] as number | null,
+      createdAt: row[13] as string,
+      updatedAt: row[14] as string,
+      deletedAt: row[15] as string | null,
+    }));
+  }
+
+  async getStoryConnectionsForDocument(documentId: string): Promise<StoredStoryConnection[]> {
+    const cypher = `
+      MATCH (a:StoryNode)-[r]->(b:StoryNode)
+      WHERE a.documentId = '${documentId}' AND r.deletedAt IS NULL
+        AND a.deletedAt IS NULL AND b.deletedAt IS NULL
+        AND type(r) <> 'BELONGS_TO_THREAD'
+      RETURN r.id, a.id, b.id, type(r) as edgeType, r.description, r.strength, r.narrativeDistance, r.createdAt, r.deletedAt
+    `;
+    const result = await this.query(cypher);
+
+    return result.data.map(row => ({
+      id: row[0] as string,
+      fromNodeId: row[1] as string,
+      toNodeId: row[2] as string,
+      edgeType: row[3] as StoryEdgeType,
+      description: row[4] as string | null,
+      strength: row[5] as number | null,
+      narrativeDistance: row[6] as number | null,
+      createdAt: row[7] as string,
+      deletedAt: row[8] as string | null,
+    }));
+  }
+
+  async softDeleteStoryNode(nodeId: string): Promise<void> {
+    const now = new Date().toISOString();
+    const cypher = `
+      MATCH (n:StoryNode {id: '${nodeId}'})
+      SET n.deletedAt = '${now}'
+    `;
+    await this.query(cypher);
+    logger.info({ nodeId }, 'Story node soft deleted in FalkorDB');
+  }
+
+  async softDeleteStoryConnection(fromId: string, toId: string): Promise<void> {
+    const now = new Date().toISOString();
+    const cypher = `
+      MATCH (a:StoryNode {id: '${fromId}'})-[r]->(b:StoryNode {id: '${toId}'})
+      WHERE type(r) <> 'BELONGS_TO_THREAD'
+      SET r.deletedAt = '${now}'
+    `;
+    await this.query(cypher);
+    logger.info({ fromId, toId }, 'Story connection soft deleted in FalkorDB');
+  }
+
+  async deleteAllStoryNodesForDocument(documentId: string, userId: string): Promise<void> {
+    // Also delete narrative threads for this document
+    await this.query(`
+      MATCH (nt:NarrativeThread)
+      WHERE nt.documentId = '${documentId}' AND nt.userId = '${userId}'
+      DETACH DELETE nt
+    `);
+    const cypher = `
+      MATCH (n:StoryNode)
+      WHERE n.documentId = '${documentId}' AND n.userId = '${userId}'
+      DETACH DELETE n
+    `;
+    await this.query(cypher);
+    logger.info({ documentId, userId }, 'All story nodes deleted from FalkorDB');
+  }
+
+  async updateStoryNode(
+    nodeId: string,
+    updates: {
+      name?: string;
+      description?: string;
+      passages?: StoryNodePassage[];
+    }
+  ): Promise<void> {
+    const setStatements: string[] = [];
+    setStatements.push(`n.updatedAt = '${new Date().toISOString()}'`);
+
+    if (updates.name !== undefined) {
+      setStatements.push(`n.name = ${this.valueToString(updates.name)}`);
+    }
+    if (updates.description !== undefined) {
+      setStatements.push(`n.description = ${this.valueToString(updates.description)}`);
+    }
+    if (updates.passages !== undefined) {
+      setStatements.push(`n.passages = ${this.valueToString(JSON.stringify(updates.passages))}`);
+    }
+
+    const cypher = `
+      MATCH (n:StoryNode {id: '${nodeId}'})
+      SET ${setStatements.join(', ')}
+    `;
+    await this.query(cypher);
+    logger.info({ nodeId }, 'Story node updated in FalkorDB');
+  }
+
+  async updateStoryNodePrimaryMedia(nodeId: string, mediaId: string | null): Promise<void> {
+    const cypher = `
+      MATCH (n:StoryNode {id: '${nodeId}'})
+      SET n.primaryMediaId = ${mediaId ? this.valueToString(mediaId) : 'null'},
+          n.updatedAt = '${new Date().toISOString()}'
+    `;
+    await this.query(cypher);
+  }
+
+  async updateStoryNodeStyle(
+    nodeId: string,
+    stylePreset: string | null,
+    stylePrompt: string | null
+  ): Promise<StoredStoryNode | null> {
+    const now = new Date().toISOString();
+    const cypher = `
+      MATCH (n:StoryNode {id: '${nodeId}'})
+      SET n.stylePreset = ${stylePreset ? this.valueToString(stylePreset) : 'null'},
+          n.stylePrompt = ${stylePrompt ? this.valueToString(stylePrompt) : 'null'},
+          n.updatedAt = '${now}'
+      RETURN n.id, n.documentId, n.userId, n.type, n.name, n.description,
+             n.passages, n.metadata, n.primaryMediaId, n.stylePreset, n.stylePrompt,
+             n.narrativeOrder, n.documentOrder,
+             n.createdAt, n.updatedAt, n.deletedAt
+    `;
+    const result = await this.query(cypher);
+
+    if (result.data.length === 0) return null;
+
+    const row = result.data[0];
+    return {
+      id: row[0] as string,
+      documentId: row[1] as string,
+      userId: row[2] as string,
+      type: row[3] as StoryNodeType,
+      name: row[4] as string,
+      description: row[5] as string | null,
+      passages: row[6] as string | null,
+      metadata: row[7] as string | null,
+      primaryMediaId: row[8] as string | null,
+      stylePreset: row[9] as string | null,
+      stylePrompt: row[10] as string | null,
+      narrativeOrder: row[11] as number | null,
+      documentOrder: row[12] as number | null,
+      createdAt: row[13] as string,
+      updatedAt: row[14] as string,
+      deletedAt: row[15] as string | null,
+    };
+  }
+
+  async getStoryNodeById(nodeId: string, userId: string): Promise<StoredStoryNode | null> {
+    const cypher = `
+      MATCH (n:StoryNode {id: '${nodeId}', userId: '${userId}'})
+      WHERE n.deletedAt IS NULL
+      RETURN n.id, n.documentId, n.userId, n.type, n.name, n.description,
+             n.passages, n.metadata, n.primaryMediaId, n.stylePreset, n.stylePrompt,
+             n.narrativeOrder, n.documentOrder,
+             n.createdAt, n.updatedAt, n.deletedAt
+    `;
+    const result = await this.query(cypher);
+
+    if (result.data.length === 0) return null;
+
+    const row = result.data[0];
+    return {
+      id: row[0] as string,
+      documentId: row[1] as string,
+      userId: row[2] as string,
+      type: row[3] as StoryNodeType,
+      name: row[4] as string,
+      description: row[5] as string | null,
+      passages: row[6] as string | null,
+      metadata: row[7] as string | null,
+      primaryMediaId: row[8] as string | null,
+      stylePreset: row[9] as string | null,
+      stylePrompt: row[10] as string | null,
+      narrativeOrder: row[11] as number | null,
+      documentOrder: row[12] as number | null,
+      createdAt: row[13] as string,
+      updatedAt: row[14] as string,
+      deletedAt: row[15] as string | null,
+    };
+  }
+
+  /**
+   * Cleanup soft-deleted nodes and connections older than the given date.
+   * Returns count of deleted nodes.
+   */
+  async cleanupSoftDeleted(beforeDate: Date): Promise<{ nodes: number; connections: number }> {
+    const threshold = beforeDate.toISOString();
+
+    const connResult = await this.query(`
+      MATCH ()-[r]->()
+      WHERE r.deletedAt IS NOT NULL AND r.deletedAt < '${threshold}'
+      DELETE r
+      RETURN count(r) as deleted
+    `);
+    const connectionsDeleted = connResult.data[0]?.[0] as number || 0;
+
+    const nodeResult = await this.query(`
+      MATCH (n:StoryNode)
+      WHERE n.deletedAt IS NOT NULL AND n.deletedAt < '${threshold}'
+      DETACH DELETE n
+      RETURN count(n) as deleted
+    `);
+    const nodesDeleted = nodeResult.data[0]?.[0] as number || 0;
+
+    if (nodesDeleted > 0 || connectionsDeleted > 0) {
+      logger.info(
+        { nodesDeleted, connectionsDeleted, threshold },
+        'Cleaned up soft-deleted graph nodes'
+      );
+    }
+
+    return { nodes: nodesDeleted, connections: connectionsDeleted };
+  }
+
+  /**
+   * Internal method: get node by ID without user verification.
+   * Use only for trusted internal service operations.
+   */
+  async getStoryNodeByIdInternal(nodeId: string): Promise<StoredStoryNode | null> {
+    const cypher = `
+      MATCH (n:StoryNode {id: '${nodeId}'})
+      WHERE n.deletedAt IS NULL
+      RETURN n.id, n.documentId, n.userId, n.type, n.name, n.description,
+             n.passages, n.metadata, n.primaryMediaId, n.stylePreset, n.stylePrompt,
+             n.narrativeOrder, n.documentOrder,
+             n.createdAt, n.updatedAt, n.deletedAt
+    `;
+    const result = await this.query(cypher);
+
+    if (result.data.length === 0) return null;
+
+    const row = result.data[0];
+    return {
+      id: row[0] as string,
+      documentId: row[1] as string,
+      userId: row[2] as string,
+      type: row[3] as StoryNodeType,
+      name: row[4] as string,
+      description: row[5] as string | null,
+      passages: row[6] as string | null,
+      metadata: row[7] as string | null,
+      primaryMediaId: row[8] as string | null,
+      stylePreset: row[9] as string | null,
+      stylePrompt: row[10] as string | null,
+      narrativeOrder: row[11] as number | null,
+      documentOrder: row[12] as number | null,
+      createdAt: row[13] as string,
+      updatedAt: row[14] as string,
+      deletedAt: row[15] as string | null,
+    };
+  }
+
+  // ========== Narrative Thread Methods ==========
+
+  async createNarrativeThread(
+    documentId: string,
+    userId: string,
+    thread: NarrativeThreadResult
+  ): Promise<string> {
+    const threadId = randomUUID();
+    const now = new Date().toISOString();
+
+    const props: NodeProperties = {
+      id: threadId,
+      documentId,
+      userId,
+      name: thread.name,
+      isPrimary: thread.isPrimary,
+      createdAt: now,
+    };
+
+    const propsString = this.propsToString(props);
+    const cypher = `CREATE (nt:NarrativeThread ${propsString}) RETURN nt.id as threadId`;
+    const result = await this.query(cypher);
+
+    if (result.data.length === 0 || result.data[0].length === 0) {
+      throw new Error('Failed to create narrative thread');
+    }
+
+    logger.info({ threadId, name: thread.name }, 'Narrative thread created in FalkorDB');
+    return threadId;
+  }
+
+  async linkEventToThread(eventId: string, threadId: string, order: number): Promise<void> {
+    const cypher = `
+      MATCH (e:StoryNode {id: '${eventId}'}), (nt:NarrativeThread {id: '${threadId}'})
+      CREATE (e)-[:BELONGS_TO_THREAD {order: ${order}}]->(nt)
+    `;
+    await this.query(cypher);
   }
 }
 

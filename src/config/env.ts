@@ -24,15 +24,16 @@ const envSchema = z.object({
   // Inference Provider Selection
   TEXT_INFERENCE_PROVIDER: z.enum(['gemini']).default('gemini'),
   IMAGE_INFERENCE_PROVIDER: z.enum(['local', 'runpod', 'gemini']).default('gemini'),
+  EMBEDDING_PROVIDER: z.enum(['openai']).default('openai'),
 
   // Provider API Keys
   GEMINI_API_KEY: z.string().optional(),
+  OPENAI_API_KEY: z.string().optional(),
   RUNPOD_API_KEY: z.string().optional(),
   RUNPOD_ENDPOINT_ID: z.string().optional(),
 })
 .refine(
   (data) => {
-    // Validate provider-specific API key requirements
     if (data.TEXT_INFERENCE_PROVIDER === 'gemini' && !data.GEMINI_API_KEY) {
       return false;
     }
@@ -41,6 +42,9 @@ const envSchema = z.object({
     }
     if (data.IMAGE_INFERENCE_PROVIDER === 'runpod') {
       return !!(data.RUNPOD_API_KEY && data.RUNPOD_ENDPOINT_ID);
+    }
+    if (data.EMBEDDING_PROVIDER === 'openai' && !data.OPENAI_API_KEY) {
+      return false;
     }
     return true;
   },

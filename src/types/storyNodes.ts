@@ -3,7 +3,15 @@
  * Used by Gemini client, text analysis service, and repositories.
  */
 
-export type StoryNodeType = 'character' | 'location' | 'event' | 'other';
+export type StoryNodeType = 'character' | 'location' | 'event' | 'concept' | 'other';
+
+export type StoryEdgeType =
+  | 'CAUSES' | 'ENABLES' | 'PREVENTS'
+  | 'HAPPENS_BEFORE'
+  | 'LOCATED_IN'
+  | 'APPEARS_IN' | 'KNOWS' | 'OPPOSES'
+  | 'BELONGS_TO_THREAD'
+  | 'RELATED_TO';
 
 export interface StoryNodePassage {
   text: string;
@@ -16,27 +24,37 @@ export interface TextPosition {
   text: string;
 }
 
-// Result from LLM analysis (fresh analysis)
 export interface StoryNodeResult {
   type: StoryNodeType;
   name: string;
   description: string;
   passages: StoryNodePassage[];
   metadata?: Record<string, unknown>;
+  narrativeOrder?: number;
+  documentOrder?: number;
 }
 
 export interface StoryConnectionResult {
   fromName: string;
   toName: string;
+  edgeType: StoryEdgeType;
   description: string;
+  strength?: number;
+  narrativeDistance?: number;
+}
+
+export interface NarrativeThreadResult {
+  name: string;
+  isPrimary: boolean;
+  eventNames: string[];
 }
 
 export interface AnalysisResult {
   nodes: StoryNodeResult[];
   connections: StoryConnectionResult[];
+  narrativeThreads?: NarrativeThreadResult[];
 }
 
-// Types for incremental node updates
 export interface ExistingNode {
   id: string;
   type: StoryNodeType;
@@ -57,7 +75,9 @@ export interface ConnectionUpdate {
   toId?: string;
   fromName?: string;
   toName?: string;
+  edgeType?: StoryEdgeType;
   description: string;
+  strength?: number;
 }
 
 export interface NodeUpdatesResult {
@@ -68,4 +88,5 @@ export interface NodeUpdatesResult {
     add: ConnectionUpdate[];
     delete: { fromId: string; toId: string }[];
   };
+  narrativeThreads?: NarrativeThreadResult[];
 }

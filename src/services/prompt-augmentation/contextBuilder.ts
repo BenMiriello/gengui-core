@@ -1,10 +1,10 @@
 /**
- * Context building from DB queries
+ * Context building from FalkorDB queries
  */
 
-import { db } from '../../config/database';
-import { storyNodes, storyNodeConnections } from '../../models/schema';
-import { eq, and, inArray } from 'drizzle-orm';
+import { graphService } from '../graph/graph.service';
+import { generateEmbedding } from '../embeddings';
+import { logger } from '../../utils/logger';
 import type { PromptContext, PromptEnhancementSettings } from './promptBuilder';
 
 export async function buildContext(
@@ -20,32 +20,22 @@ export async function buildContext(
     selectedText,
   };
 
-  // Add narrative context if requested
   if (settings.useNarrativeContext) {
-    const nodes = await db
-      .select()
-      .from(storyNodes)
-      .where(and(eq(storyNodes.documentId, documentId), eq(storyNodes.userId, userId)));
+    let nodes;
+    try {
+      const queryEmbedding = await generateEmbedding(selectedText);
+      nodes = await graphService.findSimilarNodes(queryEmbedding, documentId, userId, 10);
+    } catch (err) {
+      logger.warn({ error: err }, 'Semantic retrieval failed, falling back to full node list');
+      nodes = await graphService.getStoryNodesForDocument(documentId, userId);
+    }
 
     if (nodes.length > 0) {
-      // Get connections
-      const nodeIds = nodes.map(n => n.id);
-      const connections = await db
-        .select()
-        .from(storyNodeConnections)
-        .where(
-          and(
-            inArray(storyNodeConnections.fromNodeId, nodeIds),
-            inArray(storyNodeConnections.toNodeId, nodeIds)
-          )
-        );
-
-      // Convert to text
+      const connections = await graphService.getStoryConnectionsForDocument(documentId);
       context.storyContext = convertNodeTreeToText(nodes, connections);
     }
   }
 
-  // Add surrounding text context
   if (settings.charsBefore > 0) {
     const beforeStart = Math.max(0, startChar - settings.charsBefore);
     context.textBefore = documentContent.substring(beforeStart, startChar);
@@ -65,11 +55,11 @@ function convertNodeTreeToText(
 ): string {
   const sections: string[] = ['STORY CONTEXT:\n'];
 
-  // Group nodes by type
   const nodesByType: Record<string, any[]> = {
     character: [],
     location: [],
     event: [],
+    concept: [],
     other: [],
   };
 
@@ -77,39 +67,41 @@ function convertNodeTreeToText(
     nodesByType[node.type]?.push(node);
   }
 
-  // Add characters
   if (nodesByType.character.length > 0) {
     sections.push('\nCHARACTERS:');
     for (const node of nodesByType.character) {
-      sections.push(`- ${node.name} (${node.type}): ${node.description}`);
+      sections.push(`- ${node.name}: ${node.description}`);
     }
   }
 
-  // Add locations
   if (nodesByType.location.length > 0) {
     sections.push('\nLOCATIONS:');
     for (const node of nodesByType.location) {
-      sections.push(`- ${node.name} (${node.type}): ${node.description}`);
+      sections.push(`- ${node.name}: ${node.description}`);
     }
   }
 
-  // Add events
   if (nodesByType.event.length > 0) {
     sections.push('\nEVENTS:');
     for (const node of nodesByType.event) {
-      sections.push(`- ${node.name} (${node.type}): ${node.description}`);
+      sections.push(`- ${node.name}: ${node.description}`);
     }
   }
 
-  // Add other elements
+  if (nodesByType.concept.length > 0) {
+    sections.push('\nCONCEPTS:');
+    for (const node of nodesByType.concept) {
+      sections.push(`- ${node.name}: ${node.description}`);
+    }
+  }
+
   if (nodesByType.other.length > 0) {
     sections.push('\nOTHER ELEMENTS:');
     for (const node of nodesByType.other) {
-      sections.push(`- ${node.name} (${node.type}): ${node.description}`);
+      sections.push(`- ${node.name}: ${node.description}`);
     }
   }
 
-  // Add relationships
   if (connections.length > 0) {
     sections.push('\nRELATIONSHIPS:');
     const nodeMap = new Map(nodes.map(n => [n.id, n.name]));
@@ -117,7 +109,8 @@ function convertNodeTreeToText(
       const fromName = nodeMap.get(conn.fromNodeId);
       const toName = nodeMap.get(conn.toNodeId);
       if (fromName && toName) {
-        sections.push(`- ${fromName} → ${toName}: ${conn.description}`);
+        const edgeLabel = conn.edgeType || 'RELATED_TO';
+        sections.push(`- ${fromName} --[${edgeLabel}]--> ${toName}: ${conn.description}`);
       }
     }
   }

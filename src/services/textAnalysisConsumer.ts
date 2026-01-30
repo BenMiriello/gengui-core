@@ -9,7 +9,7 @@ import { logger } from '../utils/logger';
 import { sseService } from './sse';
 import type { StreamMessage } from './redis-streams';
 import { analyzeText, updateNodes } from './gemini';
-import { storyNodesRepository, parsePassages } from './storyNodes/repository';
+import { storyNodesRepository, parsePassages } from './storyNodes';
 import { BlockingConsumer } from '../lib/blocking-consumer';
 import type { ExistingNode } from '../types/storyNodes';
 
@@ -97,11 +97,13 @@ class TextAnalysisConsumer extends BlockingConsumer {
       await storyNodesRepository.deleteAllForDocument(documentId, userId);
     }
 
-    // Create nodes and connections (inherit document style)
+    // Create nodes, connections, and narrative threads (inherit document style)
     const nodeNameToId = await storyNodesRepository.createNodes({
       userId,
       documentId,
       nodes: analysis.nodes,
+      connections: analysis.connections,
+      narrativeThreads: analysis.narrativeThreads,
       documentContent: document.content,
       documentStyle: {
         preset: document.defaultStylePreset,
@@ -109,18 +111,13 @@ class TextAnalysisConsumer extends BlockingConsumer {
       },
     });
 
-    const connectionsCreated = await storyNodesRepository.createConnections({
-      connections: analysis.connections,
-      nodeNameToId,
-    });
-
     this.broadcast(documentId, 'analysis-complete', {
       nodesCount: nodeNameToId.size,
-      connectionsCount: connectionsCreated,
+      connectionsCount: analysis.connections.length,
     });
 
     logger.info(
-      { documentId, nodesCount: nodeNameToId.size, connectionsCount: connectionsCreated },
+      { documentId, nodesCount: nodeNameToId.size, connectionsCount: analysis.connections.length },
       'Text analysis completed successfully'
     );
   }
