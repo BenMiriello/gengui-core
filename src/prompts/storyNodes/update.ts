@@ -49,7 +49,7 @@ CURRENT DOCUMENT TEXT:
 ${content}
 
 Return a JSON object with:
-- add: Array of new nodes (same format as fresh analysis, including type which can be character/location/event/concept/other). For events, include narrativeOrder and documentOrder.
+- add: Array of new nodes (same format as fresh analysis, including type which can be character/location/event/concept/other). For events, include documentOrder.
 - update: Array of {id, name?, description?, passages?} - only include fields that changed
 - delete: Array of node IDs to remove
 - connectionUpdates: {add: [], delete: []} - add uses fromId/toId for existing nodes or fromName/toName for new nodes. Each connection must include edgeType (CAUSES, ENABLES, PREVENTS, HAPPENS_BEFORE, LOCATED_IN, APPEARS_IN, KNOWS, OPPOSES, or RELATED_TO) and description. Causal edges should include strength (0-1).

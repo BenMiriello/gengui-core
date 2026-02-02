@@ -128,10 +128,7 @@ export const graphStoryNodesRepository = {
           toId,
           connData.edgeType || 'RELATED_TO',
           connData.description,
-          {
-            strength: connData.strength,
-            narrativeDistance: connData.narrativeDistance,
-          }
+          { strength: connData.strength }
         );
         created++;
         logger.info({ from: connData.fromName, to: connData.toName, edgeType: connData.edgeType }, 'Story node connection created');

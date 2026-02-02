@@ -34,7 +34,7 @@ const server = app.listen(env.PORT, '0.0.0.0', async () => {
     reconciliationTask = startReconciliationJob();
     cleanupTask = startCleanupJob();
 
-    await graphService.createVectorIndex();
+    await graphService.initializeIndexes();
   } catch (error) {
     logger.error({ error }, 'Failed to start generation services');
   }

@@ -12,6 +12,8 @@ import { inArray } from 'drizzle-orm';
 import { s3 } from '../services/s3';
 import { graphStoryNodesRepository } from '../services/storyNodes';
 import { graphService } from '../services/graph/graph.service';
+import { computeCausalOrder, detectThreads, findPivotalNodes, findCausalGaps } from '../services/graph/graph.analysis';
+import { graphThreads } from '../services/graph/graph.threads';
 
 const router = Router();
 
@@ -396,6 +398,138 @@ router.get('/documents/:id/node-similarities', requireAuth, async (req: Request,
     const similarities = await graphService.getNodeSimilaritiesForDocument(id, userId, k, cutoff);
 
     res.json({ similarities });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/documents/:id/graph-analysis', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = (req as any).user.id;
+    const { id } = req.params;
+
+    await documentsService.get(id, userId);
+
+    const [causalOrder, threads, pivotalNodes, causalGaps] = await Promise.all([
+      computeCausalOrder(id, userId),
+      detectThreads(id, userId),
+      findPivotalNodes(id, userId),
+      findCausalGaps(id, userId),
+    ]);
+
+    const existingThreads = await graphThreads.getThreadsForDocument(id, userId);
+
+    const existingThreadsWithMembers = await Promise.all(
+      existingThreads.map(async (thread) => {
+        const memberships = await graphThreads.getEventsForThread(thread.id);
+        return {
+          ...thread,
+          memberNodeIds: memberships.map((m) => m.eventId),
+        };
+      })
+    );
+
+    res.json({
+      causalOrder,
+      detectedThreads: threads,
+      existingThreads: existingThreadsWithMembers,
+      pivotalNodes,
+      causalGaps,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Thread management endpoints
+
+router.post('/documents/:id/threads', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = (req as any).user.id;
+    const { id } = req.params;
+    const { name, isPrimary } = req.body;
+
+    await documentsService.get(id, userId);
+
+    const threadId = await graphService.createNarrativeThread(id, userId, {
+      name: name || 'Untitled Thread',
+      isPrimary: isPrimary ?? false,
+      eventNames: [],
+    });
+
+    res.status(201).json({ threadId });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.patch('/threads/:id', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const { name } = req.body;
+
+    const thread = await graphThreads.getThreadById(id);
+    if (!thread) {
+      res.status(404).json({ error: { message: 'Thread not found', code: 'NOT_FOUND' } });
+      return;
+    }
+
+    if (name) await graphThreads.renameThread(id, name);
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.delete('/threads/:id', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+
+    const thread = await graphThreads.getThreadById(id);
+    if (!thread) {
+      res.status(404).json({ error: { message: 'Thread not found', code: 'NOT_FOUND' } });
+      return;
+    }
+
+    await graphThreads.deleteThread(id);
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/threads/:id/members', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const { nodeId, order } = req.body;
+
+    await graphThreads.addEventToThread(nodeId, id, order ?? 0);
+    res.status(201).json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.delete('/threads/:id/members/:nodeId', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id, nodeId } = req.params;
+
+    await graphThreads.removeEventFromThread(nodeId, id);
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/documents/:id/detect-threads', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = (req as any).user.id;
+    const { id } = req.params;
+
+    await documentsService.get(id, userId);
+    const threads = await detectThreads(id, userId);
+
+    res.json({ threads });
   } catch (error) {
     next(error);
   }

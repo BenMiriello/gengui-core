@@ -30,7 +30,6 @@ export interface StoryNodeResult {
   description: string;
   passages: StoryNodePassage[];
   metadata?: Record<string, unknown>;
-  narrativeOrder?: number;
   documentOrder?: number;
 }
 
@@ -40,7 +39,6 @@ export interface StoryConnectionResult {
   edgeType: StoryEdgeType;
   description: string;
   strength?: number;
-  narrativeDistance?: number;
 }
 
 export interface NarrativeThreadResult {

@@ -23,7 +23,7 @@ CRITICAL RULES - FOLLOW EXACTLY:
 Extract these element types:
 - **Characters**: People or sentient beings. Describe their physical appearance first including specific details, then personality, role, and motivations (but not plot events or actions they take).
 - **Locations**: Places where events occur. Describe their appearance, key features, atmosphere, significance.
-- **Events**: Significant plot actions. Only create for major narrative moments that involve multiple characters/locations or have lasting story impact. Include narrativeOrder (sequence in the story timeline, starting from 1) and documentOrder (order of first appearance in the text, starting from 1).
+- **Events**: Significant plot actions. Only create for major narrative moments that involve multiple characters/locations or have lasting story impact. Include documentOrder (order of first appearance in the text, starting from 1).
 - **Concepts**: Themes, motifs, ideologies, or abstract forces that drive the narrative.
 - **Other**: Important story elements (objects, artifacts) that exist independently and contribute meaningfully to the narrative.
 
@@ -44,7 +44,6 @@ For connections, specify the relationship type using one of these edge types:
 - RELATED_TO: General relationship (use sparingly, prefer specific types)
 
 For causal edges (CAUSES, ENABLES, PREVENTS), include a strength value from 0 to 1.
-For HAPPENS_BEFORE edges, include narrativeDistance (how many events apart).
 
 Also identify narrative threads - named storylines or plot threads that group related events:
 - name: Short name for the thread (e.g., "Main Plot", "Flashback Sequence", "Subplot: Romance")

@@ -8,49 +8,66 @@ import type {
   StoryEdgeType,
   NarrativeThreadResult,
 } from '../../types/storyNodes';
+import {
+  type NodeProperties,
+  type StoredStoryNode,
+  type StoredStoryConnection,
+  type QueryResult,
+  CAUSAL_EDGE_TYPES,
+  causalEdgePattern,
+} from './graph.types';
 
-export interface NodeProperties {
-  [key: string]: string | number | boolean | null;
-}
-
-export interface StoredStoryNode {
-  id: string;
-  documentId: string;
-  userId: string;
-  type: StoryNodeType;
-  name: string;
-  description: string | null;
-  passages: string | null;
-  metadata: string | null;
-  primaryMediaId: string | null;
-  stylePreset: string | null;
-  stylePrompt: string | null;
-  narrativeOrder: number | null;
-  documentOrder: number | null;
-  createdAt: string;
-  updatedAt: string;
-  deletedAt: string | null;
-}
-
-export interface StoredStoryConnection {
-  id: string;
-  fromNodeId: string;
-  toNodeId: string;
-  edgeType: StoryEdgeType;
-  description: string | null;
-  strength: number | null;
-  narrativeDistance: number | null;
-  createdAt: string;
-  deletedAt: string | null;
-}
-
-export interface QueryResult {
-  headers: string[];
-  data: unknown[][];
-  stats: Record<string, string>;
-}
+export type { NodeProperties, StoredStoryNode, StoredStoryConnection, QueryResult };
 
 const GRAPH_NAME = 'gengui';
+
+// Allowed node labels - must be validated before interpolation into queries
+const ALLOWED_NODE_LABELS = new Set([
+  'StoryNode',
+  'Character',
+  'Location',
+  'Event',
+  'Concept',
+  'Other',
+  'NarrativeThread',
+]);
+
+// Allowed edge types - must be validated before interpolation into queries
+const ALLOWED_EDGE_TYPES = new Set([
+  'CAUSES',
+  'ENABLES',
+  'PREVENTS',
+  'HAPPENS_BEFORE',
+  'LOCATED_IN',
+  'APPEARS_IN',
+  'KNOWS',
+  'OPPOSES',
+  'RELATED_TO',
+  'BELONGS_TO_THREAD',
+]);
+
+// Allowed property names for node queries
+const ALLOWED_PROPERTY_NAMES = new Set([
+  'id',
+  'documentId',
+  'userId',
+  'type',
+  'name',
+  'description',
+  'passages',
+  'metadata',
+  'primaryMediaId',
+  'stylePreset',
+  'stylePrompt',
+  'documentOrder',
+  'createdAt',
+  'updatedAt',
+  'deletedAt',
+  'embedding',
+  'isPrimary',
+  'order',
+  'strength',
+]);
 
 class GraphService {
   private client: Redis | null = null;
@@ -164,6 +181,7 @@ class GraphService {
    * Returns the internal node ID
    */
   async createNode(type: string, props: NodeProperties): Promise<string> {
+    this.validateLabel(type);
     const propsString = this.propsToString(props);
     const cypher = `CREATE (n:${type} ${propsString}) RETURN id(n) as nodeId`;
     const result = await this.query(cypher);
@@ -179,20 +197,25 @@ class GraphService {
    * Update a node's properties by internal ID
    */
   async updateNode(id: string, props: NodeProperties): Promise<void> {
+    const nodeId = this.validateInternalId(id);
+    for (const key of Object.keys(props)) {
+      this.validatePropertyName(key);
+    }
     const setStatements = Object.entries(props)
       .map(([k, v]) => `n.${k} = ${this.valueToString(v)}`)
       .join(', ');
 
-    const cypher = `MATCH (n) WHERE id(n) = ${id} SET ${setStatements}`;
-    await this.query(cypher);
+    const cypher = `MATCH (n) WHERE id(n) = $nodeId SET ${setStatements}`;
+    await this.query(cypher, { nodeId });
   }
 
   /**
    * Delete a node by internal ID
    */
   async deleteNode(id: string): Promise<void> {
-    const cypher = `MATCH (n) WHERE id(n) = ${id} DELETE n`;
-    await this.query(cypher);
+    const nodeId = this.validateInternalId(id);
+    const cypher = `MATCH (n) WHERE id(n) = $nodeId DELETE n`;
+    await this.query(cypher, { nodeId });
   }
 
   /**
@@ -205,14 +228,22 @@ class GraphService {
     type: string,
     props?: NodeProperties
   ): Promise<string> {
+    const fromNodeId = this.validateInternalId(fromId);
+    const toNodeId = this.validateInternalId(toId);
+    this.validateEdgeType(type);
+    if (props) {
+      for (const key of Object.keys(props)) {
+        this.validatePropertyName(key);
+      }
+    }
     const propsString = props ? ` ${this.propsToString(props)}` : '';
     const cypher = `
       MATCH (a), (b)
-      WHERE id(a) = ${fromId} AND id(b) = ${toId}
+      WHERE id(a) = $fromNodeId AND id(b) = $toNodeId
       CREATE (a)-[r:${type}${propsString}]->(b)
       RETURN id(r) as edgeId
     `;
-    const result = await this.query(cypher);
+    const result = await this.query(cypher, { fromNodeId, toNodeId });
 
     if (result.data.length === 0 || result.data[0].length === 0) {
       throw new Error('Failed to create edge');
@@ -225,16 +256,21 @@ class GraphService {
    * Delete an edge by internal ID
    */
   async deleteEdge(id: string): Promise<void> {
-    const cypher = `MATCH ()-[r]->() WHERE id(r) = ${id} DELETE r`;
-    await this.query(cypher);
+    const edgeId = this.validateInternalId(id);
+    const cypher = `MATCH ()-[r]->() WHERE id(r) = $edgeId DELETE r`;
+    await this.query(cypher, { edgeId });
   }
 
   /**
    * Find nodes by type and optional property match
    */
   async findNodes(type: string, match?: NodeProperties): Promise<QueryResult> {
+    this.validateLabel(type);
     let whereClause = '';
     if (match && Object.keys(match).length > 0) {
+      for (const key of Object.keys(match)) {
+        this.validatePropertyName(key);
+      }
       const conditions = Object.entries(match)
         .map(([k, v]) => `n.${k} = ${this.valueToString(v)}`)
         .join(' AND ');
@@ -259,11 +295,137 @@ class GraphService {
     return String(value);
   }
 
+  // ========== Input Validation Methods ==========
+
+  /**
+   * Validate that a label is allowed before interpolating into a query.
+   * Labels cannot be parameterized in Cypher, so we must validate against allowlist.
+   */
+  private validateLabel(label: string): void {
+    if (!ALLOWED_NODE_LABELS.has(label)) {
+      throw new Error(`Invalid node label: ${label}. Allowed: ${[...ALLOWED_NODE_LABELS].join(', ')}`);
+    }
+  }
+
+  /**
+   * Validate that an edge type is allowed before interpolating into a query.
+   * Edge types cannot be parameterized in Cypher, so we must validate against allowlist.
+   */
+  private validateEdgeType(edgeType: string): void {
+    if (!ALLOWED_EDGE_TYPES.has(edgeType)) {
+      throw new Error(`Invalid edge type: ${edgeType}. Allowed: ${[...ALLOWED_EDGE_TYPES].join(', ')}`);
+    }
+  }
+
+  /**
+   * Validate that a property name is allowed before interpolating into a query.
+   * Property names cannot be parameterized in Cypher, so we must validate against allowlist.
+   */
+  private validatePropertyName(propName: string): void {
+    if (!ALLOWED_PROPERTY_NAMES.has(propName)) {
+      throw new Error(`Invalid property name: ${propName}`);
+    }
+  }
+
+  /**
+   * Validate and parse an internal FalkorDB node/edge ID.
+   * These are integers, not UUIDs.
+   */
+  private validateInternalId(id: string): number {
+    const parsed = parseInt(id, 10);
+    if (isNaN(parsed) || parsed < 0) {
+      throw new Error(`Invalid internal node/edge ID: ${id}`);
+    }
+    return parsed;
+  }
+
+  /**
+   * Validate that an embedding is a valid float array of expected dimension.
+   */
+  private validateEmbedding(embedding: number[], expectedDim: number = 1536): void {
+    if (!Array.isArray(embedding)) {
+      throw new Error('Embedding must be an array');
+    }
+    if (embedding.length !== expectedDim) {
+      throw new Error(`Embedding must have ${expectedDim} dimensions, got ${embedding.length}`);
+    }
+    for (let i = 0; i < embedding.length; i++) {
+      if (typeof embedding[i] !== 'number' || !isFinite(embedding[i])) {
+        throw new Error(`Embedding contains invalid value at index ${i}`);
+      }
+    }
+  }
+
   getConnectionStatus(): boolean {
     return this.client?.status === 'ready';
   }
 
-  // ========== Vector Index Methods ==========
+  // ========== Acyclicity Validation ==========
+
+  async wouldCreateCycle(fromNodeId: string, toNodeId: string): Promise<boolean> {
+    const cypher = `
+      MATCH path = (b:StoryNode)-[${causalEdgePattern('*1..50')}]->(a:StoryNode)
+      WHERE b.id = $toNodeId AND a.id = $fromNodeId
+      RETURN count(path) > 0 AS wouldCycle
+      LIMIT 1
+    `;
+    const result = await this.query(cypher, { toNodeId, fromNodeId });
+    if (result.data.length === 0) return false;
+    return result.data[0][0] === true || result.data[0][0] === 'true';
+  }
+
+  // ========== Query Helper Methods ==========
+
+  /**
+   * Generate consistent deletedAt filter clauses.
+   * Use these helpers to ensure soft-delete logic is uniform across all queries.
+   *
+   * @param nodeVar - Node variable name (e.g., 'n', 'a', 'source')
+   * @param relVar - Optional relationship variable name (e.g., 'r')
+   * @returns Cypher WHERE clause fragment
+   */
+  private deletedAtFilter(nodeVar: string, relVar?: string): string {
+    const nodePart = `${nodeVar}.deletedAt IS NULL`;
+    if (relVar) {
+      return `${nodePart} AND ${relVar}.deletedAt IS NULL`;
+    }
+    return nodePart;
+  }
+
+  /**
+   * Generate deletedAt filter for queries with two nodes and a relationship.
+   * Common pattern: MATCH (a)-[r]->(b)
+   */
+  private deletedAtFilterEdge(fromVar: string, relVar: string, toVar: string): string {
+    return `${fromVar}.deletedAt IS NULL AND ${toVar}.deletedAt IS NULL AND ${relVar}.deletedAt IS NULL`;
+  }
+
+  // ========== Index Methods ==========
+
+  /**
+   * Create property indexes for frequently queried fields.
+   * These significantly improve query performance for documentId, userId, deletedAt lookups.
+   */
+  async createPropertyIndexes(): Promise<void> {
+    const indexes = [
+      { name: 'documentId', property: 'documentId' },
+      { name: 'userId', property: 'userId' },
+      { name: 'deletedAt', property: 'deletedAt' },
+    ];
+
+    for (const idx of indexes) {
+      try {
+        await this.query(`CREATE INDEX FOR (n:StoryNode) ON (n.${idx.property})`);
+        logger.info({ index: idx.name }, 'Created property index on StoryNode');
+      } catch (err: any) {
+        if (err?.message?.includes('already exists') || err?.message?.includes('already indexed')) {
+          logger.debug({ index: idx.name }, 'Property index already exists');
+        } else {
+          logger.warn({ error: err, index: idx.name }, 'Failed to create property index');
+        }
+      }
+    }
+  }
 
   async createVectorIndex(): Promise<void> {
     try {
@@ -281,13 +443,48 @@ class GraphService {
     }
   }
 
+  /**
+   * Initialize all indexes (property + vector).
+   * Call this once on application startup or after graph initialization.
+   */
+  async initializeIndexes(): Promise<void> {
+    await this.createPropertyIndexes();
+    await this.createVectorIndex();
+    logger.info('Graph indexes initialized');
+  }
+
+  /**
+   * Get the execution plan for a query without running it.
+   * Use this to verify index usage and debug query performance.
+   *
+   * @param cypher - The Cypher query to analyze
+   * @param params - Optional query parameters
+   * @returns The execution plan as a string
+   */
+  async explainQuery(cypher: string, params?: Record<string, unknown>): Promise<string> {
+    const client = await this.ensureConnected();
+
+    let queryString = cypher;
+    if (params && Object.keys(params).length > 0) {
+      const cypherParams = `CYPHER ${Object.entries(params)
+        .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
+        .join(' ')} `;
+      queryString = cypherParams + cypher;
+    }
+
+    const result = await client.call('GRAPH.EXPLAIN', GRAPH_NAME, queryString) as string[];
+    return result.join('\n');
+  }
+
   async setNodeEmbedding(nodeId: string, embedding: number[]): Promise<void> {
+    this.validateEmbedding(embedding);
     const vecString = embedding.join(',');
     const cypher = `
-      MATCH (n:StoryNode {id: '${nodeId}'})
+      MATCH (n:StoryNode)
+      WHERE n.id = $nodeId
       SET n.embedding = vecf32([${vecString}])
     `;
-    await this.query(cypher);
+    await this.query(cypher, { nodeId });
   }
 
   async findSimilarNodes(
@@ -296,19 +493,22 @@ class GraphService {
     userId: string,
     limit: number = 10
   ): Promise<(StoredStoryNode & { score: number })[]> {
-    const overFetchLimit = limit * 3;
+    this.validateEmbedding(embedding);
+    // Over-fetch to ensure we get enough results after filtering by document/user.
+    // FalkorDB vector search has no native filtering, so we fetch extra and filter in WHERE.
+    const overFetchLimit = Math.min(limit * 3, 100);
     const vecString = embedding.join(',');
     const cypher = `
       CALL db.idx.vector.queryNodes('StoryNode', 'embedding', ${overFetchLimit}, vecf32([${vecString}]))
       YIELD node, score
-      WHERE node.documentId = '${documentId}' AND node.userId = '${userId}' AND node.deletedAt IS NULL
+      WHERE node.documentId = $documentId AND node.userId = $userId AND node.deletedAt IS NULL
       RETURN node.id, node.documentId, node.userId, node.type, node.name, node.description,
              node.passages, node.metadata, node.primaryMediaId, node.stylePreset, node.stylePrompt,
-             node.narrativeOrder, node.documentOrder,
+             node.documentOrder,
              node.createdAt, node.updatedAt, node.deletedAt, score
-      LIMIT ${limit}
+      LIMIT $limit
     `;
-    const result = await this.query(cypher);
+    const result = await this.query(cypher, { documentId, userId, limit });
 
     return result.data.map(row => ({
       id: row[0] as string,
@@ -322,12 +522,11 @@ class GraphService {
       primaryMediaId: row[8] as string | null,
       stylePreset: row[9] as string | null,
       stylePrompt: row[10] as string | null,
-      narrativeOrder: row[11] as number | null,
-      documentOrder: row[12] as number | null,
-      createdAt: row[13] as string,
-      updatedAt: row[14] as string,
-      deletedAt: row[15] as string | null,
-      score: row[16] as number,
+      documentOrder: row[11] as number | null,
+      createdAt: row[12] as string,
+      updatedAt: row[13] as string,
+      deletedAt: row[14] as string | null,
+      score: row[15] as number,
     }));
   }
 
@@ -368,7 +567,6 @@ class GraphService {
       primaryMediaId: null,
       stylePreset: options?.stylePreset ?? null,
       stylePrompt: options?.stylePrompt ?? null,
-      narrativeOrder: node.narrativeOrder ?? null,
       documentOrder: node.documentOrder ?? null,
       createdAt: now,
       updatedAt: now,
@@ -392,8 +590,19 @@ class GraphService {
     toId: string,
     edgeType: StoryEdgeType,
     description: string | null,
-    properties?: { strength?: number; narrativeDistance?: number }
+    properties?: { strength?: number }
   ): Promise<string> {
+    this.validateEdgeType(edgeType);
+
+    if (CAUSAL_EDGE_TYPES.includes(edgeType)) {
+      const wouldCycle = await this.wouldCreateCycle(fromId, toId);
+      if (wouldCycle) {
+        throw new Error(
+          `Cannot create ${edgeType} edge from ${fromId} to ${toId}: would create a cycle`
+        );
+      }
+    }
+
     const connectionId = randomUUID();
     const now = new Date().toISOString();
 
@@ -401,19 +610,19 @@ class GraphService {
       id: connectionId,
       description: description ?? null,
       strength: properties?.strength ?? null,
-      narrativeDistance: properties?.narrativeDistance ?? null,
       createdAt: now,
       deletedAt: null,
     };
 
     const propsString = this.propsToString(props);
     const cypher = `
-      MATCH (a:StoryNode {id: '${fromId}'}), (b:StoryNode {id: '${toId}'})
-      WHERE a.deletedAt IS NULL AND b.deletedAt IS NULL
+      MATCH (a:StoryNode), (b:StoryNode)
+      WHERE a.id = $fromId AND b.id = $toId
+        AND a.deletedAt IS NULL AND b.deletedAt IS NULL
       CREATE (a)-[r:${edgeType} ${propsString}]->(b)
       RETURN r.id as connectionId
     `;
-    const result = await this.query(cypher);
+    const result = await this.query(cypher, { fromId, toId });
 
     if (result.data.length === 0 || result.data[0].length === 0) {
       throw new Error('Failed to create story connection');
@@ -429,13 +638,13 @@ class GraphService {
   ): Promise<StoredStoryNode[]> {
     const cypher = `
       MATCH (n:StoryNode)
-      WHERE n.documentId = '${documentId}' AND n.userId = '${userId}' AND n.deletedAt IS NULL
+      WHERE n.documentId = $documentId AND n.userId = $userId AND ${this.deletedAtFilter('n')}
       RETURN n.id, n.documentId, n.userId, n.type, n.name, n.description,
              n.passages, n.metadata, n.primaryMediaId, n.stylePreset, n.stylePrompt,
-             n.narrativeOrder, n.documentOrder,
+             n.documentOrder,
              n.createdAt, n.updatedAt, n.deletedAt
     `;
-    const result = await this.query(cypher);
+    const result = await this.query(cypher, { documentId, userId });
 
     return result.data.map(row => ({
       id: row[0] as string,
@@ -449,23 +658,22 @@ class GraphService {
       primaryMediaId: row[8] as string | null,
       stylePreset: row[9] as string | null,
       stylePrompt: row[10] as string | null,
-      narrativeOrder: row[11] as number | null,
-      documentOrder: row[12] as number | null,
-      createdAt: row[13] as string,
-      updatedAt: row[14] as string,
-      deletedAt: row[15] as string | null,
+      documentOrder: row[11] as number | null,
+      createdAt: row[12] as string,
+      updatedAt: row[13] as string,
+      deletedAt: row[14] as string | null,
     }));
   }
 
   async getStoryConnectionsForDocument(documentId: string): Promise<StoredStoryConnection[]> {
     const cypher = `
       MATCH (a:StoryNode)-[r]->(b:StoryNode)
-      WHERE a.documentId = '${documentId}' AND r.deletedAt IS NULL
-        AND a.deletedAt IS NULL AND b.deletedAt IS NULL
-        AND type(r) <> 'BELONGS_TO_THREAD'
-      RETURN r.id, a.id, b.id, type(r) as edgeType, r.description, r.strength, r.narrativeDistance, r.createdAt, r.deletedAt
+      WHERE a.documentId = $documentId
+        AND ${this.deletedAtFilterEdge('a', 'r', 'b')}
+        AND type(r) IN ['CAUSES', 'ENABLES', 'PREVENTS', 'HAPPENS_BEFORE', 'LOCATED_IN', 'APPEARS_IN', 'KNOWS', 'OPPOSES', 'RELATED_TO']
+      RETURN r.id, a.id, b.id, type(r) as edgeType, r.description, r.strength, r.createdAt, r.deletedAt
     `;
-    const result = await this.query(cypher);
+    const result = await this.query(cypher, { documentId });
 
     return result.data.map(row => ({
       id: row[0] as string,
@@ -474,46 +682,49 @@ class GraphService {
       edgeType: row[3] as StoryEdgeType,
       description: row[4] as string | null,
       strength: row[5] as number | null,
-      narrativeDistance: row[6] as number | null,
-      createdAt: row[7] as string,
-      deletedAt: row[8] as string | null,
+      narrativeDistance: null,
+      createdAt: row[6] as string,
+      deletedAt: row[7] as string | null,
     }));
   }
 
   async softDeleteStoryNode(nodeId: string): Promise<void> {
-    const now = new Date().toISOString();
     const cypher = `
-      MATCH (n:StoryNode {id: '${nodeId}'})
-      SET n.deletedAt = '${now}'
+      MATCH (n:StoryNode)
+      WHERE n.id = $nodeId
+      SET n.deletedAt = $deletedAt
     `;
-    await this.query(cypher);
+    await this.query(cypher, { nodeId, deletedAt: new Date().toISOString() });
     logger.info({ nodeId }, 'Story node soft deleted in FalkorDB');
   }
 
   async softDeleteStoryConnection(fromId: string, toId: string): Promise<void> {
-    const now = new Date().toISOString();
     const cypher = `
-      MATCH (a:StoryNode {id: '${fromId}'})-[r]->(b:StoryNode {id: '${toId}'})
-      WHERE type(r) <> 'BELONGS_TO_THREAD'
-      SET r.deletedAt = '${now}'
+      MATCH (a:StoryNode)-[r]->(b:StoryNode)
+      WHERE a.id = $fromId AND b.id = $toId
+        AND type(r) <> 'BELONGS_TO_THREAD'
+      SET r.deletedAt = $deletedAt
     `;
-    await this.query(cypher);
+    await this.query(cypher, { fromId, toId, deletedAt: new Date().toISOString() });
     logger.info({ fromId, toId }, 'Story connection soft deleted in FalkorDB');
   }
 
   async deleteAllStoryNodesForDocument(documentId: string, userId: string): Promise<void> {
     // Also delete narrative threads for this document
-    await this.query(`
+    await this.query(
+      `
       MATCH (nt:NarrativeThread)
-      WHERE nt.documentId = '${documentId}' AND nt.userId = '${userId}'
+      WHERE nt.documentId = $documentId AND nt.userId = $userId
       DETACH DELETE nt
-    `);
+      `,
+      { documentId, userId }
+    );
     const cypher = `
       MATCH (n:StoryNode)
-      WHERE n.documentId = '${documentId}' AND n.userId = '${userId}'
+      WHERE n.documentId = $documentId AND n.userId = $userId
       DETACH DELETE n
     `;
-    await this.query(cypher);
+    await this.query(cypher, { documentId, userId });
     logger.info({ documentId, userId }, 'All story nodes deleted from FalkorDB');
   }
 
@@ -526,33 +737,40 @@ class GraphService {
     }
   ): Promise<void> {
     const setStatements: string[] = [];
-    setStatements.push(`n.updatedAt = '${new Date().toISOString()}'`);
+    const params: Record<string, unknown> = { nodeId, updatedAt: new Date().toISOString() };
+
+    setStatements.push(`n.updatedAt = $updatedAt`);
 
     if (updates.name !== undefined) {
-      setStatements.push(`n.name = ${this.valueToString(updates.name)}`);
+      setStatements.push(`n.name = $name`);
+      params.name = updates.name;
     }
     if (updates.description !== undefined) {
-      setStatements.push(`n.description = ${this.valueToString(updates.description)}`);
+      setStatements.push(`n.description = $description`);
+      params.description = updates.description;
     }
     if (updates.passages !== undefined) {
-      setStatements.push(`n.passages = ${this.valueToString(JSON.stringify(updates.passages))}`);
+      setStatements.push(`n.passages = $passages`);
+      params.passages = JSON.stringify(updates.passages);
     }
 
     const cypher = `
-      MATCH (n:StoryNode {id: '${nodeId}'})
+      MATCH (n:StoryNode)
+      WHERE n.id = $nodeId
       SET ${setStatements.join(', ')}
     `;
-    await this.query(cypher);
+    await this.query(cypher, params);
     logger.info({ nodeId }, 'Story node updated in FalkorDB');
   }
 
   async updateStoryNodePrimaryMedia(nodeId: string, mediaId: string | null): Promise<void> {
     const cypher = `
-      MATCH (n:StoryNode {id: '${nodeId}'})
-      SET n.primaryMediaId = ${mediaId ? this.valueToString(mediaId) : 'null'},
-          n.updatedAt = '${new Date().toISOString()}'
+      MATCH (n:StoryNode)
+      WHERE n.id = $nodeId
+      SET n.primaryMediaId = $mediaId,
+          n.updatedAt = $updatedAt
     `;
-    await this.query(cypher);
+    await this.query(cypher, { nodeId, mediaId, updatedAt: new Date().toISOString() });
   }
 
   async updateStoryNodeStyle(
@@ -560,18 +778,23 @@ class GraphService {
     stylePreset: string | null,
     stylePrompt: string | null
   ): Promise<StoredStoryNode | null> {
-    const now = new Date().toISOString();
     const cypher = `
-      MATCH (n:StoryNode {id: '${nodeId}'})
-      SET n.stylePreset = ${stylePreset ? this.valueToString(stylePreset) : 'null'},
-          n.stylePrompt = ${stylePrompt ? this.valueToString(stylePrompt) : 'null'},
-          n.updatedAt = '${now}'
+      MATCH (n:StoryNode)
+      WHERE n.id = $nodeId
+      SET n.stylePreset = $stylePreset,
+          n.stylePrompt = $stylePrompt,
+          n.updatedAt = $updatedAt
       RETURN n.id, n.documentId, n.userId, n.type, n.name, n.description,
              n.passages, n.metadata, n.primaryMediaId, n.stylePreset, n.stylePrompt,
-             n.narrativeOrder, n.documentOrder,
+             n.documentOrder,
              n.createdAt, n.updatedAt, n.deletedAt
     `;
-    const result = await this.query(cypher);
+    const result = await this.query(cypher, {
+      nodeId,
+      stylePreset,
+      stylePrompt,
+      updatedAt: new Date().toISOString(),
+    });
 
     if (result.data.length === 0) return null;
 
@@ -588,24 +811,23 @@ class GraphService {
       primaryMediaId: row[8] as string | null,
       stylePreset: row[9] as string | null,
       stylePrompt: row[10] as string | null,
-      narrativeOrder: row[11] as number | null,
-      documentOrder: row[12] as number | null,
-      createdAt: row[13] as string,
-      updatedAt: row[14] as string,
-      deletedAt: row[15] as string | null,
+      documentOrder: row[11] as number | null,
+      createdAt: row[12] as string,
+      updatedAt: row[13] as string,
+      deletedAt: row[14] as string | null,
     };
   }
 
   async getStoryNodeById(nodeId: string, userId: string): Promise<StoredStoryNode | null> {
     const cypher = `
-      MATCH (n:StoryNode {id: '${nodeId}', userId: '${userId}'})
-      WHERE n.deletedAt IS NULL
+      MATCH (n:StoryNode)
+      WHERE n.id = $nodeId AND n.userId = $userId AND ${this.deletedAtFilter('n')}
       RETURN n.id, n.documentId, n.userId, n.type, n.name, n.description,
              n.passages, n.metadata, n.primaryMediaId, n.stylePreset, n.stylePrompt,
-             n.narrativeOrder, n.documentOrder,
+             n.documentOrder,
              n.createdAt, n.updatedAt, n.deletedAt
     `;
-    const result = await this.query(cypher);
+    const result = await this.query(cypher, { nodeId, userId });
 
     if (result.data.length === 0) return null;
 
@@ -622,11 +844,10 @@ class GraphService {
       primaryMediaId: row[8] as string | null,
       stylePreset: row[9] as string | null,
       stylePrompt: row[10] as string | null,
-      narrativeOrder: row[11] as number | null,
-      documentOrder: row[12] as number | null,
-      createdAt: row[13] as string,
-      updatedAt: row[14] as string,
-      deletedAt: row[15] as string | null,
+      documentOrder: row[11] as number | null,
+      createdAt: row[12] as string,
+      updatedAt: row[13] as string,
+      deletedAt: row[14] as string | null,
     };
   }
 
@@ -637,20 +858,26 @@ class GraphService {
   async cleanupSoftDeleted(beforeDate: Date): Promise<{ nodes: number; connections: number }> {
     const threshold = beforeDate.toISOString();
 
-    const connResult = await this.query(`
+    const connResult = await this.query(
+      `
       MATCH ()-[r]->()
-      WHERE r.deletedAt IS NOT NULL AND r.deletedAt < '${threshold}'
+      WHERE r.deletedAt IS NOT NULL AND r.deletedAt < $threshold
       DELETE r
       RETURN count(r) as deleted
-    `);
+      `,
+      { threshold }
+    );
     const connectionsDeleted = connResult.data[0]?.[0] as number || 0;
 
-    const nodeResult = await this.query(`
+    const nodeResult = await this.query(
+      `
       MATCH (n:StoryNode)
-      WHERE n.deletedAt IS NOT NULL AND n.deletedAt < '${threshold}'
+      WHERE n.deletedAt IS NOT NULL AND n.deletedAt < $threshold
       DETACH DELETE n
       RETURN count(n) as deleted
-    `);
+      `,
+      { threshold }
+    );
     const nodesDeleted = nodeResult.data[0]?.[0] as number || 0;
 
     if (nodesDeleted > 0 || connectionsDeleted > 0) {
@@ -669,14 +896,14 @@ class GraphService {
    */
   async getStoryNodeByIdInternal(nodeId: string): Promise<StoredStoryNode | null> {
     const cypher = `
-      MATCH (n:StoryNode {id: '${nodeId}'})
-      WHERE n.deletedAt IS NULL
+      MATCH (n:StoryNode)
+      WHERE n.id = $nodeId AND n.deletedAt IS NULL
       RETURN n.id, n.documentId, n.userId, n.type, n.name, n.description,
              n.passages, n.metadata, n.primaryMediaId, n.stylePreset, n.stylePrompt,
-             n.narrativeOrder, n.documentOrder,
+             n.documentOrder,
              n.createdAt, n.updatedAt, n.deletedAt
     `;
-    const result = await this.query(cypher);
+    const result = await this.query(cypher, { nodeId });
 
     if (result.data.length === 0) return null;
 
@@ -693,11 +920,10 @@ class GraphService {
       primaryMediaId: row[8] as string | null,
       stylePreset: row[9] as string | null,
       stylePrompt: row[10] as string | null,
-      narrativeOrder: row[11] as number | null,
-      documentOrder: row[12] as number | null,
-      createdAt: row[13] as string,
-      updatedAt: row[14] as string,
-      deletedAt: row[15] as string | null,
+      documentOrder: row[11] as number | null,
+      createdAt: row[12] as string,
+      updatedAt: row[13] as string,
+      deletedAt: row[14] as string | null,
     };
   }
 
@@ -734,10 +960,11 @@ class GraphService {
 
   async linkEventToThread(eventId: string, threadId: string, order: number): Promise<void> {
     const cypher = `
-      MATCH (e:StoryNode {id: '${eventId}'}), (nt:NarrativeThread {id: '${threadId}'})
-      CREATE (e)-[:BELONGS_TO_THREAD {order: ${order}}]->(nt)
+      MATCH (e:StoryNode), (nt:NarrativeThread)
+      WHERE e.id = $eventId AND nt.id = $threadId
+      CREATE (e)-[:BELONGS_TO_THREAD {order: $order}]->(nt)
     `;
-    await this.query(cypher);
+    await this.query(cypher, { eventId, threadId, order });
   }
 
   async getNodeSimilaritiesForDocument(
@@ -749,15 +976,15 @@ class GraphService {
     // Single query: pass source.embedding directly to vector index (never leaves FalkorDB)
     const cypher = `
       MATCH (source:StoryNode)
-      WHERE source.documentId = '${documentId}' AND source.userId = '${userId}'
+      WHERE source.documentId = $documentId AND source.userId = $userId
         AND source.deletedAt IS NULL AND source.embedding IS NOT NULL
       CALL db.idx.vector.queryNodes('StoryNode', 'embedding', ${k + 1}, source.embedding)
       YIELD node, score
-      WHERE node.documentId = '${documentId}' AND node.userId = '${userId}'
-        AND node.deletedAt IS NULL AND node.id <> source.id AND score >= ${cutoff}
+      WHERE node.documentId = $documentId AND node.userId = $userId
+        AND node.deletedAt IS NULL AND node.id <> source.id AND score >= $cutoff
       RETURN source.id AS sourceId, node.id AS targetId, score
     `;
-    const result = await this.query(cypher);
+    const result = await this.query(cypher, { documentId, userId, cutoff });
 
     const similarities: { source: string; target: string; similarity: number }[] = [];
     const seen = new Set<string>();

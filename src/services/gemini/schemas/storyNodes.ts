@@ -35,7 +35,6 @@ const nodeSchema = {
       type: GeminiType.ARRAY,
       items: passageSchema,
     },
-    narrativeOrder: { type: GeminiType.INTEGER, nullable: true },
     documentOrder: { type: GeminiType.INTEGER, nullable: true },
   },
   required: ['type', 'name', 'description', 'passages'],
@@ -49,7 +48,6 @@ const connectionSchema = {
     edgeType: { type: GeminiType.STRING, enum: EDGE_TYPE_ENUM },
     description: { type: GeminiType.STRING },
     strength: { type: GeminiType.NUMBER, nullable: true },
-    narrativeDistance: { type: GeminiType.INTEGER, nullable: true },
   },
   required: ['fromName', 'toName', 'edgeType', 'description'],
 };
