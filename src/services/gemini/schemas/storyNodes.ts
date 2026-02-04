@@ -14,11 +14,14 @@ const passageSchema = {
 };
 
 const EDGE_TYPE_ENUM = [
-  'CAUSES', 'ENABLES', 'PREVENTS',
-  'HAPPENS_BEFORE',
-  'LOCATED_IN',
-  'APPEARS_IN', 'KNOWS', 'OPPOSES',
+  // Layer 2 (causal/temporal)
+  'CAUSES', 'ENABLES', 'PREVENTS', 'HAPPENS_BEFORE',
+  // Layer 3 (structural/relational)
+  'PARTICIPATES_IN', 'LOCATED_AT', 'PART_OF', 'MEMBER_OF',
+  'POSSESSES', 'CONNECTED_TO', 'OPPOSES', 'ABOUT',
+  // System
   'BELONGS_TO_THREAD',
+  // Fallback
   'RELATED_TO',
 ];
 
@@ -31,6 +34,11 @@ const nodeSchema = {
     },
     name: { type: GeminiType.STRING },
     description: { type: GeminiType.STRING },
+    aliases: {
+      type: GeminiType.ARRAY,
+      items: { type: GeminiType.STRING },
+      nullable: true,
+    },
     passages: {
       type: GeminiType.ARRAY,
       items: passageSchema,

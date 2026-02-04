@@ -1,6 +1,37 @@
 # GenGui Core Service
 
-Backend API service for GenGui media generation platform.
+Backend API service for GenGui. Handles HTTP API, authentication, document management, and graph CRUD.
+
+## Architecture Role
+
+Core is the main API gateway. It owns:
+- **API endpoints** (Express routes)
+- **Authentication** (JWT, sessions)
+- **Document management** (CRUD, versioning via Postgres)
+- **Graph CRUD** (direct FalkorDB access for node/edge operations)
+- **Real-time collaboration** (Y.js state management)
+- **Media generation orchestration** (RunPod job submission)
+
+Core communicates with:
+- **Postgres** (direct): documents, users, versions, mentions
+- **FalkorDB** (direct): graph nodes, edges, embeddings
+- **Redis** (direct): task queues, caching
+- **graph-intelligence** (HTTP, planned): extraction, RAG, entity resolution, graph analysis
+
+The graph-intelligence service (Python, planned) handles "intelligent" operations: LLM extraction, entity resolution, RAG context retrieval, and graph analysis. Core handles everything else.
+
+## Key Directories
+
+```
+src/
+├── routes/          # API endpoints
+├── services/
+│   ├── graph/       # FalkorDB operations (graph.service.ts, graph.analysis.ts)
+│   ├── storyNodes/  # Entity extraction pipeline (moving to graph-intelligence)
+│   └── gemini/      # LLM integration (moving to graph-intelligence)
+├── models/          # Postgres schema (Drizzle ORM)
+└── lib/             # Redis, utilities
+```
 
 ## Local Development Setup
 
@@ -46,7 +77,8 @@ Two setups available - choose one:
 
 5. **Run database migrations:**
    ```bash
-   npm run db:migrate
+   # Apply all migration files in order
+   for f in drizzle/0*.sql; do psql -h localhost -U gengui -d gengui_media -f "$f"; done
    ```
 
 6. **Start core service:**
@@ -83,7 +115,8 @@ Two setups available - choose one:
 
 4. **Run migrations (first time only):**
    ```bash
-   docker-compose exec core npm run db:migrate
+   # Apply all migration files from host
+   for f in drizzle/0*.sql; do psql -h localhost -p 5434 -U gengui -d gengui_media -f "$f"; done
    ```
 
 **Access:**
@@ -264,8 +297,6 @@ core/
 npm run dev              # Start with hot-reload
 npm run build            # Compile TypeScript
 npm start                # Run production build
-npm run db:generate      # Generate migration from schema changes
-npm run db:migrate       # Run pending migrations
 npm run db:seed          # Insert test user
 
 # Docker
@@ -274,19 +305,21 @@ npm run docker:down      # Stop docker services
 npm run docker:logs      # Stream container logs
 ```
 
+**Migrations:** See "Database Migrations" section - use manual SQL files, not npm scripts.
+
 ## Database Migrations
 
-Schema changes use Drizzle Kit migrations (never `db:push` in shared environments).
+**Manual SQL migrations only** - never use `db:push` or `db:generate`.
 
 **Workflow:**
-1. Edit `src/models/schema.ts`
-2. `npm run db:generate` - creates migration SQL in `drizzle/`
-3. Review generated SQL
-4. `npm run db:migrate` - applies to database
+1. Edit `src/models/schema.ts` (keep schema in sync with migrations)
+2. Create `drizzle/00XX_descriptive_name.sql` with the next sequence number
+3. Write SQL directly (see existing migrations for patterns)
+4. Apply: `psql -h localhost -U gengui -d gengui_media -f drizzle/00XX_descriptive_name.sql`
 
-**Fresh environment:** `npm run db:migrate` applies all migrations sequentially.
+**Why manual:** Deterministic, reproducible, no interactive prompts, same SQL runs in dev/staging/prod.
 
-**Files:** `drizzle/*.sql` (migrations), `drizzle/meta/` (snapshots + journal)
+**Files:** `drizzle/*.sql` (migrations). The `drizzle/meta/` folder is legacy - ignore it.
 
 ## Stopping Services
 

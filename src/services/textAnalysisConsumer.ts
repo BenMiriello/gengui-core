@@ -9,7 +9,9 @@ import { logger } from '../utils/logger';
 import { sseService } from './sse';
 import type { StreamMessage } from './redis-streams';
 import { analyzeText, updateNodes } from './gemini';
-import { graphStoryNodesRepository, parsePassages } from './storyNodes';
+import { graphStoryNodesRepository } from './storyNodes';
+import { segmentService, type Segment } from './segments';
+import { mentionService } from './mentions';
 import { BlockingConsumer } from '../lib/blocking-consumer';
 import type { ExistingNode } from '../types/storyNodes';
 
@@ -87,14 +89,18 @@ class TextAnalysisConsumer extends BlockingConsumer {
     const document = await this.fetchAndValidateDocument(documentId, userId, 'analysis-failed');
     if (!document) return;
 
+    // Get segments (compute and persist if needed)
+    const segments = await this.getDocumentSegments(documentId, document);
+
     // Call Gemini
     logger.info({ documentId, contentLength: document.content.length }, 'Calling Gemini API');
     const analysis = await analyzeText(document.content);
 
     // Delete existing if reanalyze
     if (reanalyze) {
-      logger.info({ documentId }, 'Re-analyzing: deleting existing nodes');
+      logger.info({ documentId }, 'Re-analyzing: deleting existing nodes and mentions');
       await graphStoryNodesRepository.deleteAllForDocument(documentId, userId);
+      await mentionService.deleteByDocumentId(documentId);
     }
 
     // Create nodes, connections, and narrative threads (inherit document style)
@@ -105,6 +111,8 @@ class TextAnalysisConsumer extends BlockingConsumer {
       connections: analysis.connections,
       narrativeThreads: analysis.narrativeThreads,
       documentContent: document.content,
+      segments,
+      versionNumber: document.currentVersion,
       documentStyle: {
         preset: document.defaultStylePreset,
         prompt: document.defaultStylePrompt,
@@ -128,6 +136,9 @@ class TextAnalysisConsumer extends BlockingConsumer {
     const document = await this.fetchAndValidateDocument(documentId, userId, 'update-failed');
     if (!document) return;
 
+    // Get segments (compute and persist if needed)
+    const segments = await this.getDocumentSegments(documentId, document);
+
     // Fetch existing nodes
     const existingDbNodes = await graphStoryNodesRepository.getActiveNodes(documentId, userId);
 
@@ -139,14 +150,19 @@ class TextAnalysisConsumer extends BlockingConsumer {
       return;
     }
 
-    // Convert to format for Gemini
-    const existingNodes: ExistingNode[] = existingDbNodes.map(n => ({
-      id: n.id,
-      type: n.type,
-      name: n.name,
-      description: n.description || '',
-      passages: parsePassages(n.passages),
-    }));
+    // Convert to format for Gemini, fetching passages from mentions
+    const existingNodes: ExistingNode[] = await Promise.all(
+      existingDbNodes.map(async (n) => {
+        const mentions = await mentionService.getByNodeIdWithAbsolutePositions(n.id, segments);
+        return {
+          id: n.id,
+          type: n.type,
+          name: n.name,
+          description: n.description || '',
+          passages: mentions.map(m => ({ text: m.originalText })),
+        };
+      })
+    );
 
     // Call Gemini
     logger.info({ documentId, existingNodeCount: existingNodes.length }, 'Calling Gemini updateNodes');
@@ -157,6 +173,8 @@ class TextAnalysisConsumer extends BlockingConsumer {
       userId,
       documentId,
       documentContent: document.content,
+      segments,
+      versionNumber: document.currentVersion,
       existingNodes: existingDbNodes.map(n => ({ id: n.id, name: n.name })),
       updates,
       documentStyle: {
@@ -223,6 +241,36 @@ class TextAnalysisConsumer extends BlockingConsumer {
   private async ack(messageId: string) {
     await this.streams.ack('text-analysis:stream', 'text-analysis-processors', messageId);
   }
+
+  /**
+   * Get segments from document, computing and persisting if needed.
+   */
+  private async getDocumentSegments(
+    documentId: string,
+    document: { content: string; segmentSequence: unknown }
+  ): Promise<Segment[]> {
+    const existing = parseSegmentSequence(document.segmentSequence);
+    if (existing.length > 0) {
+      return existing;
+    }
+    // Compute AND SAVE segments to database
+    return segmentService.updateDocumentSegments(documentId);
+  }
+}
+
+function parseSegmentSequence(raw: unknown): Segment[] {
+  if (!raw) return [];
+  if (Array.isArray(raw)) {
+    return raw.filter(
+      (s): s is Segment =>
+        typeof s === 'object' &&
+        s !== null &&
+        typeof s.id === 'string' &&
+        typeof s.start === 'number' &&
+        typeof s.end === 'number'
+    );
+  }
+  return [];
 }
 
 export const textAnalysisConsumer = new TextAnalysisConsumer();

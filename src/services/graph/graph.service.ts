@@ -3,7 +3,6 @@ import { randomUUID } from 'crypto';
 import { logger } from '../../utils/logger';
 import type {
   StoryNodeResult,
-  StoryNodePassage,
   StoryNodeType,
   StoryEdgeType,
   NarrativeThreadResult,
@@ -16,6 +15,7 @@ import {
   CAUSAL_EDGE_TYPES,
   causalEdgePattern,
 } from './graph.types';
+import { THREAD_COLORS } from '../../config/constants';
 
 export type { NodeProperties, StoredStoryNode, StoredStoryConnection, QueryResult };
 
@@ -34,16 +34,24 @@ const ALLOWED_NODE_LABELS = new Set([
 
 // Allowed edge types - must be validated before interpolation into queries
 const ALLOWED_EDGE_TYPES = new Set([
+  // Layer 2 (causal/temporal)
   'CAUSES',
   'ENABLES',
   'PREVENTS',
   'HAPPENS_BEFORE',
-  'LOCATED_IN',
-  'APPEARS_IN',
-  'KNOWS',
+  // Layer 3 (structural/relational)
+  'PARTICIPATES_IN',
+  'LOCATED_AT',
+  'PART_OF',
+  'MEMBER_OF',
+  'POSSESSES',
+  'CONNECTED_TO',
   'OPPOSES',
-  'RELATED_TO',
+  'ABOUT',
+  // System
   'BELONGS_TO_THREAD',
+  // Fallback
+  'RELATED_TO',
 ]);
 
 // Allowed property names for node queries
@@ -54,7 +62,7 @@ const ALLOWED_PROPERTY_NAMES = new Set([
   'type',
   'name',
   'description',
-  'passages',
+  'aliases',
   'metadata',
   'primaryMediaId',
   'stylePreset',
@@ -67,6 +75,7 @@ const ALLOWED_PROPERTY_NAMES = new Set([
   'isPrimary',
   'order',
   'strength',
+  'color',
 ]);
 
 class GraphService {
@@ -503,31 +512,36 @@ class GraphService {
       YIELD node, score
       WHERE node.documentId = $documentId AND node.userId = $userId AND node.deletedAt IS NULL
       RETURN node.id, node.documentId, node.userId, node.type, node.name, node.description,
-             node.passages, node.metadata, node.primaryMediaId, node.stylePreset, node.stylePrompt,
+             node.aliases, node.metadata, node.primaryMediaId, node.stylePreset, node.stylePrompt,
              node.documentOrder,
              node.createdAt, node.updatedAt, node.deletedAt, score
       LIMIT $limit
     `;
     const result = await this.query(cypher, { documentId, userId, limit });
 
-    return result.data.map(row => ({
-      id: row[0] as string,
-      documentId: row[1] as string,
-      userId: row[2] as string,
-      type: row[3] as StoryNodeType,
-      name: row[4] as string,
-      description: row[5] as string | null,
-      passages: row[6] as string | null,
-      metadata: row[7] as string | null,
-      primaryMediaId: row[8] as string | null,
-      stylePreset: row[9] as string | null,
-      stylePrompt: row[10] as string | null,
-      documentOrder: row[11] as number | null,
-      createdAt: row[12] as string,
-      updatedAt: row[13] as string,
-      deletedAt: row[14] as string | null,
-      score: row[15] as number,
-    }));
+    return result.data.map(row => {
+      const aliasesRaw = row[6] as string | null;
+      const aliases = aliasesRaw ? JSON.parse(aliasesRaw) : null;
+
+      return {
+        id: row[0] as string,
+        documentId: row[1] as string,
+        userId: row[2] as string,
+        type: row[3] as StoryNodeType,
+        name: row[4] as string,
+        description: row[5] as string | null,
+        aliases,
+        metadata: row[7] as string | null,
+        primaryMediaId: row[8] as string | null,
+        stylePreset: row[9] as string | null,
+        stylePrompt: row[10] as string | null,
+        documentOrder: row[11] as number | null,
+        createdAt: row[12] as string,
+        updatedAt: row[13] as string,
+        deletedAt: row[14] as string | null,
+        score: row[15] as number,
+      };
+    });
   }
 
   // ========== StoryNode-Specific Methods ==========
@@ -562,7 +576,7 @@ class GraphService {
       type: node.type,
       name: node.name,
       description: node.description || null,
-      passages: node.passages ? JSON.stringify(node.passages) : null,
+      aliases: node.aliases && node.aliases.length > 0 ? JSON.stringify(node.aliases) : null,
       metadata: node.metadata ? JSON.stringify(node.metadata) : null,
       primaryMediaId: null,
       stylePreset: options?.stylePreset ?? null,
@@ -640,29 +654,34 @@ class GraphService {
       MATCH (n:StoryNode)
       WHERE n.documentId = $documentId AND n.userId = $userId AND ${this.deletedAtFilter('n')}
       RETURN n.id, n.documentId, n.userId, n.type, n.name, n.description,
-             n.passages, n.metadata, n.primaryMediaId, n.stylePreset, n.stylePrompt,
+             n.aliases, n.metadata, n.primaryMediaId, n.stylePreset, n.stylePrompt,
              n.documentOrder,
              n.createdAt, n.updatedAt, n.deletedAt
     `;
     const result = await this.query(cypher, { documentId, userId });
 
-    return result.data.map(row => ({
-      id: row[0] as string,
-      documentId: row[1] as string,
-      userId: row[2] as string,
-      type: row[3] as StoryNodeType,
-      name: row[4] as string,
-      description: row[5] as string | null,
-      passages: row[6] as string | null,
-      metadata: row[7] as string | null,
-      primaryMediaId: row[8] as string | null,
-      stylePreset: row[9] as string | null,
-      stylePrompt: row[10] as string | null,
-      documentOrder: row[11] as number | null,
-      createdAt: row[12] as string,
-      updatedAt: row[13] as string,
-      deletedAt: row[14] as string | null,
-    }));
+    return result.data.map(row => {
+      const aliasesRaw = row[6] as string | null;
+      const aliases = aliasesRaw ? JSON.parse(aliasesRaw) : null;
+
+      return {
+        id: row[0] as string,
+        documentId: row[1] as string,
+        userId: row[2] as string,
+        type: row[3] as StoryNodeType,
+        name: row[4] as string,
+        description: row[5] as string | null,
+        aliases,
+        metadata: row[7] as string | null,
+        primaryMediaId: row[8] as string | null,
+        stylePreset: row[9] as string | null,
+        stylePrompt: row[10] as string | null,
+        documentOrder: row[11] as number | null,
+        createdAt: row[12] as string,
+        updatedAt: row[13] as string,
+        deletedAt: row[14] as string | null,
+      };
+    });
   }
 
   async getStoryConnectionsForDocument(documentId: string): Promise<StoredStoryConnection[]> {
@@ -670,7 +689,7 @@ class GraphService {
       MATCH (a:StoryNode)-[r]->(b:StoryNode)
       WHERE a.documentId = $documentId
         AND ${this.deletedAtFilterEdge('a', 'r', 'b')}
-        AND type(r) IN ['CAUSES', 'ENABLES', 'PREVENTS', 'HAPPENS_BEFORE', 'LOCATED_IN', 'APPEARS_IN', 'KNOWS', 'OPPOSES', 'RELATED_TO']
+        AND type(r) IN ['CAUSES', 'ENABLES', 'PREVENTS', 'HAPPENS_BEFORE', 'PARTICIPATES_IN', 'LOCATED_AT', 'PART_OF', 'MEMBER_OF', 'POSSESSES', 'CONNECTED_TO', 'OPPOSES', 'ABOUT', 'RELATED_TO']
       RETURN r.id, a.id, b.id, type(r) as edgeType, r.description, r.strength, r.createdAt, r.deletedAt
     `;
     const result = await this.query(cypher, { documentId });
@@ -732,8 +751,9 @@ class GraphService {
     nodeId: string,
     updates: {
       name?: string;
-      description?: string;
-      passages?: StoryNodePassage[];
+      description?: string | null;
+      aliases?: string[];
+      documentOrder?: number | null;
     }
   ): Promise<void> {
     const setStatements: string[] = [];
@@ -749,9 +769,13 @@ class GraphService {
       setStatements.push(`n.description = $description`);
       params.description = updates.description;
     }
-    if (updates.passages !== undefined) {
-      setStatements.push(`n.passages = $passages`);
-      params.passages = JSON.stringify(updates.passages);
+    if (updates.aliases !== undefined) {
+      setStatements.push(`n.aliases = $aliases`);
+      params.aliases = updates.aliases.length > 0 ? JSON.stringify(updates.aliases) : null;
+    }
+    if (updates.documentOrder !== undefined) {
+      setStatements.push(`n.documentOrder = $documentOrder`);
+      params.documentOrder = updates.documentOrder;
     }
 
     const cypher = `
@@ -785,7 +809,7 @@ class GraphService {
           n.stylePrompt = $stylePrompt,
           n.updatedAt = $updatedAt
       RETURN n.id, n.documentId, n.userId, n.type, n.name, n.description,
-             n.passages, n.metadata, n.primaryMediaId, n.stylePreset, n.stylePrompt,
+             n.aliases, n.metadata, n.primaryMediaId, n.stylePreset, n.stylePrompt,
              n.documentOrder,
              n.createdAt, n.updatedAt, n.deletedAt
     `;
@@ -799,6 +823,9 @@ class GraphService {
     if (result.data.length === 0) return null;
 
     const row = result.data[0];
+    const aliasesRaw = row[6] as string | null;
+    const aliases = aliasesRaw ? JSON.parse(aliasesRaw) : null;
+
     return {
       id: row[0] as string,
       documentId: row[1] as string,
@@ -806,7 +833,7 @@ class GraphService {
       type: row[3] as StoryNodeType,
       name: row[4] as string,
       description: row[5] as string | null,
-      passages: row[6] as string | null,
+      aliases,
       metadata: row[7] as string | null,
       primaryMediaId: row[8] as string | null,
       stylePreset: row[9] as string | null,
@@ -823,7 +850,7 @@ class GraphService {
       MATCH (n:StoryNode)
       WHERE n.id = $nodeId AND n.userId = $userId AND ${this.deletedAtFilter('n')}
       RETURN n.id, n.documentId, n.userId, n.type, n.name, n.description,
-             n.passages, n.metadata, n.primaryMediaId, n.stylePreset, n.stylePrompt,
+             n.aliases, n.metadata, n.primaryMediaId, n.stylePreset, n.stylePrompt,
              n.documentOrder,
              n.createdAt, n.updatedAt, n.deletedAt
     `;
@@ -832,6 +859,9 @@ class GraphService {
     if (result.data.length === 0) return null;
 
     const row = result.data[0];
+    const aliasesRaw = row[6] as string | null;
+    const aliases = aliasesRaw ? JSON.parse(aliasesRaw) : null;
+
     return {
       id: row[0] as string,
       documentId: row[1] as string,
@@ -839,7 +869,7 @@ class GraphService {
       type: row[3] as StoryNodeType,
       name: row[4] as string,
       description: row[5] as string | null,
-      passages: row[6] as string | null,
+      aliases,
       metadata: row[7] as string | null,
       primaryMediaId: row[8] as string | null,
       stylePreset: row[9] as string | null,
@@ -899,7 +929,7 @@ class GraphService {
       MATCH (n:StoryNode)
       WHERE n.id = $nodeId AND n.deletedAt IS NULL
       RETURN n.id, n.documentId, n.userId, n.type, n.name, n.description,
-             n.passages, n.metadata, n.primaryMediaId, n.stylePreset, n.stylePrompt,
+             n.aliases, n.metadata, n.primaryMediaId, n.stylePreset, n.stylePrompt,
              n.documentOrder,
              n.createdAt, n.updatedAt, n.deletedAt
     `;
@@ -908,6 +938,9 @@ class GraphService {
     if (result.data.length === 0) return null;
 
     const row = result.data[0];
+    const aliasesRaw = row[6] as string | null;
+    const aliases = aliasesRaw ? JSON.parse(aliasesRaw) : null;
+
     return {
       id: row[0] as string,
       documentId: row[1] as string,
@@ -915,7 +948,7 @@ class GraphService {
       type: row[3] as StoryNodeType,
       name: row[4] as string,
       description: row[5] as string | null,
-      passages: row[6] as string | null,
+      aliases,
       metadata: row[7] as string | null,
       primaryMediaId: row[8] as string | null,
       stylePreset: row[9] as string | null,
@@ -937,12 +970,27 @@ class GraphService {
     const threadId = randomUUID();
     const now = new Date().toISOString();
 
+    // Auto-assign color from Material Design palette
+    const { graphThreads } = await import('./graph.threads');
+    const existingThreads = await graphThreads.getThreadsForDocument(documentId, userId);
+    const usedColors = new Set(existingThreads.map((t: any) => t.color).filter(Boolean));
+
+    // Find first unused color, or cycle back to start
+    let color = THREAD_COLORS[0];
+    for (const c of THREAD_COLORS) {
+      if (!usedColors.has(c)) {
+        color = c;
+        break;
+      }
+    }
+
     const props: NodeProperties = {
       id: threadId,
       documentId,
       userId,
       name: thread.name,
       isPrimary: thread.isPrimary,
+      color,
       createdAt: now,
     };
 
@@ -954,7 +1002,7 @@ class GraphService {
       throw new Error('Failed to create narrative thread');
     }
 
-    logger.info({ threadId, name: thread.name }, 'Narrative thread created in FalkorDB');
+    logger.info({ threadId, name: thread.name, color }, 'Narrative thread created in FalkorDB');
     return threadId;
   }
 

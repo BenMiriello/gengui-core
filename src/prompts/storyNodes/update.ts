@@ -19,6 +19,7 @@ export const updateNodesPrompt: PromptDefinition<UpdateInput> = {
         type: n.type,
         name: n.name,
         description: n.description,
+        aliases: n.aliases,
         passages: n.passages,
       })),
       null,
@@ -49,12 +50,17 @@ CURRENT DOCUMENT TEXT:
 ${content}
 
 Return a JSON object with:
-- add: Array of new nodes (same format as fresh analysis, including type which can be character/location/event/concept/other). For events, include documentOrder.
-- update: Array of {id, name?, description?, passages?} - only include fields that changed
+- add: Array of new nodes (same format as fresh analysis, including type which can be character/location/event/concept/other, and optional aliases array). For events, include documentOrder.
+- update: Array of {id, name?, description?, aliases?, passages?} - only include fields that changed
 - delete: Array of node IDs to remove
-- connectionUpdates: {add: [], delete: []} - add uses fromId/toId for existing nodes or fromName/toName for new nodes. Each connection must include edgeType (CAUSES, ENABLES, PREVENTS, HAPPENS_BEFORE, LOCATED_IN, APPEARS_IN, KNOWS, OPPOSES, or RELATED_TO) and description. Causal edges should include strength (0-1).
+- connectionUpdates: {add: [], delete: []} - add uses fromId/toId for existing nodes or fromName/toName for new nodes. Each connection must include edgeType and description. Causal edges (CAUSES, ENABLES, PREVENTS) should include strength (0-1).
+  Edge types:
+  - Layer 2: CAUSES, ENABLES, PREVENTS, HAPPENS_BEFORE (use HAPPENS_BEFORE only for flashbacks/time jumps/parallel storylines - not for sequential events or events already causally connected)
+  - Layer 3: PARTICIPATES_IN (agent in event), LOCATED_AT (at location), PART_OF (meronymy), MEMBER_OF (group membership), POSSESSES (ownership), CONNECTED_TO (social ties, replaces KNOWS), OPPOSES (conflict), ABOUT (entity to concept)
+  - Fallback: RELATED_TO (use sparingly)
 - narrativeThreads: Array of {name, isPrimary, eventNames} for any new or changed narrative threads
 
-For passages: Use short verbatim quotes (3-15 words) that define the element.`;
+For aliases: For characters, locations, and objects only - provide specific alternate names, nicknames, or titles (e.g., "Rikki", "the hunter", "NYC"). Do NOT include generic pronouns (he/she/it/they). Leave empty for events and concepts.
+For passages: Use short EXACT VERBATIM quotes (3-15 words) that define the element. Do not paraphrase or use ellipsis.`;
   },
 };

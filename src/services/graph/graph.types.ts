@@ -11,7 +11,7 @@ export interface StoredStoryNode {
   type: StoryNodeType;
   name: string;
   description: string | null;
-  passages: string | null;
+  aliases: string[] | null;
   metadata: string | null;
   primaryMediaId: string | null;
   stylePreset: string | null;
@@ -46,6 +46,7 @@ export interface NarrativeThread {
   userId: string;
   name: string;
   isPrimary: boolean;
+  color: string | null;
   createdAt: string;
 }
 

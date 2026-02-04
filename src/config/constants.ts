@@ -31,6 +31,24 @@ const METADATA_CACHE_TTL = 86400; // 24 hours in seconds
 const MAX_CUSTOM_STYLE_PROMPT_LENGTH = 2000;
 const MAX_CUSTOM_STYLE_PROMPTS_PER_USER = 50;
 
+// Thread Color Constants - Material Design 500 shades
+// Optimized order: purple first, alternating warm/cool for variety
+export const THREAD_COLORS = [
+  '#9C27B0', // Purple (cool, vibrant)
+  '#009688', // Teal (cool, deep)
+  '#FFC107', // Amber (warm, bright)
+  '#3F51B5', // Indigo (cool, deep)
+  '#FF9800', // Orange (warm, medium)
+  '#2196F3', // Blue (cool, bright)
+  '#4CAF50', // Green (neutral, medium)
+  '#F44336', // Red (warm, bright)
+  '#00BCD4', // Cyan (cool, bright)
+  '#FF5722', // Deep Orange (warm, deep)
+  '#673AB7', // Deep Purple (cool, deep)
+  '#8BC34A', // Light Green (neutral, light)
+  '#E91E63', // Pink (warm, medium)
+  '#03A9F4', // Light Blue (cool, light)
+];
 
 export {
   MAX_WIDTH,

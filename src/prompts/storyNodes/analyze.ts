@@ -30,20 +30,27 @@ Extract these element types:
 For each element provide:
 - Concise name
 - Brief description (1-4 sentences following the rules above)
-- Passages: 1-3 Short keywords or phrases (short but exact verbatim quotes of 3 to 15 words) from the text. These must be passages that define the element the most, or are most significant for its character or meaning or role. Must not simply repeat the name or description, though it can optionally augment or support the description. Must be somewhat specific and not so generic that they would match to irrelevant passages.
+- Aliases (for characters, locations, and objects only): Array of specific alternate names, nicknames, or titles (e.g., "Rikki", "the hunter", "NYC"). Do NOT include generic pronouns (he/she/it/they). Leave empty for events and concepts.
+- Passages: 1-3 Short keywords or phrases (short but EXACT VERBATIM quotes of 3 to 15 words) from the text. These MUST be word-for-word quotes, not paraphrased or summarized. Do not use ellipsis (...) or edit the text. These must be passages that define the element the most, or are most significant for its character or meaning or role. Must not simply repeat the name or description, though it can optionally augment or support the description. Must be somewhat specific and not so generic that they would match to irrelevant passages.
 
-For connections, specify the relationship type using one of these edge types:
-- CAUSES: One event directly causes another
-- ENABLES: One element makes another possible
-- PREVENTS: One element blocks or stops another
-- HAPPENS_BEFORE: Temporal ordering between events
-- LOCATED_IN: A character or event is situated in a location
-- APPEARS_IN: A character appears in an event
-- KNOWS: Two characters know each other
-- OPPOSES: Two elements are in conflict
-- RELATED_TO: General relationship (use sparingly, prefer specific types)
+For connections, specify the relationship type:
 
-For causal edges (CAUSES, ENABLES, PREVENTS), include a strength value from 0 to 1.
+**Layer 2 - Causal/Temporal (include strength 0-1 for causal edges):**
+- CAUSES: A directly causes B (necessary and sufficient in context)
+- ENABLES: A makes B possible but doesn't guarantee it
+- PREVENTS: A blocks B from occurring
+- HAPPENS_BEFORE: Temporal ordering ONLY when not captured by text position or causal edges. Use for: flashbacks, time jumps, parallel storylines. Do NOT use for: sequential events in same scene (text position suffices) or events already connected by CAUSES/ENABLES/PREVENTS (temporal order is implied).
+
+**Layer 3 - Structural/Relational:**
+- PARTICIPATES_IN: Agent (character/object) was involved in an event
+- LOCATED_AT: Entity exists or occurs at a location
+- PART_OF: Strict meronymy - component/section of a containing entity (chapter of book, room of building)
+- MEMBER_OF: Belongs to group/organization while retaining identity (character in faction)
+- POSSESSES: Ownership or control (character owns object, organization controls location)
+- CONNECTED_TO: Social/professional connection between agents (replaces KNOWS - use for friendship, family, professional ties)
+- OPPOSES: Conflict, antagonism, or opposition between entities
+- ABOUT: Entity relates to abstract concept/theme (character embodies theme, event symbolizes idea)
+- RELATED_TO: Fallback for relationships that don't fit above types (use sparingly, <5% of edges)
 
 Also identify narrative threads - named storylines or plot threads that group related events:
 - name: Short name for the thread (e.g., "Main Plot", "Flashback Sequence", "Subplot: Romance")

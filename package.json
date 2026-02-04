@@ -68,6 +68,7 @@
     "drizzle-orm": "^0.45.0",
     "express": "^5.2.1",
     "express-rate-limit": "^8.2.1",
+    "fastest-levenshtein": "^1.0.16",
     "helmet": "^8.1.0",
     "ioredis": "^5.9.2",
     "jsonwebtoken": "^9.0.3",

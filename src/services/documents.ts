@@ -6,6 +6,7 @@ import { logger } from '../utils/logger';
 import { sseService } from './sse';
 import { getImageProvider } from './image-generation/factory';
 import { versioningService } from './versioning';
+import { segmentService } from './segments';
 
 export class DocumentsService {
   async list(userId: string) {
@@ -57,12 +58,15 @@ export class DocumentsService {
       .where(eq(users.id, userId))
       .limit(1);
 
+    const segments = segmentService.computeSegments(content);
+
     const [document] = await db
       .insert(documents)
       .values({
         userId,
         title: generatedTitle,
         content,
+        segmentSequence: segments,
         defaultImageWidth: user?.defaultImageWidth ?? 1024,
         defaultImageHeight: user?.defaultImageHeight ?? 1024,
       })
@@ -76,6 +80,8 @@ export class DocumentsService {
   async copy(sourceDocumentId: string, userId: string, newTitle: string) {
     const source = await this.get(sourceDocumentId, userId);
 
+    const segments = segmentService.computeSegments(source.content);
+
     const [document] = await db
       .insert(documents)
       .values({
@@ -84,6 +90,7 @@ export class DocumentsService {
         content: source.content,
         contentJson: source.contentJson,
         yjsState: source.yjsState,
+        segmentSequence: segments,
         defaultImageWidth: source.defaultImageWidth,
         defaultImageHeight: source.defaultImageHeight,
         mediaModeEnabled: false,
@@ -128,8 +135,10 @@ export class DocumentsService {
     }
 
     // Snapshot the current DB state before overwriting
+    let existingSegments: { id: string; start: number; end: number }[] | undefined;
     if (updates.content !== undefined) {
       const current = await this.get(documentId, userId);
+      existingSegments = Array.isArray(current.segmentSequence) ? current.segmentSequence : [];
       if (current.content || current.yjsState) {
         await versioningService.createVersion(
           documentId,
@@ -139,10 +148,16 @@ export class DocumentsService {
       }
     }
 
+    // Recompute segments if content changed
+    const newSegments = updates.content !== undefined
+      ? segmentService.computeSegments(updates.content, existingSegments)
+      : undefined;
+
     const [updated] = await db
       .update(documents)
       .set({
         ...(updates.content !== undefined && { content: updates.content }),
+        ...(newSegments !== undefined && { segmentSequence: newSegments }),
         ...(updates.yjsState !== undefined && { yjsState: updates.yjsState }),
         ...(updates.title !== undefined && { title: updates.title }),
         ...(updates.defaultStylePreset !== undefined && { defaultStylePreset: updates.defaultStylePreset }),

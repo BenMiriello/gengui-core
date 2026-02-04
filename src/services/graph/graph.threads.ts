@@ -7,7 +7,7 @@ export const graphThreads = {
       `
       MATCH (nt:NarrativeThread)
       WHERE nt.documentId = $documentId AND nt.userId = $userId
-      RETURN nt.id, nt.documentId, nt.userId, nt.name, nt.isPrimary, nt.createdAt
+      RETURN nt.id, nt.documentId, nt.userId, nt.name, nt.isPrimary, nt.color, nt.createdAt
       ORDER BY nt.createdAt
       `,
       { documentId, userId }
@@ -19,7 +19,8 @@ export const graphThreads = {
       userId: row[2] as string,
       name: row[3] as string,
       isPrimary: row[4] === true || row[4] === 'true',
-      createdAt: row[5] as string,
+      color: row[5] as string | null,
+      createdAt: row[6] as string,
     }));
   },
 
@@ -28,7 +29,7 @@ export const graphThreads = {
       `
       MATCH (nt:NarrativeThread)
       WHERE nt.id = $threadId
-      RETURN nt.id, nt.documentId, nt.userId, nt.name, nt.isPrimary, nt.createdAt
+      RETURN nt.id, nt.documentId, nt.userId, nt.name, nt.isPrimary, nt.color, nt.createdAt
       `,
       { threadId }
     );
@@ -41,7 +42,8 @@ export const graphThreads = {
       userId: row[2] as string,
       name: row[3] as string,
       isPrimary: row[4] === true || row[4] === 'true',
-      createdAt: row[5] as string,
+      color: row[5] as string | null,
+      createdAt: row[6] as string,
     };
   },
 

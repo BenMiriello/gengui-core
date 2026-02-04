@@ -261,6 +261,13 @@ export const documentVersions = pgTable('document_versions', {
   index('document_versions_lookup_idx').on(table.documentId, table.versionNumber),
 ]));
 
+export const mentionSourceEnum = pgEnum('mention_source', [
+  'extraction',
+  'name_match',
+  'reference',
+  'semantic',
+]);
+
 export const mentions = pgTable('mentions', {
   id: uuid('id').defaultRandom().primaryKey(),
   nodeId: varchar('node_id', { length: 255 }).notNull(),
@@ -274,6 +281,8 @@ export const mentions = pgTable('mentions', {
   textHash: varchar('text_hash', { length: 64 }).notNull(),
   confidence: integer('confidence').default(100).notNull(),
   versionNumber: integer('version_number').notNull(),
+  source: mentionSourceEnum('source').default('extraction').notNull(),
+  isKeyPassage: boolean('is_key_passage').default(false).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ([
@@ -281,6 +290,7 @@ export const mentions = pgTable('mentions', {
   index('mentions_segment_idx').on(table.documentId, table.segmentId),
   index('mentions_version_idx').on(table.documentId, table.versionNumber),
   index('mentions_confidence_idx').on(table.confidence),
+  index('mentions_source_idx').on(table.source),
 ]));
 
 export const usersRelations = relations(users, ({ many }) => ({

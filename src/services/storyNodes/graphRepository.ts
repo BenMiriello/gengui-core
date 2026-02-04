@@ -4,6 +4,8 @@
  */
 import { graphService, type StoredStoryNode } from '../graph/graph.service';
 import { generateEmbedding, buildEmbeddingText } from '../embeddings';
+import { segmentService, type Segment } from '../segments';
+import { mentionService, fuzzyFindText } from '../mentions';
 import { logger } from '../../utils/logger';
 import type {
   StoryNodeResult,
@@ -22,6 +24,8 @@ interface CreateNodesParams {
   connections: StoryConnectionResult[];
   narrativeThreads?: NarrativeThreadResult[];
   documentContent: string;
+  segments: Segment[];
+  versionNumber: number;
   documentStyle?: { preset: string | null; prompt: string | null };
 }
 
@@ -34,6 +38,8 @@ interface ApplyUpdatesParams {
   userId: string;
   documentId: string;
   documentContent: string;
+  segments: Segment[];
+  versionNumber: number;
   existingNodes: Array<{ id: string; name: string }>;
   updates: {
     add: StoryNodeResult[];
@@ -60,24 +66,19 @@ export const graphStoryNodesRepository = {
     connections,
     narrativeThreads,
     documentContent,
+    segments,
+    versionNumber,
     documentStyle,
   }: CreateNodesParams): Promise<Map<string, string>> {
     const nodeNameToId = new Map<string, string>();
 
     for (const nodeData of nodes) {
-      const processedPassages = nodeData.passages.map(p =>
-        processPassage(documentContent, p)
-      );
-
-      const nodeWithProcessedPassages: StoryNodeResult = {
-        ...nodeData,
-        passages: processedPassages as StoryNodePassage[],
-      };
+      const processedPassages = nodeData.passages.map((p) => processPassage(documentContent, p));
 
       const nodeId = await graphService.createStoryNode(
         documentId,
         userId,
-        nodeWithProcessedPassages,
+        nodeData,
         {
           stylePreset: documentStyle?.preset,
           stylePrompt: documentStyle?.prompt,
@@ -86,6 +87,40 @@ export const graphStoryNodesRepository = {
 
       nodeNameToId.set(nodeData.name, nodeId);
 
+      // Create mentions for passages with valid positions
+      await createMentionsForPassages(
+        nodeId,
+        documentId,
+        processedPassages,
+        segments,
+        versionNumber
+      );
+
+      // Run name matching to find comprehensive mentions
+      try {
+        const matchCount = await mentionService.runNameMatchingForNode(
+          nodeId,
+          documentId,
+          documentContent,
+          segments,
+          versionNumber,
+          nodeData.name,
+          nodeData.aliases || []
+        );
+        if (matchCount > 0) {
+          logger.info(
+            { nodeId, nodeName: nodeData.name, matchCount },
+            'Name matching found additional mentions'
+          );
+        }
+      } catch (err) {
+        logger.warn({ nodeId, error: err }, 'Name matching failed');
+      }
+
+      // Compute documentOrder from mention positions
+      await updateDocumentOrderFromMentions(nodeId, segments);
+
+      // Build embedding text from node data including passages (before discarding)
       try {
         const text = buildEmbeddingText(nodeData);
         const embedding = await generateEmbedding(text);
@@ -112,10 +147,7 @@ export const graphStoryNodesRepository = {
     return nodeNameToId;
   },
 
-  async createConnections({
-    connections,
-    nodeNameToId,
-  }: CreateConnectionsParams): Promise<number> {
+  async createConnections({ connections, nodeNameToId }: CreateConnectionsParams): Promise<number> {
     let created = 0;
 
     for (const connData of connections) {
@@ -131,9 +163,15 @@ export const graphStoryNodesRepository = {
           { strength: connData.strength }
         );
         created++;
-        logger.info({ from: connData.fromName, to: connData.toName, edgeType: connData.edgeType }, 'Story node connection created');
+        logger.info(
+          { from: connData.fromName, to: connData.toName, edgeType: connData.edgeType },
+          'Story node connection created'
+        );
       } else {
-        logger.warn({ from: connData.fromName, to: connData.toName }, 'Connection references unknown node(s)');
+        logger.warn(
+          { from: connData.fromName, to: connData.toName },
+          'Connection references unknown node(s)'
+        );
       }
     }
 
@@ -148,6 +186,8 @@ export const graphStoryNodesRepository = {
     userId,
     documentId,
     documentContent,
+    segments,
+    versionNumber,
     existingNodes,
     updates,
     documentStyle,
@@ -157,15 +197,16 @@ export const graphStoryNodesRepository = {
     let deleted = 0;
 
     const newNodeIds = new Map<string, string>();
-    const existingNodeMap = new Map(existingNodes.map(n => [n.name, n.id]));
+    const existingNodeMap = new Map(existingNodes.map((n) => [n.name, n.id]));
 
-    // 1. Soft delete nodes
+    // 1. Soft delete nodes and their mentions
     for (const nodeId of updates.delete) {
       await graphService.softDeleteStoryNode(nodeId);
+      await mentionService.deleteByNodeId(nodeId);
       deleted++;
     }
     if (updates.delete.length > 0) {
-      logger.info({ ids: updates.delete }, 'Soft deleted nodes');
+      logger.info({ ids: updates.delete }, 'Soft deleted nodes and mentions');
     }
 
     // 2. Update existing nodes
@@ -173,21 +214,63 @@ export const graphStoryNodesRepository = {
       const updateFields: {
         name?: string;
         description?: string;
-        passages?: StoryNodePassage[];
+        aliases?: string[];
       } = {};
 
       if (update.name !== undefined) updateFields.name = update.name;
       if (update.description !== undefined) updateFields.description = update.description;
+      if (update.aliases !== undefined) updateFields.aliases = update.aliases;
+
+      let processedPassages: (TextPosition | { text: string })[] | undefined;
       if (update.passages !== undefined) {
-        updateFields.passages = update.passages.map(p =>
-          processPassage(documentContent, p)
-        ) as StoryNodePassage[];
+        processedPassages = update.passages.map((p) => processPassage(documentContent, p));
       }
 
       await graphService.updateStoryNode(update.id, updateFields);
       updated++;
 
-      // Re-embed if name or description changed
+      // Update mentions if passages changed
+      if (processedPassages !== undefined) {
+        await mentionService.deleteByNodeId(update.id);
+        await createMentionsForPassages(
+          update.id,
+          documentId,
+          processedPassages,
+          segments,
+          versionNumber
+        );
+
+        // Run name matching for updated nodes
+        const node = await graphService.getStoryNodeByIdInternal(update.id);
+        const nodeName = update.name !== undefined ? update.name : node?.name;
+        const aliases = update.aliases !== undefined ? update.aliases : node?.aliases;
+        if (nodeName) {
+          try {
+            const matchCount = await mentionService.runNameMatchingForNode(
+              update.id,
+              documentId,
+              documentContent,
+              segments,
+              versionNumber,
+              nodeName,
+              aliases || []
+            );
+            if (matchCount > 0) {
+              logger.info(
+                { nodeId: update.id, nodeName, matchCount },
+                'Name matching found additional mentions on update'
+              );
+            }
+          } catch (err) {
+            logger.warn({ nodeId: update.id, error: err }, 'Name matching failed on update');
+          }
+        }
+
+        // Recompute documentOrder from new mentions
+        await updateDocumentOrderFromMentions(update.id, segments);
+      }
+
+      // Re-embed if name or description changed (for now, just use node data without passages)
       if (update.name !== undefined || update.description !== undefined) {
         try {
           const node = await graphService.getStoryNodeByIdInternal(update.id);
@@ -204,19 +287,12 @@ export const graphStoryNodesRepository = {
 
     // 3. Add new nodes
     for (const nodeData of updates.add) {
-      const processedPassages = nodeData.passages.map(p =>
-        processPassage(documentContent, p)
-      );
-
-      const nodeWithProcessedPassages: StoryNodeResult = {
-        ...nodeData,
-        passages: processedPassages as StoryNodePassage[],
-      };
+      const processedPassages = nodeData.passages.map((p) => processPassage(documentContent, p));
 
       const nodeId = await graphService.createStoryNode(
         documentId,
         userId,
-        nodeWithProcessedPassages,
+        nodeData,
         {
           stylePreset: documentStyle?.preset,
           stylePrompt: documentStyle?.prompt,
@@ -227,6 +303,40 @@ export const graphStoryNodesRepository = {
       added++;
       logger.info({ nodeId, nodeName: nodeData.name }, 'New story node created');
 
+      // Create mentions for passages
+      await createMentionsForPassages(
+        nodeId,
+        documentId,
+        processedPassages,
+        segments,
+        versionNumber
+      );
+
+      // Run name matching to find comprehensive mentions
+      try {
+        const matchCount = await mentionService.runNameMatchingForNode(
+          nodeId,
+          documentId,
+          documentContent,
+          segments,
+          versionNumber,
+          nodeData.name,
+          nodeData.aliases || []
+        );
+        if (matchCount > 0) {
+          logger.info(
+            { nodeId, nodeName: nodeData.name, matchCount },
+            'Name matching found additional mentions'
+          );
+        }
+      } catch (err) {
+        logger.warn({ nodeId, error: err }, 'Name matching failed');
+      }
+
+      // Compute documentOrder from mention positions
+      await updateDocumentOrderFromMentions(nodeId, segments);
+
+      // Build embedding text from node data including passages (before discarding)
       try {
         const text = buildEmbeddingText(nodeData);
         const embedding = await generateEmbedding(text);
@@ -243,8 +353,14 @@ export const graphStoryNodesRepository = {
 
     // 5. Handle connection adds
     for (const connAdd of updates.connectionUpdates.add) {
-      const fromId = connAdd.fromId || existingNodeMap.get(connAdd.fromName || '') || newNodeIds.get(connAdd.fromName || '');
-      const toId = connAdd.toId || existingNodeMap.get(connAdd.toName || '') || newNodeIds.get(connAdd.toName || '');
+      const fromId =
+        connAdd.fromId ||
+        existingNodeMap.get(connAdd.fromName || '') ||
+        newNodeIds.get(connAdd.fromName || '');
+      const toId =
+        connAdd.toId ||
+        existingNodeMap.get(connAdd.toName || '') ||
+        newNodeIds.get(connAdd.toName || '');
 
       if (fromId && toId) {
         await graphService.createStoryConnection(
@@ -283,16 +399,71 @@ function processPassage(
   content: string,
   passage: StoryNodePassage
 ): TextPosition | { text: string } {
-  const index = content.indexOf(passage.text);
-  if (index !== -1) {
+  // Try exact match first (fast path)
+  const exactIndex = content.indexOf(passage.text);
+  if (exactIndex !== -1) {
     return {
-      start: index,
-      end: index + passage.text.length,
+      start: exactIndex,
+      end: exactIndex + passage.text.length,
       text: passage.text,
     };
   }
-  logger.warn({ passageText: passage.text }, 'Passage text not found in document');
+
+  // Fall back to fuzzy matching
+  const fuzzyResult = fuzzyFindText(content, {
+    sourceText: passage.text,
+    originalStart: 0,
+    originalEnd: passage.text.length,
+  });
+
+  if (fuzzyResult && fuzzyResult.confidence >= 0.5) {
+    // Extract actual text at matched position
+    const actualText = content.slice(fuzzyResult.start, fuzzyResult.end);
+
+    // Validate the match
+    const isValid = validateNearMatch(passage.text, actualText, fuzzyResult.confidence);
+
+    if (isValid) {
+      logger.info(
+        {
+          llmText: passage.text.slice(0, 50),
+          actualText: actualText.slice(0, 50),
+          confidence: fuzzyResult.confidence,
+        },
+        'Passage located and corrected via fuzzy matching'
+      );
+      // Store ACTUAL document text, not LLM's version
+      return {
+        start: fuzzyResult.start,
+        end: fuzzyResult.end,
+        text: actualText,
+      };
+    }
+  }
+
+  logger.warn(
+    { passageText: passage.text, fuzzyConfidence: fuzzyResult?.confidence },
+    'Passage text not found or validation failed'
+  );
   return { text: passage.text };
+}
+
+/**
+ * Validate that fuzzy-matched text is close enough to LLM-provided text.
+ * Uses length-based tolerance (longer texts = more lenient).
+ */
+function validateNearMatch(llmText: string, actualText: string, confidence: number): boolean {
+  // Minimum confidence threshold
+  if (confidence < 0.5) return false;
+
+  // Allow more deviation for longer texts
+  const lengthRatio =
+    Math.abs(llmText.length - actualText.length) / Math.max(llmText.length, actualText.length);
+  const maxLengthDeviation = llmText.length > 100 ? 0.3 : llmText.length > 50 ? 0.2 : 0.1;
+
+  if (lengthRatio > maxLengthDeviation) return false;
+
+  return true;
 }
 
 export function parsePassages(passages: unknown): StoryNodePassage[] {
@@ -302,5 +473,63 @@ export function parsePassages(passages: unknown): StoryNodePassage[] {
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
+  }
+}
+
+/**
+ * Create mentions in Postgres for passages that have valid positions.
+ */
+async function createMentionsForPassages(
+  nodeId: string,
+  documentId: string,
+  processedPassages: (TextPosition | { text: string })[],
+  segments: Segment[],
+  versionNumber: number
+): Promise<void> {
+  for (const passage of processedPassages) {
+    if (!isTextPosition(passage)) continue;
+
+    const relative = segmentService.toRelativePosition(segments, passage.start, passage.end);
+
+    if (!relative) {
+      logger.warn(
+        { nodeId, start: passage.start, end: passage.end },
+        'Could not map passage to segment'
+      );
+      continue;
+    }
+
+    try {
+      await mentionService.create({
+        nodeId,
+        documentId,
+        segmentId: relative.segmentId,
+        relativeStart: relative.relativeStart,
+        relativeEnd: relative.relativeEnd,
+        originalText: passage.text,
+        versionNumber,
+        source: 'extraction',
+        confidence: 100,
+      });
+    } catch (err) {
+      logger.warn({ nodeId, error: err }, 'Failed to create mention');
+    }
+  }
+}
+
+function isTextPosition(p: TextPosition | { text: string }): p is TextPosition {
+  return 'start' in p && 'end' in p;
+}
+
+/**
+ * Compute documentOrder from mentions and update the node.
+ * documentOrder = min(absolutePosition) across all mentions.
+ */
+async function updateDocumentOrderFromMentions(nodeId: string, segments: Segment[]): Promise<void> {
+  const firstPosition = await mentionService.getFirstPosition(nodeId, segments);
+
+  if (firstPosition !== null) {
+    await graphService.updateStoryNode(nodeId, { documentOrder: firstPosition });
+    logger.debug({ nodeId, documentOrder: firstPosition }, 'Updated documentOrder from mentions');
   }
 }

@@ -185,7 +185,21 @@ export async function detectThreads(
     components.push(component);
   }
 
-  return components.map(memberNodeIds => ({ memberNodeIds }));
+  // Separate multi-node threads from single-node isolates
+  const multiNodeThreads = components.filter(c => c.length > 1);
+  const singleNodeIds = components.filter(c => c.length === 1).flat();
+
+  const results: ThreadDetectionResult[] = multiNodeThreads.map(memberNodeIds => ({ memberNodeIds }));
+
+  // Merge all single-node isolates into one "Uncategorized" thread
+  if (singleNodeIds.length > 0) {
+    results.push({
+      memberNodeIds: singleNodeIds,
+      suggestedName: 'Uncategorized',
+    });
+  }
+
+  return results;
 }
 
 /**
