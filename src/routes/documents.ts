@@ -441,6 +441,21 @@ router.get('/documents/:id/graph-analysis', requireAuth, async (req: Request, re
   }
 });
 
+router.get('/documents/:id/node-layout-projection', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = (req as any).user.id;
+    const { id } = req.params;
+
+    await documentsService.get(id, userId);
+
+    const projection = await graphService.getNodeEmbeddingsProjection(id, userId);
+
+    res.json({ projection });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Thread management endpoints
 
 router.post('/documents/:id/threads', requireAuth, async (req: Request, res: Response, next: NextFunction) => {

@@ -71,6 +71,7 @@
     "fastest-levenshtein": "^1.0.16",
     "helmet": "^8.1.0",
     "ioredis": "^5.9.2",
+    "ml-pca": "^2.1.0",
     "jsonwebtoken": "^9.0.3",
     "minio": "^8.0.6",
     "multer": "^2.0.2",

@@ -1056,6 +1056,114 @@ class GraphService {
 
     return similarities;
   }
+
+  async getNodeEmbeddingsProjection(
+    documentId: string,
+    userId: string
+  ): Promise<Array<{ nodeId: string; x: number; y: number }>> {
+    const cypher = `
+      MATCH (n:StoryNode)
+      WHERE n.documentId = $documentId AND n.userId = $userId
+        AND n.deletedAt IS NULL AND n.embedding IS NOT NULL
+      RETURN n.id, n.embedding
+    `;
+    const result = await this.query(cypher, { documentId, userId });
+
+    if (result.data.length === 0) {
+      return [];
+    }
+
+    const PCAModule = await import('ml-pca');
+    const PCA = (PCAModule as any).default || PCAModule;
+
+    const nodeIds: string[] = [];
+    const embeddings: number[][] = [];
+
+    for (const row of result.data) {
+      const nodeId = row[0] as string;
+      const embeddingRaw = row[1];
+
+      let embedding: number[];
+      if (Array.isArray(embeddingRaw)) {
+        embedding = embeddingRaw as number[];
+      } else if (typeof embeddingRaw === 'string') {
+        // FalkorDB returns vector as string like "<-0.024,0.015,...>"
+        // Strip < and > and split by comma
+        const cleaned = embeddingRaw.replace(/^<|>$/g, '').trim();
+        if (!cleaned) {
+          logger.warn({ nodeId }, 'Skipping node with empty embedding string');
+          continue;
+        }
+        embedding = cleaned.split(',').map(s => parseFloat(s.trim()));
+      } else {
+        logger.warn({ nodeId, embeddingType: typeof embeddingRaw }, 'Skipping node with invalid embedding format');
+        continue;
+      }
+
+      if (embedding.length !== 1536) {
+        logger.warn({ nodeId, length: embedding.length }, 'Skipping node with wrong embedding dimension');
+        continue;
+      }
+
+      nodeIds.push(nodeId);
+      embeddings.push(embedding);
+    }
+
+    if (embeddings.length < 2) {
+      logger.info({ count: embeddings.length }, 'Not enough embeddings for PCA, returning empty projection');
+      return [];
+    }
+
+    const pca = new PCA(embeddings);
+    const projected = pca.predict(embeddings, { nComponents: 2 });
+
+    const projectedArray = projected.to2DArray();
+
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+
+    for (const point of projectedArray) {
+      minX = Math.min(minX, point[0]);
+      maxX = Math.max(maxX, point[0]);
+      minY = Math.min(minY, point[1]);
+      maxY = Math.max(maxY, point[1]);
+    }
+
+    const rangeX = maxX - minX || 1;
+    const rangeY = maxY - minY || 1;
+
+    const VIEWPORT_SIZE = 2000;
+    const VIEWPORT_CENTER = 1000;
+
+    const SCALE_FACTOR = 0.8;
+
+    const result_positions: Array<{ nodeId: string; x: number; y: number }> = [];
+
+    for (let i = 0; i < nodeIds.length; i++) {
+      const point = projectedArray[i];
+
+      const normalizedX = (point[0] - minX) / rangeX;
+      const normalizedY = (point[1] - minY) / rangeY;
+
+      const x = VIEWPORT_CENTER + (normalizedX - 0.5) * VIEWPORT_SIZE * SCALE_FACTOR;
+      const y = VIEWPORT_CENTER + (normalizedY - 0.5) * VIEWPORT_SIZE * SCALE_FACTOR;
+
+      result_positions.push({
+        nodeId: nodeIds[i],
+        x: Math.round(x),
+        y: Math.round(y),
+      });
+    }
+
+    logger.info(
+      { documentId, nodeCount: result_positions.length },
+      'Generated PCA projection for document'
+    );
+
+    return result_positions;
+  }
 }
 
 export const graphService = new GraphService();
