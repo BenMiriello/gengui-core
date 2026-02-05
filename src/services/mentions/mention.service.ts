@@ -110,6 +110,18 @@ export const mentionService = {
   },
 
   /**
+   * Get all mentions for a node filtered by source type.
+   */
+  async getByNodeIdAndSource(nodeId: string, source: 'extraction' | 'name_match' | 'reference' | 'semantic'): Promise<Mention[]> {
+    const rows = await db
+      .select()
+      .from(mentions)
+      .where(and(eq(mentions.nodeId, nodeId), eq(mentions.source, source)));
+
+    return rows.map(rowToMention);
+  },
+
+  /**
    * Get all mentions for a document.
    */
   async getByDocumentId(documentId: string): Promise<Mention[]> {

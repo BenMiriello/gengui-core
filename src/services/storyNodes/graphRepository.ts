@@ -9,7 +9,7 @@ import { mentionService, fuzzyFindText } from '../mentions';
 import { logger } from '../../utils/logger';
 import type {
   StoryNodeResult,
-  StoryNodePassage,
+  StoryNodeMention,
   StoryConnectionResult,
   NarrativeThreadResult,
   NodeUpdate,
@@ -73,7 +73,7 @@ export const graphStoryNodesRepository = {
     const nodeNameToId = new Map<string, string>();
 
     for (const nodeData of nodes) {
-      const processedPassages = nodeData.passages.map((p) => processPassage(documentContent, p));
+      const processedPassages = nodeData.mentions.map((p) => processPassage(documentContent, p));
 
       const nodeId = await graphService.createStoryNode(
         documentId,
@@ -87,7 +87,7 @@ export const graphStoryNodesRepository = {
 
       nodeNameToId.set(nodeData.name, nodeId);
 
-      // Create mentions for passages with valid positions
+      // Create mentions for mentions with valid positions
       await createMentionsForPassages(
         nodeId,
         documentId,
@@ -120,11 +120,15 @@ export const graphStoryNodesRepository = {
       // Compute documentOrder from mention positions
       await updateDocumentOrderFromMentions(nodeId, segments);
 
-      // Build embedding text from node data including passages (before discarding)
+      // Build embedding text from stored node + extraction mentions
       try {
-        const text = buildEmbeddingText(nodeData);
-        const embedding = await generateEmbedding(text);
-        await graphService.setNodeEmbedding(nodeId, embedding);
+        const storedNode = await graphService.getStoryNodeByIdInternal(nodeId);
+        if (storedNode) {
+          const extractionMentions = await mentionService.getByNodeIdAndSource(nodeId, 'extraction');
+          const text = buildEmbeddingText(storedNode, extractionMentions);
+          const embedding = await generateEmbedding(text);
+          await graphService.setNodeEmbedding(nodeId, embedding);
+        }
       } catch (err) {
         logger.warn({ nodeId, error: err }, 'Embedding generation failed');
       }
@@ -222,14 +226,14 @@ export const graphStoryNodesRepository = {
       if (update.aliases !== undefined) updateFields.aliases = update.aliases;
 
       let processedPassages: (TextPosition | { text: string })[] | undefined;
-      if (update.passages !== undefined) {
-        processedPassages = update.passages.map((p) => processPassage(documentContent, p));
+      if (update.mentions !== undefined) {
+        processedPassages = update.mentions.map((p) => processPassage(documentContent, p));
       }
 
       await graphService.updateStoryNode(update.id, updateFields);
       updated++;
 
-      // Update mentions if passages changed
+      // Update mentions if mentions changed
       if (processedPassages !== undefined) {
         await mentionService.deleteByNodeId(update.id);
         await createMentionsForPassages(
@@ -270,12 +274,13 @@ export const graphStoryNodesRepository = {
         await updateDocumentOrderFromMentions(update.id, segments);
       }
 
-      // Re-embed if name or description changed (for now, just use node data without passages)
+      // Re-embed if name or description changed
       if (update.name !== undefined || update.description !== undefined) {
         try {
           const node = await graphService.getStoryNodeByIdInternal(update.id);
           if (node) {
-            const text = buildEmbeddingText(node);
+            const extractionMentions = await mentionService.getByNodeIdAndSource(update.id, 'extraction');
+            const text = buildEmbeddingText(node, extractionMentions);
             const embedding = await generateEmbedding(text);
             await graphService.setNodeEmbedding(update.id, embedding);
           }
@@ -287,7 +292,7 @@ export const graphStoryNodesRepository = {
 
     // 3. Add new nodes
     for (const nodeData of updates.add) {
-      const processedPassages = nodeData.passages.map((p) => processPassage(documentContent, p));
+      const processedPassages = nodeData.mentions.map((p) => processPassage(documentContent, p));
 
       const nodeId = await graphService.createStoryNode(
         documentId,
@@ -303,7 +308,7 @@ export const graphStoryNodesRepository = {
       added++;
       logger.info({ nodeId, nodeName: nodeData.name }, 'New story node created');
 
-      // Create mentions for passages
+      // Create mentions for mentions
       await createMentionsForPassages(
         nodeId,
         documentId,
@@ -336,11 +341,15 @@ export const graphStoryNodesRepository = {
       // Compute documentOrder from mention positions
       await updateDocumentOrderFromMentions(nodeId, segments);
 
-      // Build embedding text from node data including passages (before discarding)
+      // Build embedding text from stored node + extraction mentions
       try {
-        const text = buildEmbeddingText(nodeData);
-        const embedding = await generateEmbedding(text);
-        await graphService.setNodeEmbedding(nodeId, embedding);
+        const storedNode = await graphService.getStoryNodeByIdInternal(nodeId);
+        if (storedNode) {
+          const extractionMentions = await mentionService.getByNodeIdAndSource(nodeId, 'extraction');
+          const text = buildEmbeddingText(storedNode, extractionMentions);
+          const embedding = await generateEmbedding(text);
+          await graphService.setNodeEmbedding(nodeId, embedding);
+        }
       } catch (err) {
         logger.warn({ nodeId, error: err }, 'Embedding generation failed');
       }
@@ -397,7 +406,7 @@ export const graphStoryNodesRepository = {
 
 function processPassage(
   content: string,
-  passage: StoryNodePassage
+  passage: StoryNodeMention
 ): TextPosition | { text: string } {
   // Try exact match first (fast path)
   const exactIndex = content.indexOf(passage.text);
@@ -466,10 +475,10 @@ function validateNearMatch(llmText: string, actualText: string, confidence: numb
   return true;
 }
 
-export function parsePassages(passages: unknown): StoryNodePassage[] {
-  if (!passages) return [];
+export function parsePassages(mentions: unknown): StoryNodeMention[] {
+  if (!mentions) return [];
   try {
-    const parsed = typeof passages === 'string' ? JSON.parse(passages) : passages;
+    const parsed = typeof mentions === 'string' ? JSON.parse(mentions) : mentions;
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
@@ -477,7 +486,7 @@ export function parsePassages(passages: unknown): StoryNodePassage[] {
 }
 
 /**
- * Create mentions in Postgres for passages that have valid positions.
+ * Create mentions in Postgres for mentions that have valid positions.
  */
 async function createMentionsForPassages(
   nodeId: string,

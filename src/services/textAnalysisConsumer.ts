@@ -159,7 +159,7 @@ class TextAnalysisConsumer extends BlockingConsumer {
           type: n.type,
           name: n.name,
           description: n.description || '',
-          passages: mentions.map(m => ({ text: m.originalText })),
+          mentions: mentions.map(m => ({ text: m.originalText })),
         };
       })
     );

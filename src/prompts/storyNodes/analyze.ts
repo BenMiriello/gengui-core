@@ -31,7 +31,7 @@ For each element provide:
 - Concise name
 - Brief description (1-4 sentences following the rules above)
 - Aliases (for characters, locations, and objects only): Array of specific alternate names, nicknames, or titles (e.g., "Rikki", "the hunter", "NYC"). Do NOT include generic pronouns (he/she/it/they). Leave empty for events and concepts.
-- Passages: 1-3 Short keywords or phrases (short but EXACT VERBATIM quotes of 3 to 15 words) from the text. These MUST be word-for-word quotes, not paraphrased or summarized. Do not use ellipsis (...) or edit the text. These must be passages that define the element the most, or are most significant for its character or meaning or role. Must not simply repeat the name or description, though it can optionally augment or support the description. Must be somewhat specific and not so generic that they would match to irrelevant passages.
+- Passages: 1-3 Short keywords or phrases (short but EXACT VERBATIM quotes of 3 to 15 words) from the text. These MUST be word-for-word quotes, not paraphrased or summarized. Do not use ellipsis (...) or edit the text. These must be mentions that define the element the most, or are most significant for its character or meaning or role. Must not simply repeat the name or description, though it can optionally augment or support the description. Must be somewhat specific and not so generic that they would match to irrelevant mentions.
 
 For connections, specify the relationship type:
 

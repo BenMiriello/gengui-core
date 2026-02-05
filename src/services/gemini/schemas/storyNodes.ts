@@ -39,13 +39,13 @@ const nodeSchema = {
       items: { type: GeminiType.STRING },
       nullable: true,
     },
-    passages: {
+    mentions: {
       type: GeminiType.ARRAY,
       items: passageSchema,
     },
     documentOrder: { type: GeminiType.INTEGER, nullable: true },
   },
-  required: ['type', 'name', 'description', 'passages'],
+  required: ['type', 'name', 'description', 'mentions'],
 };
 
 const connectionSchema = {
@@ -110,7 +110,7 @@ export const updateNodesResponseSchema = {
           id: { type: GeminiType.STRING },
           name: { type: GeminiType.STRING, nullable: true },
           description: { type: GeminiType.STRING, nullable: true },
-          passages: {
+          mentions: {
             type: GeminiType.ARRAY,
             nullable: true,
             items: passageSchema,

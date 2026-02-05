@@ -16,9 +16,8 @@ export type StoryEdgeType =
   // Fallback
   | 'RELATED_TO';
 
-export interface StoryNodePassage {
+export interface StoryNodeMention {
   text: string;
-  context?: string;
 }
 
 export interface TextPosition {
@@ -32,7 +31,7 @@ export interface StoryNodeResult {
   name: string;
   description: string;
   aliases?: string[];
-  passages: StoryNodePassage[];
+  mentions: StoryNodeMention[];
   metadata?: Record<string, unknown>;
   documentOrder?: number;
 }
@@ -63,7 +62,7 @@ export interface ExistingNode {
   name: string;
   description: string;
   aliases?: string[];
-  passages: StoryNodePassage[];
+  mentions: StoryNodeMention[];
 }
 
 export interface NodeUpdate {
@@ -71,7 +70,7 @@ export interface NodeUpdate {
   name?: string;
   description?: string;
   aliases?: string[];
-  passages?: StoryNodePassage[];
+  mentions?: StoryNodeMention[];
 }
 
 export interface ConnectionUpdate {

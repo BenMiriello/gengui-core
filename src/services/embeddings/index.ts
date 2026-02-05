@@ -1,4 +1,3 @@
-import type { StoryNodeResult } from '../../types/storyNodes';
 import type { StoredStoryNode } from '../graph/graph.service';
 import { getEmbeddingProvider } from './factory';
 
@@ -10,26 +9,24 @@ export async function generateEmbedding(text: string): Promise<number[]> {
   return provider.embed(text);
 }
 
-export function buildEmbeddingText(node: StoryNodeResult | StoredStoryNode): string {
+/**
+ * Build embedding text from stored node (no passages field).
+ * Mentions with source='extraction' should be passed separately if available.
+ */
+export function buildEmbeddingText(
+  node: StoredStoryNode,
+  extractionMentions?: Array<{ originalText: string }>
+): string {
   const name = node.name;
-  const type = node.type;
   const description = node.description || '';
 
-  let passages = '';
-  if ('passages' in node && node.passages) {
-    if (typeof node.passages === 'string') {
-      try {
-        const parsed = JSON.parse(node.passages);
-        passages = Array.isArray(parsed)
-          ? parsed.map((p: any) => p.text).join(' ')
-          : '';
-      } catch {
-        passages = '';
-      }
-    } else if (Array.isArray(node.passages)) {
-      passages = node.passages.map(p => p.text).join(' ');
-    }
+  let extractionText = '';
+  if (extractionMentions && extractionMentions.length > 0) {
+    extractionText = extractionMentions
+      .map(m => m.originalText)
+      .join(' ')
+      .trim();
   }
 
-  return `[${type}] ${name}: ${description}${passages ? ` | ${passages}` : ''}`;
+  return `${name}: ${description}${extractionText ? ` | ${extractionText}` : ''}`;
 }

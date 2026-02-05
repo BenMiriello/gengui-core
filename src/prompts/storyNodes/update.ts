@@ -20,7 +20,7 @@ export const updateNodesPrompt: PromptDefinition<UpdateInput> = {
         name: n.name,
         description: n.description,
         aliases: n.aliases,
-        passages: n.passages,
+        mentions: n.mentions,
       })),
       null,
       2
@@ -51,7 +51,7 @@ ${content}
 
 Return a JSON object with:
 - add: Array of new nodes (same format as fresh analysis, including type which can be character/location/event/concept/other, and optional aliases array). For events, include documentOrder.
-- update: Array of {id, name?, description?, aliases?, passages?} - only include fields that changed
+- update: Array of {id, name?, description?, aliases?, mentions?} - only include fields that changed
 - delete: Array of node IDs to remove
 - connectionUpdates: {add: [], delete: []} - add uses fromId/toId for existing nodes or fromName/toName for new nodes. Each connection must include edgeType and description. Causal edges (CAUSES, ENABLES, PREVENTS) should include strength (0-1).
   Edge types:
@@ -61,6 +61,6 @@ Return a JSON object with:
 - narrativeThreads: Array of {name, isPrimary, eventNames} for any new or changed narrative threads
 
 For aliases: For characters, locations, and objects only - provide specific alternate names, nicknames, or titles (e.g., "Rikki", "the hunter", "NYC"). Do NOT include generic pronouns (he/she/it/they). Leave empty for events and concepts.
-For passages: Use short EXACT VERBATIM quotes (3-15 words) that define the element. Do not paraphrase or use ellipsis.`;
+For mentions: Use short EXACT VERBATIM quotes (3-15 words) that define the element. Do not paraphrase or use ellipsis.`;
   },
 };
