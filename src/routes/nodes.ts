@@ -411,4 +411,17 @@ router.patch('/mentions/:mentionId/key-passage', requireAuth, async (req, res, n
   }
 });
 
+// Get all mentions for a document with absolute positions
+router.get('/documents/:id/mentions', requireAuth, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const mentions = await mentionService.getByDocumentIdWithAbsolutePositions(id);
+
+    res.json({ mentions });
+  } catch (error) {
+    next(error);
+  }
+});
+
 export default router;

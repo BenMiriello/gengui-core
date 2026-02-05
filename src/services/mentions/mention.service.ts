@@ -122,6 +122,42 @@ export const mentionService = {
   },
 
   /**
+   * Get all mentions for a document with absolute positions.
+   */
+  async getByDocumentIdWithAbsolutePositions(documentId: string): Promise<MentionWithAbsolutePosition[]> {
+    const { documents } = await import('../../models/schema.js');
+
+    const [doc] = await db
+      .select({ segmentSequence: documents.segmentSequence })
+      .from(documents)
+      .where(eq(documents.id, documentId))
+      .limit(1);
+
+    if (!doc) return [];
+
+    const segments = doc.segmentSequence as Segment[];
+    const mentionRows = await this.getByDocumentId(documentId);
+
+    return mentionRows
+      .map(mention => {
+        const absolute = segmentService.toAbsolutePosition(
+          segments,
+          mention.segmentId,
+          mention.relativeStart,
+          mention.relativeEnd
+        );
+        if (!absolute) return null;
+
+        return {
+          ...mention,
+          absoluteStart: absolute.absoluteStart,
+          absoluteEnd: absolute.absoluteEnd,
+        };
+      })
+      .filter((m): m is MentionWithAbsolutePosition => m !== null);
+  },
+
+  /**
    * Get a single mention by ID with absolute positions.
    */
   async getMentionById(id: string): Promise<MentionWithAbsolutePosition | null> {
