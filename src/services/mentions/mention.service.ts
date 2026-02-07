@@ -4,7 +4,7 @@
  */
 
 import { createHash } from 'crypto';
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '../../config/database';
 import { mentions } from '../../models/schema';
 import { segmentService } from '../segments';
