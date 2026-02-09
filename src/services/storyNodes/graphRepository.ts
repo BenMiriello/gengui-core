@@ -15,6 +15,7 @@ import type {
   NodeUpdate,
   ConnectionUpdate,
   TextPosition,
+  EventRange,
 } from '../../types/storyNodes';
 
 interface CreateNodesParams {
@@ -73,8 +74,6 @@ export const graphStoryNodesRepository = {
     const nodeNameToId = new Map<string, string>();
 
     for (const nodeData of nodes) {
-      const processedPassages = nodeData.mentions.map((p) => processPassage(documentContent, p));
-
       const nodeId = await graphService.createStoryNode(
         documentId,
         userId,
@@ -87,14 +86,26 @@ export const graphStoryNodesRepository = {
 
       nodeNameToId.set(nodeData.name, nodeId);
 
-      // Create mentions for mentions with valid positions
-      await createMentionsForPassages(
-        nodeId,
-        documentId,
-        processedPassages,
-        segments,
-        versionNumber
-      );
+      // Create mentions: use eventRanges for events, passages for other types
+      if (nodeData.type === 'event' && nodeData.eventRanges?.length) {
+        await createMentionsForEventRanges(
+          nodeId,
+          documentId,
+          nodeData.eventRanges,
+          documentContent,
+          segments,
+          versionNumber
+        );
+      } else {
+        const processedPassages = nodeData.mentions.map((p) => processPassage(documentContent, p));
+        await createMentionsForPassages(
+          nodeId,
+          documentId,
+          processedPassages,
+          segments,
+          versionNumber
+        );
+      }
 
       // Run name matching to find comprehensive mentions
       try {
@@ -292,8 +303,6 @@ export const graphStoryNodesRepository = {
 
     // 3. Add new nodes
     for (const nodeData of updates.add) {
-      const processedPassages = nodeData.mentions.map((p) => processPassage(documentContent, p));
-
       const nodeId = await graphService.createStoryNode(
         documentId,
         userId,
@@ -308,14 +317,26 @@ export const graphStoryNodesRepository = {
       added++;
       logger.info({ nodeId, nodeName: nodeData.name }, 'New story node created');
 
-      // Create mentions for mentions
-      await createMentionsForPassages(
-        nodeId,
-        documentId,
-        processedPassages,
-        segments,
-        versionNumber
-      );
+      // Create mentions: use eventRanges for events, passages for other types
+      if (nodeData.type === 'event' && nodeData.eventRanges?.length) {
+        await createMentionsForEventRanges(
+          nodeId,
+          documentId,
+          nodeData.eventRanges,
+          documentContent,
+          segments,
+          versionNumber
+        );
+      } else {
+        const processedPassages = nodeData.mentions.map((p) => processPassage(documentContent, p));
+        await createMentionsForPassages(
+          nodeId,
+          documentId,
+          processedPassages,
+          segments,
+          versionNumber
+        );
+      }
 
       // Run name matching to find comprehensive mentions
       try {
@@ -528,6 +549,69 @@ async function createMentionsForPassages(
 
 function isTextPosition(p: TextPosition | { text: string }): p is TextPosition {
   return 'start' in p && 'end' in p;
+}
+
+/**
+ * Create mentions for event ranges by locating start/end markers and creating
+ * a mention spanning the full range.
+ */
+async function createMentionsForEventRanges(
+  nodeId: string,
+  documentId: string,
+  eventRanges: EventRange[],
+  documentContent: string,
+  segments: Segment[],
+  versionNumber: number
+): Promise<void> {
+  for (const range of eventRanges) {
+    const startResult = processPassage(documentContent, { text: range.startMarker });
+    const endResult = processPassage(documentContent, { text: range.endMarker });
+
+    if (isTextPosition(startResult) && isTextPosition(endResult)) {
+      const startPosition = startResult.start;
+      const endPosition = endResult.end;
+
+      if (startPosition >= endPosition) {
+        logger.warn(
+          { nodeId, startMarker: range.startMarker, endMarker: range.endMarker },
+          'Event range markers are out of order (start >= end)'
+        );
+        continue;
+      }
+
+      const rangeText = documentContent.slice(startPosition, endPosition);
+
+      const mention = await mentionService.createFromAbsolutePosition(
+        nodeId,
+        documentId,
+        startPosition,
+        endPosition,
+        rangeText,
+        versionNumber,
+        segments,
+        'extraction',
+        100
+      );
+
+      if (!mention) {
+        logger.warn(
+          { nodeId, startPosition, endPosition },
+          'Could not create mention for event range'
+        );
+      }
+    } else {
+      logger.warn(
+        {
+          nodeId,
+          startMarker: range.startMarker,
+          endMarker: range.endMarker,
+          startFound: isTextPosition(startResult),
+          endFound: isTextPosition(endResult),
+        },
+        'Could not locate event range markers'
+      );
+    }
+  }
 }
 
 /**

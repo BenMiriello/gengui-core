@@ -26,6 +26,11 @@ export interface TextPosition {
   text: string;
 }
 
+export interface EventRange {
+  startMarker: string;
+  endMarker: string;
+}
+
 export interface StoryNodeResult {
   type: StoryNodeType;
   name: string;
@@ -34,6 +39,7 @@ export interface StoryNodeResult {
   mentions: StoryNodeMention[];
   metadata?: Record<string, unknown>;
   documentOrder?: number;
+  eventRanges?: EventRange[];
 }
 
 export interface StoryConnectionResult {

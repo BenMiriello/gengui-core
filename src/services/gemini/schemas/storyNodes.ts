@@ -25,6 +25,15 @@ const EDGE_TYPE_ENUM = [
   'RELATED_TO',
 ];
 
+const eventRangeSchema = {
+  type: GeminiType.OBJECT,
+  properties: {
+    startMarker: { type: GeminiType.STRING },
+    endMarker: { type: GeminiType.STRING },
+  },
+  required: ['startMarker', 'endMarker'],
+};
+
 const nodeSchema = {
   type: GeminiType.OBJECT,
   properties: {
@@ -44,6 +53,11 @@ const nodeSchema = {
       items: passageSchema,
     },
     documentOrder: { type: GeminiType.INTEGER, nullable: true },
+    eventRanges: {
+      type: GeminiType.ARRAY,
+      items: eventRangeSchema,
+      nullable: true,
+    },
   },
   required: ['type', 'name', 'description', 'mentions'],
 };
