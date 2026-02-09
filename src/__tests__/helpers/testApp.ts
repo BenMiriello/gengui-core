@@ -130,7 +130,9 @@ import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express from 'express';
 import helmet from 'helmet';
+import { requireAuth, requireEmailVerified } from '../../middleware/auth';
 import { errorHandler } from '../../middleware/errorHandler';
+import { requireAdmin } from '../../middleware/requireAdmin';
 import authRoutes from '../../routes/auth';
 
 function createTestApp() {
@@ -163,6 +165,23 @@ function createTestApp() {
 
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok' });
+  });
+
+  app.get('/test/require-email-verified', requireAuth, requireEmailVerified(), (_req, res) => {
+    res.json({ success: true });
+  });
+
+  app.get(
+    '/test/require-email-verified-custom',
+    requireAuth,
+    requireEmailVerified('Custom verification message'),
+    (_req, res) => {
+      res.json({ success: true });
+    }
+  );
+
+  app.get('/test/require-admin', requireAdmin, (_req, res) => {
+    res.json({ success: true, user: _req.user });
   });
 
   app.use('/api', authRoutes);
