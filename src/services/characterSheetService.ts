@@ -1,15 +1,16 @@
 /**
  * Service for generating character sheet images from story nodes.
  */
+
+import { and, eq, isNull } from 'drizzle-orm';
 import { db } from '../config/database';
-import { media, nodeMedia } from '../models/schema';
-import { eq, and, isNull } from 'drizzle-orm';
-import { logger } from '../utils/logger';
-import { getImageProvider, getImageProviderName } from './image-generation/factory';
-import type { CharacterSheetSettings, AspectRatio } from '../types/generationSettings';
-import { GENERATION_SETTINGS_SCHEMA_VERSION } from '../types/generationSettings';
 import { getDimensionsForAspectRatio, getModelIdForProvider } from '../config/models';
+import { media, nodeMedia } from '../models/schema';
+import type { AspectRatio, CharacterSheetSettings } from '../types/generationSettings';
+import { GENERATION_SETTINGS_SCHEMA_VERSION } from '../types/generationSettings';
+import { logger } from '../utils/logger';
 import { graphService } from './graph/graph.service';
+import { getImageProvider, getImageProviderName } from './image-generation/factory';
 
 interface GenerateCharacterSheetParams {
   nodeId: string;
@@ -41,8 +42,7 @@ export const characterSheetService = {
 
     // Determine aspect ratio: explicit param > settings > default based on node type
     const defaultAR: AspectRatio =
-      node.type === 'character' ? 'portrait' :
-      node.type === 'location' ? 'landscape' : 'square';
+      node.type === 'character' ? 'portrait' : node.type === 'location' ? 'landscape' : 'square';
     const finalAR = aspectRatio ?? settings.aspectRatio ?? defaultAR;
 
     // Get dimensions for the current provider
@@ -95,7 +95,10 @@ export const characterSheetService = {
       height,
     });
 
-    logger.info({ mediaId: newMedia.id, nodeId, aspectRatio: finalAR, width, height }, 'Character sheet generation queued');
+    logger.info(
+      { mediaId: newMedia.id, nodeId, aspectRatio: finalAR, width, height },
+      'Character sheet generation queued'
+    );
 
     return newMedia;
   },
@@ -111,9 +114,10 @@ export const characterSheetService = {
     const parts: string[] = [];
 
     // Use custom description if manual edit, otherwise use node description
-    const baseDescription = settings.manualEdit && settings.customDescription
-      ? settings.customDescription
-      : node.description || node.name;
+    const baseDescription =
+      settings.manualEdit && settings.customDescription
+        ? settings.customDescription
+        : node.description || node.name;
 
     parts.push(baseDescription);
 
@@ -221,11 +225,7 @@ export const characterSheetService = {
       .from(nodeMedia)
       .innerJoin(media, eq(nodeMedia.mediaId, media.id))
       .where(
-        and(
-          eq(nodeMedia.nodeId, nodeId),
-          isNull(nodeMedia.deletedAt),
-          isNull(media.deletedAt)
-        )
+        and(eq(nodeMedia.nodeId, nodeId), isNull(nodeMedia.deletedAt), isNull(media.deletedAt))
       )
       .orderBy(media.createdAt);
 

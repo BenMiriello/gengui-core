@@ -1,16 +1,16 @@
-import crypto from 'crypto';
+import crypto from 'node:crypto';
+import { and, desc, eq, getTableColumns, isNull, notInArray, or } from 'drizzle-orm';
+import { PRESIGNED_S3_URL_EXPIRATION } from '../config/constants';
 import { db } from '../config/database';
-import { media, documents, documentMedia, nodeMedia } from '../models/schema';
-import { eq, and, desc, getTableColumns, or, isNull, notInArray } from 'drizzle-orm';
+import { documentMedia, documents, media, nodeMedia } from '../models/schema';
 import { notDeleted } from '../utils/db';
-import { storageProvider } from './storage';
-import { redisStreams } from './redis-streams';
 import { NotFoundError } from '../utils/errors';
 import { logger } from '../utils/logger';
-import { imageProcessor } from './imageProcessor';
 import { cache, type MediaUrlType } from './cache';
-import { PRESIGNED_S3_URL_EXPIRATION } from '../config/constants';
 import { graphService } from './graph/graph.service';
+import { imageProcessor } from './imageProcessor';
+import { redisStreams } from './redis-streams';
+import { storageProvider } from './storage';
 
 export class MediaService {
   async upload(
@@ -41,7 +41,10 @@ export class MediaService {
         throw new Error('Media record exists but has no storage key');
       }
       const url = await storageProvider.getSignedUrl(existingMedia.storageKey);
-      logger.info({ mediaId: existingMedia.id, hash }, 'Duplicate upload detected, returning existing');
+      logger.info(
+        { mediaId: existingMedia.id, hash },
+        'Duplicate upload detected, returning existing'
+      );
       return { id: existingMedia.id, storageKey: existingMedia.storageKey, url };
     }
 
@@ -105,10 +108,7 @@ export class MediaService {
 
     if (options?.excludeRoles?.length) {
       conditions.push(
-        or(
-          isNull(media.mediaRole),
-          notInArray(media.mediaRole, options.excludeRoles)
-        )!
+        or(isNull(media.mediaRole), notInArray(media.mediaRole, options.excludeRoles))!
       );
     }
 
@@ -138,51 +138,50 @@ export class MediaService {
     return result[0];
   }
 
-async getDocumentsByMediaId(mediaId: string, userId: string, requestedFields?: string[]) {
-  const allColumns = getTableColumns(documents);
-  let selection: Record<string, any> = allColumns;
+  async getDocumentsByMediaId(mediaId: string, userId: string, requestedFields?: string[]) {
+    const allColumns = getTableColumns(documents);
+    let selection: Record<string, any> = allColumns;
 
-  if (requestedFields && requestedFields.length > 0) {
-    const pickedFields: Record<string, any> = {};
-    requestedFields.forEach((field) => {
-      if (Object.prototype.hasOwnProperty.call(allColumns, field)) {
-        pickedFields[field] = allColumns[field as keyof typeof allColumns];
+    if (requestedFields && requestedFields.length > 0) {
+      const pickedFields: Record<string, any> = {};
+      requestedFields.forEach((field) => {
+        if (Object.hasOwn(allColumns, field)) {
+          pickedFields[field] = allColumns[field as keyof typeof allColumns];
+        }
+      });
+
+      if (Object.keys(pickedFields).length > 0) {
+        selection = pickedFields;
       }
-    });
-
-    if (Object.keys(pickedFields).length > 0) {
-      selection = pickedFields;
     }
+
+    const results = await db
+      .select(selection)
+      .from(documents)
+      .innerJoin(documentMedia, eq(documents.id, documentMedia.documentId))
+      .where(
+        and(
+          eq(documentMedia.mediaId, mediaId),
+          eq(documents.userId, userId),
+          notDeleted(documents.deletedAt)
+        )
+      )
+      .orderBy(desc(documents.createdAt))
+      .limit(100);
+
+    if (results.length === 0) {
+      return [];
+    }
+
+    return results as any[];
   }
-
-  const results = await db
-    .select(selection)
-    .from(documents)
-    .innerJoin(documentMedia, eq(documents.id, documentMedia.documentId))
-    .where(and(
-      eq(documentMedia.mediaId, mediaId),
-      eq(documents.userId, userId),
-      notDeleted(documents.deletedAt)
-    ))
-    .orderBy(desc(documents.createdAt))
-    .limit(100);
-
-  if (results.length === 0) {
-    return [];
-  }
-
-  return results as any[];
-}
 
   async getNodeByMediaId(mediaId: string, userId: string) {
     // First get the nodeId from the Postgres nodeMedia table
     const [nodeMed] = await db
       .select({ nodeId: nodeMedia.nodeId })
       .from(nodeMedia)
-      .where(and(
-        eq(nodeMedia.mediaId, mediaId),
-        notDeleted(nodeMedia.deletedAt)
-      ))
+      .where(and(eq(nodeMedia.mediaId, mediaId), notDeleted(nodeMedia.deletedAt)))
       .limit(1);
 
     if (!nodeMed) {
@@ -203,7 +202,12 @@ async getDocumentsByMediaId(mediaId: string, userId: string, requestedFields?: s
     };
   }
 
-  async getSignedUrl(id: string, userId: string, expiresIn: number = PRESIGNED_S3_URL_EXPIRATION, type: MediaUrlType = 'full') {
+  async getSignedUrl(
+    id: string,
+    userId: string,
+    expiresIn: number = PRESIGNED_S3_URL_EXPIRATION,
+    type: MediaUrlType = 'full'
+  ) {
     const cachedUrl = await cache.getMediaUrl(id, type);
     if (cachedUrl) {
       return cachedUrl;

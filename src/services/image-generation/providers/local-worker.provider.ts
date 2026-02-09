@@ -1,7 +1,7 @@
-import type { ImageGenerationProvider } from '../provider.interface.js';
-import type { GenerationInput, DimensionWhitelist } from '../types.js';
-import { redisStreams } from '../../redis-streams.js';
 import { logger } from '../../../utils/logger.js';
+import { redisStreams } from '../../redis-streams.js';
+import type { ImageGenerationProvider } from '../provider.interface.js';
+import type { DimensionWhitelist, GenerationInput } from '../types.js';
 
 class LocalWorkerProvider implements ImageGenerationProvider {
   readonly name = 'local' as const;
@@ -22,7 +22,10 @@ class LocalWorkerProvider implements ImageGenerationProvider {
       status: 'queued',
     });
 
-    logger.info({ mediaId: input.mediaId, prompt: input.prompt }, 'Generation queued in Redis stream for local worker');
+    logger.info(
+      { mediaId: input.mediaId, prompt: input.prompt },
+      'Generation queued in Redis stream for local worker'
+    );
   }
 
   getSupportedDimensions(): DimensionWhitelist {

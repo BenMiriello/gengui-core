@@ -1,4 +1,3 @@
-
 // Image Generation Constants
 const MAX_WIDTH = 2048;
 const MAX_HEIGHT = 2048;
@@ -15,7 +14,7 @@ export const RATE_LIMITS = {
   augmentation: {
     user: parseInt(process.env.AUGMENTATION_LIMIT_USER_DAILY || '20', 10),
     admin: parseInt(process.env.AUGMENTATION_LIMIT_ADMIN_DAILY || '200', 10),
-  }
+  },
 };
 
 // Backwards compatibility
@@ -62,5 +61,5 @@ export {
   MAX_CUSTOM_STYLE_PROMPT_LENGTH,
   MAX_CUSTOM_STYLE_PROMPTS_PER_USER,
   USER_DAILY_LIMIT,
-  ADMIN_DAILY_LIMIT
+  ADMIN_DAILY_LIMIT,
 };

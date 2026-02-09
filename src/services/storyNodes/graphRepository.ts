@@ -2,21 +2,22 @@
  * Graph-backed repository for story node and connection persistence.
  * Drop-in replacement for repository.ts, using FalkorDB instead of Postgres.
  */
-import { graphService, type StoredStoryNode } from '../graph/graph.service';
-import { generateEmbedding, buildEmbeddingText } from '../embeddings';
-import { segmentService, type Segment } from '../segments';
-import { mentionService, fuzzyFindText } from '../mentions';
-import { logger } from '../../utils/logger';
+
 import type {
-  StoryNodeResult,
-  StoryNodeMention,
-  StoryConnectionResult,
+  ConnectionUpdate,
+  EventRange,
   NarrativeThreadResult,
   NodeUpdate,
-  ConnectionUpdate,
+  StoryConnectionResult,
+  StoryNodeMention,
+  StoryNodeResult,
   TextPosition,
-  EventRange,
 } from '../../types/storyNodes';
+import { logger } from '../../utils/logger';
+import { buildEmbeddingText, generateEmbedding } from '../embeddings';
+import { graphService, type StoredStoryNode } from '../graph/graph.service';
+import { fuzzyFindText, mentionService } from '../mentions';
+import { type Segment, segmentService } from '../segments';
 
 interface CreateNodesParams {
   userId: string;
@@ -74,15 +75,10 @@ export const graphStoryNodesRepository = {
     const nodeNameToId = new Map<string, string>();
 
     for (const nodeData of nodes) {
-      const nodeId = await graphService.createStoryNode(
-        documentId,
-        userId,
-        nodeData,
-        {
-          stylePreset: documentStyle?.preset,
-          stylePrompt: documentStyle?.prompt,
-        }
-      );
+      const nodeId = await graphService.createStoryNode(documentId, userId, nodeData, {
+        stylePreset: documentStyle?.preset,
+        stylePrompt: documentStyle?.prompt,
+      });
 
       nodeNameToId.set(nodeData.name, nodeId);
 
@@ -135,7 +131,10 @@ export const graphStoryNodesRepository = {
       try {
         const storedNode = await graphService.getStoryNodeByIdInternal(nodeId);
         if (storedNode) {
-          const extractionMentions = await mentionService.getByNodeIdAndSource(nodeId, 'extraction');
+          const extractionMentions = await mentionService.getByNodeIdAndSource(
+            nodeId,
+            'extraction'
+          );
           const text = buildEmbeddingText(storedNode, extractionMentions);
           const embedding = await generateEmbedding(text);
           await graphService.setNodeEmbedding(nodeId, embedding);
@@ -290,7 +289,10 @@ export const graphStoryNodesRepository = {
         try {
           const node = await graphService.getStoryNodeByIdInternal(update.id);
           if (node) {
-            const extractionMentions = await mentionService.getByNodeIdAndSource(update.id, 'extraction');
+            const extractionMentions = await mentionService.getByNodeIdAndSource(
+              update.id,
+              'extraction'
+            );
             const text = buildEmbeddingText(node, extractionMentions);
             const embedding = await generateEmbedding(text);
             await graphService.setNodeEmbedding(update.id, embedding);
@@ -303,15 +305,10 @@ export const graphStoryNodesRepository = {
 
     // 3. Add new nodes
     for (const nodeData of updates.add) {
-      const nodeId = await graphService.createStoryNode(
-        documentId,
-        userId,
-        nodeData,
-        {
-          stylePreset: documentStyle?.preset,
-          stylePrompt: documentStyle?.prompt,
-        }
-      );
+      const nodeId = await graphService.createStoryNode(documentId, userId, nodeData, {
+        stylePreset: documentStyle?.preset,
+        stylePrompt: documentStyle?.prompt,
+      });
 
       newNodeIds.set(nodeData.name, nodeId);
       added++;
@@ -366,7 +363,10 @@ export const graphStoryNodesRepository = {
       try {
         const storedNode = await graphService.getStoryNodeByIdInternal(nodeId);
         if (storedNode) {
-          const extractionMentions = await mentionService.getByNodeIdAndSource(nodeId, 'extraction');
+          const extractionMentions = await mentionService.getByNodeIdAndSource(
+            nodeId,
+            'extraction'
+          );
           const text = buildEmbeddingText(storedNode, extractionMentions);
           const embedding = await generateEmbedding(text);
           await graphService.setNodeEmbedding(nodeId, embedding);

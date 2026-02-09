@@ -7,10 +7,19 @@ export type StoryNodeType = 'character' | 'location' | 'event' | 'concept' | 'ot
 
 export type StoryEdgeType =
   // Layer 2 (causal/temporal)
-  | 'CAUSES' | 'ENABLES' | 'PREVENTS' | 'HAPPENS_BEFORE'
+  | 'CAUSES'
+  | 'ENABLES'
+  | 'PREVENTS'
+  | 'HAPPENS_BEFORE'
   // Layer 3 (structural/relational)
-  | 'PARTICIPATES_IN' | 'LOCATED_AT' | 'PART_OF' | 'MEMBER_OF'
-  | 'POSSESSES' | 'CONNECTED_TO' | 'OPPOSES' | 'ABOUT'
+  | 'PARTICIPATES_IN'
+  | 'LOCATED_AT'
+  | 'PART_OF'
+  | 'MEMBER_OF'
+  | 'POSSESSES'
+  | 'CONNECTED_TO'
+  | 'OPPOSES'
+  | 'ABOUT'
   // System
   | 'BELONGS_TO_THREAD'
   // Fallback

@@ -30,10 +30,7 @@ interface Candidate {
  * Find text in document using two-stage fuzzy matching.
  * Returns null if no match found with confidence >= 0.5
  */
-export function fuzzyFindText(
-  content: string,
-  input: FuzzyMatchInput
-): FuzzyMatchResult | null {
+export function fuzzyFindText(content: string, input: FuzzyMatchInput): FuzzyMatchResult | null {
   const { sourceText, originalStart, originalEnd } = input;
 
   if (!sourceText) return null;
@@ -92,10 +89,7 @@ export function fuzzyFindTextInSegment(
   return fuzzyFindText(content, input);
 }
 
-function findWithTwoStage(
-  content: string,
-  input: FuzzyMatchInput
-): FuzzyMatchResult | null {
+function findWithTwoStage(content: string, input: FuzzyMatchInput): FuzzyMatchResult | null {
   const { sourceText, originalStart } = input;
   const anchorLength = sourceText.length;
 
@@ -121,11 +115,11 @@ function findWithTwoStage(
 
     // Filter 1: Word overlap (30% threshold)
     const wordOverlap = calculateWordOverlap(anchorWords, windowText);
-    if (wordOverlap < 0.30) continue;
+    if (wordOverlap < 0.3) continue;
 
     // Filter 2: Trigram overlap (30% threshold)
     const trigramOverlap = calculateTrigramOverlap(anchorTrigrams, windowText);
-    if (trigramOverlap < 0.30) continue;
+    if (trigramOverlap < 0.3) continue;
 
     candidates.push({ position, windowText });
   }
@@ -166,7 +160,7 @@ function findWithTwoStage(
 
   // Tiebreaking for borderline matches (0.5-0.7)
   if (bestScore < 0.7 && candidates.length > 1) {
-    const viableCandidates = candidates.filter(c => {
+    const viableCandidates = candidates.filter((c) => {
       const candidateText = c.windowText.substring(0, anchorLength);
       return calculateLevenshteinSimilarity(sourceText, candidateText) >= 0.5;
     });
@@ -202,12 +196,18 @@ function findWithTwoStage(
 
 function extractWords(text: string): Set<string> {
   return new Set(
-    text.toLowerCase().split(/\s+/).filter(w => w.length > 0)
+    text
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((w) => w.length > 0)
   );
 }
 
 function extractTrigrams(text: string): Set<string> {
-  const words = text.toLowerCase().split(/\s+/).filter(w => w.length > 0);
+  const words = text
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((w) => w.length > 0);
   const trigrams = new Set<string>();
 
   for (let i = 0; i <= words.length - 3; i++) {
@@ -219,7 +219,10 @@ function extractTrigrams(text: string): Set<string> {
 
 function calculateWordOverlap(anchorWords: Set<string>, windowText: string): number {
   const windowWords = new Set(
-    windowText.toLowerCase().split(/\s+/).filter(w => w.length > 0)
+    windowText
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((w) => w.length > 0)
   );
 
   let matchCount = 0;

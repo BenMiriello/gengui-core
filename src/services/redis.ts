@@ -66,7 +66,10 @@ class RedisService {
         logger.warn({ queueLength: commandQueue.length }, '[REDIS] Commands in queue');
       }
       if (offlineQueue && offlineQueue.length > 0) {
-        logger.warn({ offlineQueueLength: offlineQueue.length }, '[REDIS] Commands in offline queue');
+        logger.warn(
+          { offlineQueueLength: offlineQueue.length },
+          '[REDIS] Commands in offline queue'
+        );
       }
     }, 1000);
 
@@ -152,11 +155,14 @@ class RedisService {
     const elapsed = Date.now() - start;
 
     if (elapsed > 100) {
-      logger.warn({
-        key,
-        elapsed,
-        connectionStatus: this.client.status
-      }, '[REDIS SLOW] zadd');
+      logger.warn(
+        {
+          key,
+          elapsed,
+          connectionStatus: this.client.status,
+        },
+        '[REDIS SLOW] zadd'
+      );
     }
     return result;
   }
@@ -186,7 +192,10 @@ class RedisService {
     const result = await this.client.expire(key, seconds);
     const elapsed = Date.now() - start;
     if (elapsed > 100) {
-      logger.warn({ key, seconds, elapsed, connectionStatus: this.client.status }, '[REDIS SLOW] expire');
+      logger.warn(
+        { key, seconds, elapsed, connectionStatus: this.client.status },
+        '[REDIS SLOW] expire'
+      );
     }
     return result;
   }

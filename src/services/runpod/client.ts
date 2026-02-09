@@ -1,5 +1,5 @@
-import { logger } from '../../utils/logger';
 import { env } from '../../config/env';
+import { logger } from '../../utils/logger';
 import type { RunPodJobInput, RunPodJobPolicy, RunPodJobStatusResponse } from './types';
 
 class RunPodClient {
@@ -70,7 +70,7 @@ class RunPodClient {
         {
           runpodJobId: result.id,
           mediaId: input.mediaId,
-          executionTimeout: policy?.executionTimeout
+          executionTimeout: policy?.executionTimeout,
         },
         'Job submitted to RunPod successfully'
       );

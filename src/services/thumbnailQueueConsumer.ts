@@ -1,6 +1,6 @@
+import { BlockingConsumer } from '../lib/blocking-consumer';
 import { logger } from '../utils/logger';
 import { thumbnailProcessor } from './thumbnailProcessor';
-import { BlockingConsumer } from '../lib/blocking-consumer';
 
 class ThumbnailQueueConsumer extends BlockingConsumer {
   constructor() {
@@ -19,7 +19,7 @@ class ThumbnailQueueConsumer extends BlockingConsumer {
     while (this.isRunning) {
       try {
         const result = await this.streams.consume(streamName, groupName, consumerName, {
-          block: 2000
+          block: 2000,
         });
 
         if (!result) continue;
@@ -41,10 +41,9 @@ class ThumbnailQueueConsumer extends BlockingConsumer {
         } catch (error) {
           logger.error({ error, mediaId }, 'Thumbnail failed, will retry');
         }
-
       } catch (error) {
         logger.error({ error }, 'Error processing thumbnail stream');
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise((resolve) => setTimeout(resolve, 1000));
       }
     }
   }

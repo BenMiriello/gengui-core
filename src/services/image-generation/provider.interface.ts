@@ -1,4 +1,4 @@
-import type { GenerationInput, DimensionWhitelist } from './types.js';
+import type { DimensionWhitelist, GenerationInput } from './types.js';
 
 export interface ImageGenerationProvider {
   readonly name: 'local' | 'runpod' | 'gemini' | 'gemini-pro-image';

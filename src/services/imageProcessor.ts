@@ -17,7 +17,7 @@ class ImageProcessor {
 
       return {
         width: metadata.width,
-        height: metadata.height
+        height: metadata.height,
       };
     } catch (error) {
       logger.error({ error }, 'Failed to extract image dimensions');
@@ -30,12 +30,15 @@ class ImageProcessor {
       const thumbnail = await sharp(buffer)
         .resize(size, size, {
           fit: 'inside',
-          withoutEnlargement: true
+          withoutEnlargement: true,
         })
         .jpeg({ quality: 85 })
         .toBuffer();
 
-      logger.info({ size, originalSize: buffer.length, thumbnailSize: thumbnail.length }, 'Thumbnail created');
+      logger.info(
+        { size, originalSize: buffer.length, thumbnailSize: thumbnail.length },
+        'Thumbnail created'
+      );
 
       return thumbnail;
     } catch (error) {

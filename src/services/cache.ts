@@ -1,6 +1,6 @@
-import { redis } from './redis';
+import { METADATA_CACHE_TTL, URL_CACHE_TTL } from '../config/constants';
 import { logger } from '../utils/logger';
-import { URL_CACHE_TTL, METADATA_CACHE_TTL } from '../config/constants';
+import { redis } from './redis';
 
 export interface MediaMetadata {
   width: number | null;
@@ -32,7 +32,12 @@ class CacheService {
     }
   }
 
-  async setMediaUrl(mediaId: string, type: MediaUrlType, url: string, ttl: number = URL_CACHE_TTL): Promise<void> {
+  async setMediaUrl(
+    mediaId: string,
+    type: MediaUrlType,
+    url: string,
+    ttl: number = URL_CACHE_TTL
+  ): Promise<void> {
     try {
       await redis.set(this.urlKey(mediaId, type), url, ttl);
       logger.debug({ mediaId, type, ttl }, 'Cached media URL');
@@ -55,7 +60,11 @@ class CacheService {
     }
   }
 
-  async setMetadata(mediaId: string, metadata: MediaMetadata, ttl: number = METADATA_CACHE_TTL): Promise<void> {
+  async setMetadata(
+    mediaId: string,
+    metadata: MediaMetadata,
+    ttl: number = METADATA_CACHE_TTL
+  ): Promise<void> {
     try {
       await redis.set(this.metadataKey(mediaId), JSON.stringify(metadata), ttl);
       logger.debug({ mediaId, ttl }, 'Cached metadata');

@@ -1,15 +1,15 @@
+import { randomUUID } from 'node:crypto';
+import { eq } from 'drizzle-orm';
 import { Router } from 'express';
-import { randomUUID } from 'crypto';
-import { requireAuth, requireEmailVerified } from '../middleware/auth';
-import { characterSheetService } from '../services/characterSheetService';
-import { sseService } from '../services/sse';
 import { z } from 'zod';
+import { db } from '../config/database';
+import { requireAuth, requireEmailVerified } from '../middleware/auth';
+import { documents } from '../models/schema';
+import { characterSheetService } from '../services/characterSheetService';
 import { graphService } from '../services/graph/graph.service';
 import { mentionService } from '../services/mentions';
 import { segmentService } from '../services/segments';
-import { db } from '../config/database';
-import { documents } from '../models/schema';
-import { eq } from 'drizzle-orm';
+import { sseService } from '../services/sse';
 
 const router = Router();
 
@@ -55,7 +55,7 @@ router.post(
       const validatedData = generateCharacterSheetSchema.parse(req.body);
       const result = await characterSheetService.generate({
         nodeId: req.params.id,
-        userId: req.user!.id,
+        userId: req.user?.id,
         settings: validatedData.settings,
         aspectRatio: validatedData.aspectRatio,
         stylePreset: validatedData.stylePreset,
@@ -88,11 +88,7 @@ router.post(
 router.patch('/nodes/:id/primary-media', requireAuth, async (req, res, next) => {
   try {
     const validatedData = setPrimaryMediaSchema.parse(req.body);
-    await characterSheetService.setPrimaryMedia(
-      req.params.id,
-      validatedData.mediaId,
-      req.user!.id
-    );
+    await characterSheetService.setPrimaryMedia(req.params.id, validatedData.mediaId, req.user?.id);
 
     res.json({ success: true });
   } catch (error) {
@@ -117,7 +113,7 @@ router.patch('/nodes/:id/primary-media', requireAuth, async (req, res, next) => 
 // Get node with associated media
 router.get('/nodes/:id', requireAuth, async (req, res, next) => {
   try {
-    const result = await characterSheetService.getNodeMedia(req.params.id, req.user!.id);
+    const result = await characterSheetService.getNodeMedia(req.params.id, req.user?.id);
     res.json(result);
   } catch (error) {
     if (error instanceof Error && error.message === 'Node not found') {
@@ -133,7 +129,7 @@ router.get('/nodes/:id/stream', requireAuth, async (req, res, next) => {
   try {
     const { id } = req.params;
     // Verify node exists and user has access
-    await characterSheetService.getNodeMedia(id, req.user!.id);
+    await characterSheetService.getNodeMedia(id, req.user?.id);
 
     const clientId = randomUUID();
     sseService.addClient(clientId, `node:${id}`, res);
@@ -159,7 +155,7 @@ router.patch('/nodes/:id/style', requireAuth, async (req, res, next) => {
       validatedData.stylePrompt
     );
 
-    if (!updated || updated.userId !== req.user!.id) {
+    if (!updated || updated.userId !== req.user?.id) {
       res.status(404).json({ error: { message: 'Node not found', code: 'NOT_FOUND' } });
       return;
     }
@@ -187,7 +183,7 @@ router.patch('/nodes/:id', requireAuth, async (req, res, next) => {
     const validatedData = updateNodeSchema.parse(req.body);
 
     // Verify ownership first
-    const existing = await graphService.getStoryNodeById(id, req.user!.id);
+    const existing = await graphService.getStoryNodeById(id, req.user?.id);
     if (!existing) {
       res.status(404).json({ error: { message: 'Node not found', code: 'NOT_FOUND' } });
       return;
@@ -197,7 +193,7 @@ router.patch('/nodes/:id', requireAuth, async (req, res, next) => {
     await graphService.updateStoryNode(id, validatedData);
 
     // Get updated node
-    const updated = await graphService.getStoryNodeById(id, req.user!.id);
+    const updated = await graphService.getStoryNodeById(id, req.user?.id);
 
     res.json(updated);
   } catch (error) {
@@ -290,15 +286,26 @@ router.get('/nodes/:id/mentions', requireAuth, async (req, res, next) => {
     const segments = await segmentService.getDocumentSegments(documentId);
 
     // Get all event nodes for this document to find context for each mention
-    const allNodes = await graphService.getStoryNodesForDocument(documentId, req.user!.id);
-    const eventNodes = allNodes.filter(n => n.type === 'event');
+    const allNodes = await graphService.getStoryNodesForDocument(documentId, req.user?.id);
+    const eventNodes = allNodes.filter((n) => n.type === 'event');
 
     // Build map of event positions with their names and thread info
-    const eventContextMap = new Map<string, { eventName: string; threadName: string | null; threadColor: string | null; positions: Array<{start: number; end: number}> }>();
+    const eventContextMap = new Map<
+      string,
+      {
+        eventName: string;
+        threadName: string | null;
+        threadColor: string | null;
+        positions: Array<{ start: number; end: number }>;
+      }
+    >();
 
     const { graphThreads } = await import('../services/graph/graph.threads');
     for (const event of eventNodes) {
-      const eventMentions = await mentionService.getByNodeIdWithAbsolutePositions(event.id, segments);
+      const eventMentions = await mentionService.getByNodeIdWithAbsolutePositions(
+        event.id,
+        segments
+      );
 
       // Get thread info for this event
       const threads = await graphThreads.getThreadsForEvent(event.id);
@@ -316,7 +323,7 @@ router.get('/nodes/:id/mentions', requireAuth, async (req, res, next) => {
         eventName: event.name,
         threadName,
         threadColor,
-        positions: eventMentions.map(m => ({ start: m.absoluteStart, end: m.absoluteEnd }))
+        positions: eventMentions.map((m) => ({ start: m.absoluteStart, end: m.absoluteEnd })),
       });
     }
 
@@ -327,15 +334,13 @@ router.get('/nodes/:id/mentions', requireAuth, async (req, res, next) => {
       .where(eq(documents.id, documentId))
       .limit(1);
 
-    const chapters = document?.contentJson
-      ? detectChaptersFromContent(document.contentJson)
-      : [];
+    const chapters = document?.contentJson ? detectChaptersFromContent(document.contentJson) : [];
 
     // Get mentions for the target node
     const mentions = await mentionService.getByNodeIdWithAbsolutePositions(id, segments);
 
     // For each mention, find ALL matching events + chapter context
-    const mentionsWithContext = mentions.map(m => {
+    const mentionsWithContext = mentions.map((m) => {
       const matchingEvents: Array<{
         eventName: string;
         threadName: string | null;

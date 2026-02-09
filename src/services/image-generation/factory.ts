@@ -1,10 +1,10 @@
 import { env } from '../../config/env.js';
+import { getGrowthBook } from '../growthbook.js';
 import type { ImageGenerationProvider } from './provider.interface.js';
-import { localWorkerProvider } from './providers/local-worker.provider.js';
-import { runpodProvider } from './providers/runpod.provider.js';
 import { geminiImagenProvider } from './providers/gemini-imagen.provider.js';
 import { geminiProImageProvider } from './providers/gemini-pro-image.provider.js';
-import { getGrowthBook } from '../growthbook.js';
+import { localWorkerProvider } from './providers/local-worker.provider.js';
+import { runpodProvider } from './providers/runpod.provider.js';
 
 let cachedProvider: ImageGenerationProvider | null = null;
 let cachedProviderName: string | null = null;
@@ -34,7 +34,6 @@ export async function getImageProvider(): Promise<ImageGenerationProvider> {
     case 'gemini-pro-image':
       cachedProvider = geminiProImageProvider;
       break;
-    case 'gemini':
     default:
       cachedProvider = geminiImagenProvider;
       break;

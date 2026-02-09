@@ -1,2 +1,6 @@
 export { promptAugmentationService } from './consumer';
-export type { PromptEnhancementSettings, CharacterReferences, PromptContext } from './promptBuilder';
+export type {
+  CharacterReferences,
+  PromptContext,
+  PromptEnhancementSettings,
+} from './promptBuilder';

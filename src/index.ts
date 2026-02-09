@@ -1,22 +1,25 @@
-import { env } from './config/env';
-import { createApp } from './app';
-import { logger } from './utils/logger';
-import { jobStatusConsumer } from './services/jobStatusConsumer';
-import { jobReconciliationService } from './services/runpod';
-import { textAnalysisConsumer } from './services/textAnalysisConsumer';
-import { promptAugmentationService } from './services/prompt-augmentation';
-import { startReconciliationJob } from './jobs/reconcileGenerations';
-import { startCleanupJob } from './jobs/cleanupSoftDeleted';
-import { redis } from './services/redis';
-import { closeDatabase } from './config/database';
-import { sseService } from './services/sse';
-import { graphService } from './services/graph/graph.service';
-import type { ScheduledTask } from 'node-cron';
 import blocked from 'blocked-at';
+import type { ScheduledTask } from 'node-cron';
+import { createApp } from './app';
+import { closeDatabase } from './config/database';
+import { env } from './config/env';
+import { startCleanupJob } from './jobs/cleanupSoftDeleted';
+import { startReconciliationJob } from './jobs/reconcileGenerations';
+import { graphService } from './services/graph/graph.service';
+import { jobStatusConsumer } from './services/jobStatusConsumer';
+import { promptAugmentationService } from './services/prompt-augmentation';
+import { redis } from './services/redis';
+import { jobReconciliationService } from './services/runpod';
+import { sseService } from './services/sse';
+import { textAnalysisConsumer } from './services/textAnalysisConsumer';
+import { logger } from './utils/logger';
 
-blocked((time, stack) => {
-  logger.warn({ time, stack: stack.slice(0, 5) }, `[EVENT LOOP BLOCKED] for ${time}ms`);
-}, { threshold: 100 });
+blocked(
+  (time, stack) => {
+    logger.warn({ time, stack: stack.slice(0, 5) }, `[EVENT LOOP BLOCKED] for ${time}ms`);
+  },
+  { threshold: 100 }
+);
 
 const app = createApp();
 

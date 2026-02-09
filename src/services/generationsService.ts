@@ -1,12 +1,12 @@
+import { and, eq } from 'drizzle-orm';
 import { db } from '../config/database';
-import { media, documentMedia, documents } from '../models/schema';
-import { eq, and } from 'drizzle-orm';
+import { documentMedia, documents, media } from '../models/schema';
 import { notDeleted } from '../utils/db';
-import { redis } from './redis';
-import { redisStreams } from './redis-streams';
-import { getImageProvider } from './image-generation/factory';
 import { NotFoundError } from '../utils/errors';
 import { logger } from '../utils/logger';
+import { getImageProvider } from './image-generation/factory';
+import { redis } from './redis';
+import { redisStreams } from './redis-streams';
 
 export interface CharacterReferences {
   mode: 'auto' | 'manual';
@@ -58,7 +58,7 @@ export class GenerationsService {
 
       if (Array.isArray(constraints)) {
         // Fixed dimensions (e.g., Gemini)
-        errorMessage += `Supported sizes: ${constraints.map(s => `${s.width}x${s.height}`).join(', ')}`;
+        errorMessage += `Supported sizes: ${constraints.map((s) => `${s.width}x${s.height}`).join(', ')}`;
       } else {
         // Range-based dimensions (e.g., local/runpod)
         const { min, max, step } = constraints;
@@ -106,7 +106,12 @@ export class GenerationsService {
       let contextBefore: string | undefined = request.contextBefore;
       let contextAfter: string | undefined = request.contextAfter;
 
-      if (!contextBefore && !contextAfter && request.startChar !== undefined && request.endChar !== undefined) {
+      if (
+        !contextBefore &&
+        !contextAfter &&
+        request.startChar !== undefined &&
+        request.endChar !== undefined
+      ) {
         const [document] = await db
           .select()
           .from(documents)
@@ -143,8 +148,14 @@ export class GenerationsService {
       // Check if augmentation is enabled
       if (request.promptEnhancement?.enabled) {
         // Augmentation flow: Queue to prompt-augmentation:stream
-        if (!request.documentId || request.startChar === undefined || request.endChar === undefined) {
-          throw new Error('Document ID, startChar, and endChar are required for prompt augmentation');
+        if (
+          !request.documentId ||
+          request.startChar === undefined ||
+          request.endChar === undefined
+        ) {
+          throw new Error(
+            'Document ID, startChar, and endChar are required for prompt augmentation'
+          );
         }
 
         await redisStreams.add('prompt-augmentation:stream', {
@@ -195,7 +206,10 @@ export class GenerationsService {
         await redis.expire(rateLimitKey, 172800); // 48h TTL for cleanup
       }
     } catch (error) {
-      logger.error({ error, mediaId: newMedia.id }, 'Failed to queue generation, marking as failed');
+      logger.error(
+        { error, mediaId: newMedia.id },
+        'Failed to queue generation, marking as failed'
+      );
       await db
         .update(media)
         .set({ status: 'failed', error: 'Failed to queue job' })
@@ -203,7 +217,10 @@ export class GenerationsService {
       throw error;
     }
 
-    logger.info({ userId, mediaId: newMedia.id, totalElapsed: Date.now() - startTime }, '[TIMING] generationsService.create COMPLETE');
+    logger.info(
+      { userId, mediaId: newMedia.id, totalElapsed: Date.now() - startTime },
+      '[TIMING] generationsService.create COMPLETE'
+    );
     return newMedia;
   }
 
@@ -298,13 +315,19 @@ export class GenerationsService {
             logger.info({ mediaId: id, runpodJobId }, 'Job cancelled on RunPod');
           } catch (cancelError) {
             // Cancel failed - maybe just completed
-            logger.warn({ error: cancelError, mediaId: id }, 'RunPod cancel failed, checking status again');
+            logger.warn(
+              { error: cancelError, mediaId: id },
+              'RunPod cancel failed, checking status again'
+            );
             const newStatus = await runpodClient.getJobStatus(runpodJobId);
             if (newStatus.status === 'COMPLETED') {
               throw new Error('Job completed before cancellation');
             }
             // Cancel failed for other reason, but we'll mark as cancelled in DB anyway
-            logger.error({ error: cancelError, mediaId: id }, 'RunPod cancel failed, marking as cancelled in DB');
+            logger.error(
+              { error: cancelError, mediaId: id },
+              'RunPod cancel failed, marking as cancelled in DB'
+            );
           }
         }
       } catch (error) {
@@ -324,7 +347,7 @@ export class GenerationsService {
         cancelledAt: new Date(),
         status: 'failed',
         error: 'Cancelled by user',
-        updatedAt: new Date()
+        updatedAt: new Date(),
       })
       .where(eq(media.id, id));
 

@@ -23,7 +23,7 @@ export function buildEmbeddingText(
   let extractionText = '';
   if (extractionMentions && extractionMentions.length > 0) {
     extractionText = extractionMentions
-      .map(m => m.originalText)
+      .map((m) => m.originalText)
       .join(' ')
       .trim();
   }

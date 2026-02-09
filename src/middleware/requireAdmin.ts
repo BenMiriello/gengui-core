@@ -1,7 +1,7 @@
-import { Request, Response, NextFunction } from 'express';
-import { requireAuth } from './auth';
+import type { NextFunction, Request, Response } from 'express';
 import { ForbiddenError } from '../utils/errors';
 import { logger } from '../utils/logger';
+import { requireAuth } from './auth';
 
 /**
  * Middleware to require admin role for route access.

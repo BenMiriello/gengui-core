@@ -1,6 +1,6 @@
+import { logger } from '../utils/logger';
 import { redis } from './redis';
 import { sseService } from './sse';
-import { logger } from '../utils/logger';
 
 const HEARTBEAT_TIMEOUT_MS = 15000;
 const PRIMARY_LOCK_TTL_SECONDS = 30;
@@ -10,10 +10,7 @@ class PresenceService {
     const now = Date.now();
     const key = `doc:${documentId}:editors`;
 
-    await Promise.all([
-      this.cleanupStaleEditors(documentId),
-      redis.zadd(key, now, sessionId),
-    ]);
+    await Promise.all([this.cleanupStaleEditors(documentId), redis.zadd(key, now, sessionId)]);
 
     logger.debug({ documentId, sessionId }, 'Heartbeat recorded');
   }

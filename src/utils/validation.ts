@@ -29,20 +29,18 @@ export function validatePassword(password: string): PasswordValidationResult {
   }
 
   if (password.length < 16) {
-    const hasSpecialChar = /[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/.test(password);
+    const hasSpecialChar = /[!@#$%^&*()_+\-=[\]{}|;:,.<>?]/.test(password);
     if (!hasSpecialChar) {
       errors.push('Password under 16 characters must contain a special character');
     }
   }
 
-  const strength =
-    password.length >= 16 ? 'strong' :
-    password.length >= 12 ? 'medium' : 'weak';
+  const strength = password.length >= 16 ? 'strong' : password.length >= 12 ? 'medium' : 'weak';
 
   return {
     valid: errors.length === 0,
     errors,
-    strength
+    strength,
   };
 }
 

@@ -1,27 +1,20 @@
+import { and, eq } from 'drizzle-orm';
 import { db } from '../config/database';
-import { tags, mediaTags, media } from '../models/schema';
-import { eq, and } from 'drizzle-orm';
+import { media, mediaTags, tags } from '../models/schema';
 import { notDeleted } from '../utils/db';
-import { NotFoundError, ConflictError } from '../utils/errors';
+import { ConflictError, NotFoundError } from '../utils/errors';
 import { logger } from '../utils/logger';
 
 export class TagService {
   async create(userId: string, name: string): Promise<{ id: string; name: string }> {
-    const [tag] = await db
-      .insert(tags)
-      .values({ userId, name })
-      .returning();
+    const [tag] = await db.insert(tags).values({ userId, name }).returning();
 
     logger.info({ tagId: tag.id, name }, 'Tag created');
     return { id: tag.id, name: tag.name };
   }
 
   async list(userId: string) {
-    const userTags = await db
-      .select()
-      .from(tags)
-      .where(eq(tags.userId, userId))
-      .orderBy(tags.name);
+    const userTags = await db.select().from(tags).where(eq(tags.userId, userId)).orderBy(tags.name);
 
     return userTags;
   }
@@ -57,9 +50,7 @@ export class TagService {
       throw new ConflictError('Tag already added to media');
     }
 
-    await db
-      .insert(mediaTags)
-      .values({ mediaId, tagId });
+    await db.insert(mediaTags).values({ mediaId, tagId });
 
     logger.info({ mediaId, tagId }, 'Tag added to media');
     return { mediaId, tagId };

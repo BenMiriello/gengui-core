@@ -1,12 +1,12 @@
-import { db } from '../config/database';
-import { media, documentMedia, nodeMedia } from '../models/schema';
 import { eq } from 'drizzle-orm';
-import { logger } from '../utils/logger';
-import { sseService } from './sse';
-import { StreamMessage, redisStreams as sharedRedisStreams } from './redis-streams';
-import { thumbnailProcessor } from './thumbnailProcessor';
+import { db } from '../config/database';
 import { BlockingConsumer } from '../lib/blocking-consumer';
+import { documentMedia, media, nodeMedia } from '../models/schema';
+import { logger } from '../utils/logger';
 import { graphService } from './graph/graph.service';
+import { type StreamMessage, redisStreams as sharedRedisStreams } from './redis-streams';
+import { sseService } from './sse';
+import { thumbnailProcessor } from './thumbnailProcessor';
 
 class JobStatusConsumer extends BlockingConsumer {
   constructor() {
@@ -24,22 +24,36 @@ class JobStatusConsumer extends BlockingConsumer {
     while (this.isRunning) {
       try {
         // Read from streams sequentially with short block times for faster shutdown
-        const statusResult = await this.streams.consume('job:status:stream', 'core-status-processors', consumerName, {
-          block: 1000,
-          count: 1,
-        });
+        const statusResult = await this.streams.consume(
+          'job:status:stream',
+          'core-status-processors',
+          consumerName,
+          {
+            block: 1000,
+            count: 1,
+          }
+        );
 
         if (!this.isRunning) break;
 
-        const thumbnailResult = await this.streams.consume('thumbnail:stream', 'thumbnail-processors', consumerName, {
-          block: 1000,
-          count: 1,
-        });
+        const thumbnailResult = await this.streams.consume(
+          'thumbnail:stream',
+          'thumbnail-processors',
+          consumerName,
+          {
+            block: 1000,
+            count: 1,
+          }
+        );
 
         // Process status updates
         if (statusResult) {
           try {
-            await this.handleStatusUpdate('job:status:stream', 'core-status-processors', statusResult);
+            await this.handleStatusUpdate(
+              'job:status:stream',
+              'core-status-processors',
+              statusResult
+            );
           } catch (error) {
             logger.error({ error, messageId: statusResult.id }, 'Error processing status update');
             // Still ACK to avoid reprocessing bad messages
@@ -67,16 +81,12 @@ class JobStatusConsumer extends BlockingConsumer {
         }
 
         logger.error({ error }, 'Error in job status consumer loop');
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise((resolve) => setTimeout(resolve, 1000));
       }
     }
   }
 
-  private async handleStatusUpdate(
-    streamName: string,
-    groupName: string,
-    message: StreamMessage
-  ) {
+  private async handleStatusUpdate(streamName: string, groupName: string, message: StreamMessage) {
     const { status, mediaId, s3Key, error } = message.data;
 
     if (!mediaId) {
@@ -162,11 +172,7 @@ class JobStatusConsumer extends BlockingConsumer {
     await this.streams.ack(streamName, groupName, message.id);
   }
 
-  private async handleThumbnail(
-    streamName: string,
-    groupName: string,
-    message: StreamMessage
-  ) {
+  private async handleThumbnail(streamName: string, groupName: string, message: StreamMessage) {
     const { mediaId } = message.data;
 
     if (!mediaId) {
@@ -254,7 +260,10 @@ class JobStatusConsumer extends BlockingConsumer {
       // Set this media as primary in FalkorDB
       await graphService.updateStoryNodePrimaryMedia(nodeMed.nodeId, mediaId);
 
-      logger.info({ nodeId: nodeMed.nodeId, mediaId }, 'Auto-set first completed character sheet as primary');
+      logger.info(
+        { nodeId: nodeMed.nodeId, mediaId },
+        'Auto-set first completed character sheet as primary'
+      );
     } catch (error) {
       logger.error({ error, mediaId }, 'Failed to auto-set primary for character sheet');
     }

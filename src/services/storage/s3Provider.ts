@@ -1,16 +1,23 @@
-import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
-import { StorageProvider } from './interface';
-import { s3 } from '../s3';
-import { logger } from '../../utils/logger';
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from '@aws-sdk/client-s3';
 import { PRESIGNED_S3_URL_EXPIRATION } from '../../config/constants';
+import { logger } from '../../utils/logger';
+import { s3 } from '../s3';
+import type { StorageProvider } from './interface';
 
 export class S3StorageProvider implements StorageProvider {
   private client: S3Client;
   private bucket: string;
 
   constructor() {
-    const accessKeyId = process.env.AWS_ACCESS_KEY_ID || process.env.MINIO_ACCESS_KEY || 'minioadmin';
-    const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY || process.env.MINIO_SECRET_KEY || 'minioadmin';
+    const accessKeyId =
+      process.env.AWS_ACCESS_KEY_ID || process.env.MINIO_ACCESS_KEY || 'minioadmin';
+    const secretAccessKey =
+      process.env.AWS_SECRET_ACCESS_KEY || process.env.MINIO_SECRET_KEY || 'minioadmin';
 
     if (!process.env.AWS_ACCESS_KEY_ID && !process.env.MINIO_ACCESS_KEY) {
       logger.warn('S3 credentials not properly configured - using fallback minioadmin credentials');
@@ -36,12 +43,7 @@ export class S3StorageProvider implements StorageProvider {
     logger.debug({ bucket: this.bucket }, 'S3 storage provider initialized');
   }
 
-  async upload(
-    userId: string,
-    mediaId: string,
-    buffer: Buffer,
-    mimeType: string
-  ): Promise<string> {
+  async upload(userId: string, mediaId: string, buffer: Buffer, mimeType: string): Promise<string> {
     const ext = this.getExtensionFromMimeType(mimeType);
     const key = `users/${userId}/media/${mediaId}${ext}`;
 
@@ -68,7 +70,10 @@ export class S3StorageProvider implements StorageProvider {
     logger.info({ key }, 'Deleted from S3');
   }
 
-  async getSignedUrl(key: string, expiresIn: number = PRESIGNED_S3_URL_EXPIRATION): Promise<string> {
+  async getSignedUrl(
+    key: string,
+    expiresIn: number = PRESIGNED_S3_URL_EXPIRATION
+  ): Promise<string> {
     return await s3.generateDownloadUrl(key, expiresIn);
   }
 

@@ -1,5 +1,5 @@
-import { graphService } from './graph.service';
 import { logger } from '../../utils/logger';
+import { graphService } from './graph.service';
 import type { CausalOrderResult, ThreadDetectionResult } from './graph.types';
 import { causalEdgePattern } from './graph.types';
 
@@ -36,7 +36,7 @@ export async function computeCausalOrder(
     ),
   ]);
 
-  const edges: CausalEdge[] = edgeResult.data.map(row => ({
+  const edges: CausalEdge[] = edgeResult.data.map((row) => ({
     fromId: row[0] as string,
     toId: row[1] as string,
   }));
@@ -61,7 +61,7 @@ export async function computeCausalOrder(
 
   for (const edge of edges) {
     if (!allNodeIds.has(edge.fromId) || !allNodeIds.has(edge.toId)) continue;
-    adjList.get(edge.fromId)!.push(edge.toId);
+    adjList.get(edge.fromId)?.push(edge.toId);
     inDegree.set(edge.toId, (inDegree.get(edge.toId) ?? 0) + 1);
   }
 
@@ -99,7 +99,7 @@ export async function computeCausalOrder(
     // Insert into queue maintaining sort order
     for (const n of newZeroDegree) {
       const insertIdx = queue.findIndex(
-        q => (documentOrders.get(q) ?? Infinity) > (documentOrders.get(n) ?? Infinity)
+        (q) => (documentOrders.get(q) ?? Infinity) > (documentOrders.get(n) ?? Infinity)
       );
       if (insertIdx === -1) queue.push(n);
       else queue.splice(insertIdx, 0, n);
@@ -107,8 +107,8 @@ export async function computeCausalOrder(
   }
 
   if (results.length < allNodeIds.size) {
-    const sorted = new Set(results.map(r => r.nodeId));
-    const cycleNodes = [...allNodeIds].filter(id => !sorted.has(id));
+    const sorted = new Set(results.map((r) => r.nodeId));
+    const cycleNodes = [...allNodeIds].filter((id) => !sorted.has(id));
     logger.warn(
       { documentId, cycleNodeCount: cycleNodes.length },
       'Cycle detected in causal graph -- some nodes excluded from ordering'
@@ -145,7 +145,7 @@ export async function detectThreads(
     ),
   ]);
 
-  const allNodeIds = new Set<string>(nodeResult.data.map(row => row[0] as string));
+  const allNodeIds = new Set<string>(nodeResult.data.map((row) => row[0] as string));
 
   // Build undirected adjacency list
   const adj = new Map<string, Set<string>>();
@@ -155,8 +155,8 @@ export async function detectThreads(
     const from = row[0] as string;
     const to = row[1] as string;
     if (!allNodeIds.has(from) || !allNodeIds.has(to)) continue;
-    adj.get(from)!.add(to);
-    adj.get(to)!.add(from);
+    adj.get(from)?.add(to);
+    adj.get(to)?.add(from);
   }
 
   // BFS to find weakly connected components
@@ -186,10 +186,12 @@ export async function detectThreads(
   }
 
   // Separate multi-node threads from single-node isolates
-  const multiNodeThreads = components.filter(c => c.length > 1);
-  const singleNodeIds = components.filter(c => c.length === 1).flat();
+  const multiNodeThreads = components.filter((c) => c.length > 1);
+  const singleNodeIds = components.filter((c) => c.length === 1).flat();
 
-  const results: ThreadDetectionResult[] = multiNodeThreads.map(memberNodeIds => ({ memberNodeIds }));
+  const results: ThreadDetectionResult[] = multiNodeThreads.map((memberNodeIds) => ({
+    memberNodeIds,
+  }));
 
   // Merge all single-node isolates into one "Uncategorized" thread
   if (singleNodeIds.length > 0) {
@@ -205,10 +207,7 @@ export async function detectThreads(
 /**
  * Find all downstream nodes reachable from a given node via causal edges.
  */
-export async function getDownstreamNodes(
-  nodeId: string,
-  documentId: string
-): Promise<string[]> {
+export async function getDownstreamNodes(nodeId: string, documentId: string): Promise<string[]> {
   const result = await graphService.query(
     `
     MATCH (start:StoryNode)-[:CAUSES|ENABLES*1..50]->(downstream:StoryNode)
@@ -219,7 +218,7 @@ export async function getDownstreamNodes(
     { nodeId, documentId }
   );
 
-  return result.data.map(row => row[0] as string);
+  return result.data.map((row) => row[0] as string);
 }
 
 /**
@@ -227,10 +226,7 @@ export async function getDownstreamNodes(
  * Uses a simplified approach: nodes whose removal increases the number of
  * weakly connected components.
  */
-export async function findPivotalNodes(
-  documentId: string,
-  userId: string
-): Promise<string[]> {
+export async function findPivotalNodes(documentId: string, userId: string): Promise<string[]> {
   const [edgeResult, nodeResult] = await Promise.all([
     graphService.query(
       `
@@ -251,8 +247,8 @@ export async function findPivotalNodes(
     ),
   ]);
 
-  const allNodeIds = new Set<string>(nodeResult.data.map(row => row[0] as string));
-  const edges = edgeResult.data.map(row => ({
+  const allNodeIds = new Set<string>(nodeResult.data.map((row) => row[0] as string));
+  const edges = edgeResult.data.map((row) => ({
     from: row[0] as string,
     to: row[1] as string,
   }));
@@ -264,7 +260,7 @@ export async function findPivotalNodes(
   for (const removeId of allNodeIds) {
     const reducedNodes = new Set(allNodeIds);
     reducedNodes.delete(removeId);
-    const reducedEdges = edges.filter(e => e.from !== removeId && e.to !== removeId);
+    const reducedEdges = edges.filter((e) => e.from !== removeId && e.to !== removeId);
     const newCount = countComponents(reducedNodes, reducedEdges);
     if (newCount > baselineCount) pivotal.push(removeId);
   }
@@ -272,16 +268,13 @@ export async function findPivotalNodes(
   return pivotal;
 }
 
-function countComponents(
-  nodeIds: Set<string>,
-  edges: { from: string; to: string }[]
-): number {
+function countComponents(nodeIds: Set<string>, edges: { from: string; to: string }[]): number {
   const adj = new Map<string, Set<string>>();
   for (const id of nodeIds) adj.set(id, new Set());
   for (const { from, to } of edges) {
     if (!nodeIds.has(from) || !nodeIds.has(to)) continue;
-    adj.get(from)!.add(to);
-    adj.get(to)!.add(from);
+    adj.get(from)?.add(to);
+    adj.get(to)?.add(from);
   }
 
   const visited = new Set<string>();
@@ -307,10 +300,7 @@ function countComponents(
 /**
  * Find structural gaps: events with no causal antecedent (except the first event).
  */
-export async function findCausalGaps(
-  documentId: string,
-  userId: string
-): Promise<string[]> {
+export async function findCausalGaps(documentId: string, userId: string): Promise<string[]> {
   const result = await graphService.query(
     `
     MATCH (e:StoryNode)
@@ -326,5 +316,5 @@ export async function findCausalGaps(
     { documentId, userId, eventType: 'event', minOrder: 0 }
   );
 
-  return result.data.map(row => row[0] as string);
+  return result.data.map((row) => row[0] as string);
 }

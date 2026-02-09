@@ -1,5 +1,5 @@
-import { Request, Response, NextFunction } from 'express';
-import { createHash } from 'crypto';
+import { createHash } from 'node:crypto';
+import type { NextFunction, Request, Response } from 'express';
 import { authService } from '../services/auth';
 import { UnauthorizedError } from '../utils/errors';
 import { logger } from '../utils/logger';
@@ -42,8 +42,8 @@ export function requireEmailVerified(customMessage?: string) {
         error: {
           message: customMessage || 'Email verification required',
           code: 'EMAIL_NOT_VERIFIED',
-          details: { action: 'verify_email', email: user?.email }
-        }
+          details: { action: 'verify_email', email: user?.email },
+        },
       });
       return;
     }

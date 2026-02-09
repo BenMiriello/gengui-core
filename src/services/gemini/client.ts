@@ -2,18 +2,12 @@
  * Gemini API client for story node analysis.
  * Thin wrapper handling API calls, retries, and error handling.
  */
-import { logger } from '../../utils/logger';
-import type {
-  AnalysisResult,
-  ExistingNode,
-  NodeUpdatesResult,
-} from '../../types/storyNodes';
+
 import { analyzeTextPrompt, updateNodesPrompt } from '../../prompts/storyNodes';
-import {
-  analyzeResponseSchema,
-  updateNodesResponseSchema,
-} from './schemas/storyNodes';
+import type { AnalysisResult, ExistingNode, NodeUpdatesResult } from '../../types/storyNodes';
+import { logger } from '../../utils/logger';
 import { getGeminiClient } from './core';
+import { analyzeResponseSchema, updateNodesResponseSchema } from './schemas/storyNodes';
 
 const MAX_RETRIES = 3;
 const RETRY_DELAYS = [1000, 2000, 4000];
@@ -41,10 +35,13 @@ export async function analyzeText(content: string): Promise<AnalysisResult> {
 
     const parsed = parseResponse<AnalysisResult>(result, 'analyzeText');
 
-    logger.info({
-      nodesCount: parsed.nodes.length,
-      connectionsCount: parsed.connections.length,
-    }, 'Story elements extracted');
+    logger.info(
+      {
+        nodesCount: parsed.nodes.length,
+        connectionsCount: parsed.connections.length,
+      },
+      'Story elements extracted'
+    );
 
     return parsed;
   } catch (error) {
@@ -82,23 +79,29 @@ export async function updateNodes(
       const parsed = parseResponse<NodeUpdatesResult>(result, 'updateNodes');
       validateUpdateResponse(parsed, existingNodes);
 
-      logger.info({
-        addCount: parsed.add.length,
-        updateCount: parsed.update.length,
-        deleteCount: parsed.delete.length,
-      }, 'Node updates parsed successfully');
+      logger.info(
+        {
+          addCount: parsed.add.length,
+          updateCount: parsed.update.length,
+          deleteCount: parsed.delete.length,
+        },
+        'Node updates parsed successfully'
+      );
 
       return parsed;
     } catch (error: any) {
       lastError = error;
-      logger.warn({
-        attempt: attempt + 1,
-        maxRetries: MAX_RETRIES,
-        error: error?.message,
-      }, 'updateNodes attempt failed');
+      logger.warn(
+        {
+          attempt: attempt + 1,
+          maxRetries: MAX_RETRIES,
+          error: error?.message,
+        },
+        'updateNodes attempt failed'
+      );
 
       if (attempt < MAX_RETRIES - 1) {
-        await new Promise(resolve => setTimeout(resolve, RETRY_DELAYS[attempt]));
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS[attempt]));
       }
     }
   }
@@ -133,16 +136,17 @@ function parseResponse<T>(result: any, operation: string): T {
 /**
  * Validate that update response references valid node IDs.
  */
-function validateUpdateResponse(
-  parsed: NodeUpdatesResult,
-  existingNodes: ExistingNode[]
-): void {
-  if (!Array.isArray(parsed.add) || !Array.isArray(parsed.update) ||
-      !Array.isArray(parsed.delete) || !parsed.connectionUpdates) {
+function validateUpdateResponse(parsed: NodeUpdatesResult, existingNodes: ExistingNode[]): void {
+  if (
+    !Array.isArray(parsed.add) ||
+    !Array.isArray(parsed.update) ||
+    !Array.isArray(parsed.delete) ||
+    !parsed.connectionUpdates
+  ) {
     throw new Error('Malformed response structure');
   }
 
-  const existingIds = new Set(existingNodes.map(n => n.id));
+  const existingIds = new Set(existingNodes.map((n) => n.id));
 
   for (const update of parsed.update) {
     if (!update.id || !existingIds.has(update.id)) {

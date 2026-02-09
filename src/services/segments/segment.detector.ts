@@ -3,8 +3,8 @@
  * No side effects, no I/O - just text processing.
  */
 
-import { randomUUID } from 'crypto';
-import type { Segment, SegmentBoundary, SegmentationResult } from './segment.types';
+import { randomUUID } from 'node:crypto';
+import type { Segment, SegmentationResult, SegmentBoundary } from './segment.types';
 import { SEGMENTATION_CONFIG } from './segment.types';
 
 const SCENE_MARKER_PATTERN = /^(?:\*{3,}|-{3,}|#{1,3}\s+.+)$/m;
@@ -73,10 +73,7 @@ export function filterBoundariesBySize(
  * Insert size-based splits for segments that exceed max size.
  * Tries to split at word boundaries.
  */
-export function insertSizeSplits(
-  boundaries: SegmentBoundary[],
-  text: string
-): SegmentBoundary[] {
+export function insertSizeSplits(boundaries: SegmentBoundary[], text: string): SegmentBoundary[] {
   const { HARD_MAX_SIZE } = SEGMENTATION_CONFIG;
   const result: SegmentBoundary[] = [];
   let lastPosition = 0;
@@ -106,11 +103,7 @@ export function insertSizeSplits(
 /**
  * Split an oversized region at word boundaries.
  */
-function splitOversizedSegment(
-  text: string,
-  start: number,
-  end: number
-): SegmentBoundary[] {
+function splitOversizedSegment(text: string, start: number, end: number): SegmentBoundary[] {
   const { TARGET_MAX_SIZE } = SEGMENTATION_CONFIG;
   const splits: SegmentBoundary[] = [];
   let position = start;
@@ -133,12 +126,7 @@ function splitOversizedSegment(
 /**
  * Find nearest word boundary to target position.
  */
-function findWordBoundary(
-  text: string,
-  target: number,
-  min: number,
-  max: number
-): number {
+function findWordBoundary(text: string, target: number, min: number, max: number): number {
   const searchRange = 200;
   const searchStart = Math.max(min, target - searchRange);
   const searchEnd = Math.min(max, target + searchRange);
@@ -266,10 +254,7 @@ function calculateSegmentSimilarity(
 ): number {
   // 1. Position overlap
   const overlap = calculateRangeOverlap(newRange, existing);
-  const maxSize = Math.max(
-    newRange.end - newRange.start,
-    existing.end - existing.start
-  );
+  const maxSize = Math.max(newRange.end - newRange.start, existing.end - existing.start);
   const positionScore = overlap / maxSize;
 
   // 2. Size similarity
@@ -327,12 +312,22 @@ function getContentFingerprint(text: string): { head: string; tail: string } {
  * Calculate word overlap between two text snippets.
  */
 function calculateWordOverlap(text1: string, text2: string): number {
-  const words1 = new Set(text1.toLowerCase().split(/\s+/).filter(w => w.length > 2));
-  const words2 = new Set(text2.toLowerCase().split(/\s+/).filter(w => w.length > 2));
+  const words1 = new Set(
+    text1
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((w) => w.length > 2)
+  );
+  const words2 = new Set(
+    text2
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((w) => w.length > 2)
+  );
 
   if (words1.size === 0 || words2.size === 0) return 0;
 
-  const intersection = new Set([...words1].filter(w => words2.has(w)));
+  const intersection = new Set([...words1].filter((w) => words2.has(w)));
   return intersection.size / Math.max(words1.size, words2.size);
 }
 
@@ -340,21 +335,20 @@ function calculateWordOverlap(text1: string, text2: string): number {
  * Main segmentation function.
  * Returns segments with stable UUIDs, reusing existing IDs where positions match.
  */
-export function segmentText(
-  text: string,
-  existingSegments?: Segment[]
-): SegmentationResult {
+export function segmentText(text: string, existingSegments?: Segment[]): SegmentationResult {
   const { MIN_DOCUMENT_LENGTH } = SEGMENTATION_CONFIG;
 
   // Short documents get a single segment
   if (text.length < MIN_DOCUMENT_LENGTH) {
     const existingId = existingSegments?.[0]?.id;
     return {
-      segments: [{
-        id: existingId || randomUUID(),
-        start: 0,
-        end: text.length,
-      }],
+      segments: [
+        {
+          id: existingId || randomUUID(),
+          start: 0,
+          end: text.length,
+        },
+      ],
       boundaries: [],
     };
   }

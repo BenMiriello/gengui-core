@@ -1,11 +1,11 @@
+import crypto from 'node:crypto';
 import bcrypt from 'bcrypt';
-import crypto from 'crypto';
+import { and, eq, lt, or } from 'drizzle-orm';
 import { db } from '../config/database';
-import { users, sessions, emailVerificationTokens, passwordResetTokens } from '../models/schema';
-import { eq, or, and, lt } from 'drizzle-orm';
-import { validatePassword, validateUsername, validateEmail } from '../utils/validation';
+import { emailVerificationTokens, passwordResetTokens, sessions, users } from '../models/schema';
 import { ConflictError, UnauthorizedError } from '../utils/errors';
 import { logger } from '../utils/logger';
+import { validateEmail, validatePassword, validateUsername } from '../utils/validation';
 import { emailService } from './emailService';
 import { getImageProvider } from './image-generation/factory';
 
@@ -73,12 +73,7 @@ export class AuthService {
     const [user] = await db
       .select()
       .from(users)
-      .where(
-        or(
-          eq(users.email, emailOrUsername),
-          eq(users.username, emailOrUsername)
-        )
-      )
+      .where(or(eq(users.email, emailOrUsername), eq(users.username, emailOrUsername)))
       .limit(1);
 
     if (!user || !user.passwordHash) {
@@ -88,14 +83,18 @@ export class AuthService {
     const now = new Date();
 
     if (user.lockedUntil && user.lockedUntil > now) {
-      const minutesRemaining = Math.ceil((user.lockedUntil.getTime() - now.getTime()) / (1000 * 60));
-      throw new UnauthorizedError(`Account locked. Try again in ${minutesRemaining} minute${minutesRemaining !== 1 ? 's' : ''}.`);
+      const minutesRemaining = Math.ceil(
+        (user.lockedUntil.getTime() - now.getTime()) / (1000 * 60)
+      );
+      throw new UnauthorizedError(
+        `Account locked. Try again in ${minutesRemaining} minute${minutesRemaining !== 1 ? 's' : ''}.`
+      );
     }
 
     if (user.failedLoginAttempts === 5) {
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await new Promise((resolve) => setTimeout(resolve, 2000));
     } else if (user.failedLoginAttempts === 6) {
-      await new Promise(resolve => setTimeout(resolve, 5000));
+      await new Promise((resolve) => setTimeout(resolve, 5000));
     }
 
     const validPassword = await bcrypt.compare(password, user.passwordHash);
@@ -111,7 +110,10 @@ export class AuthService {
           .set({ failedLoginAttempts: newAttempts, lockedUntil })
           .where(eq(users.id, user.id));
 
-        logger.warn({ userId: user.id, attempts: newAttempts }, 'Account locked due to failed login attempts');
+        logger.warn(
+          { userId: user.id, attempts: newAttempts },
+          'Account locked due to failed login attempts'
+        );
         throw new UnauthorizedError('Too many failed attempts. Account locked for 15 minutes.');
       } else {
         await db
@@ -174,11 +176,7 @@ export class AuthService {
   }
 
   async validateSession(token: string) {
-    const [session] = await db
-      .select()
-      .from(sessions)
-      .where(eq(sessions.token, token))
-      .limit(1);
+    const [session] = await db.select().from(sessions).where(eq(sessions.token, token)).limit(1);
 
     if (!session) {
       return null;
@@ -189,11 +187,7 @@ export class AuthService {
       return null;
     }
 
-    const [user] = await db
-      .select()
-      .from(users)
-      .where(eq(users.id, session.userId))
-      .limit(1);
+    const [user] = await db.select().from(users).where(eq(users.id, session.userId)).limit(1);
 
     if (!user) {
       return null;
@@ -230,21 +224,13 @@ export class AuthService {
       throw new ConflictError(usernameValidation.error!);
     }
 
-    const existingUser = await db
-      .select()
-      .from(users)
-      .where(eq(users.username, username))
-      .limit(1);
+    const existingUser = await db.select().from(users).where(eq(users.username, username)).limit(1);
 
     if (existingUser.length > 0 && existingUser[0].id !== userId) {
       throw new ConflictError('Username already taken');
     }
 
-    const [user] = await db
-      .update(users)
-      .set({ username })
-      .where(eq(users.id, userId))
-      .returning();
+    const [user] = await db.update(users).set({ username }).where(eq(users.id, userId)).returning();
 
     logger.info({ userId, newUsername: username }, 'Username updated');
 
@@ -260,21 +246,13 @@ export class AuthService {
       throw new ConflictError('Invalid email format');
     }
 
-    const existingUser = await db
-      .select()
-      .from(users)
-      .where(eq(users.email, email))
-      .limit(1);
+    const existingUser = await db.select().from(users).where(eq(users.email, email)).limit(1);
 
     if (existingUser.length > 0 && existingUser[0].id !== userId) {
       throw new ConflictError('Email already in use');
     }
 
-    const [user] = await db
-      .update(users)
-      .set({ email })
-      .where(eq(users.id, userId))
-      .returning();
+    const [user] = await db.update(users).set({ email }).where(eq(users.id, userId)).returning();
 
     logger.info({ userId, newEmail: email }, 'Email updated');
 
@@ -286,11 +264,7 @@ export class AuthService {
   }
 
   async updatePassword(userId: string, currentPassword: string, newPassword: string) {
-    const [user] = await db
-      .select()
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1);
+    const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
 
     if (!user || !user.passwordHash) {
       throw new UnauthorizedError('User not found');
@@ -313,10 +287,7 @@ export class AuthService {
 
     const newPasswordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
 
-    await db
-      .update(users)
-      .set({ passwordHash: newPasswordHash })
-      .where(eq(users.id, userId));
+    await db.update(users).set({ passwordHash: newPasswordHash }).where(eq(users.id, userId));
 
     // Invalidate all sessions for security
     await this.deleteAllUserSessions(userId);
@@ -345,9 +316,7 @@ export class AuthService {
   async verifyEmail(token: string) {
     await db
       .delete(emailVerificationTokens)
-      .where(and(
-        lt(emailVerificationTokens.expiresAt, new Date())
-      ));
+      .where(and(lt(emailVerificationTokens.expiresAt, new Date())));
 
     const [tokenRecord] = await db
       .select()
@@ -398,11 +367,7 @@ export class AuthService {
   }
 
   async updateUsernameWithPassword(userId: string, username: string, password: string) {
-    const [user] = await db
-      .select()
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1);
+    const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
 
     if (!user || !user.passwordHash) {
       throw new UnauthorizedError('User not found');
@@ -418,11 +383,7 @@ export class AuthService {
       throw new ConflictError(usernameValidation.error!);
     }
 
-    const existingUser = await db
-      .select()
-      .from(users)
-      .where(eq(users.username, username))
-      .limit(1);
+    const existingUser = await db.select().from(users).where(eq(users.username, username)).limit(1);
 
     if (existingUser.length > 0 && existingUser[0].id !== userId) {
       throw new ConflictError('Username already taken');
@@ -446,11 +407,7 @@ export class AuthService {
   }
 
   async initiateEmailChange(userId: string, newEmail: string, password: string) {
-    const [user] = await db
-      .select()
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1);
+    const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
 
     if (!user || !user.passwordHash) {
       throw new UnauthorizedError('User not found');
@@ -465,20 +422,13 @@ export class AuthService {
       throw new ConflictError('Invalid email format');
     }
 
-    const existingUser = await db
-      .select()
-      .from(users)
-      .where(eq(users.email, newEmail))
-      .limit(1);
+    const existingUser = await db.select().from(users).where(eq(users.email, newEmail)).limit(1);
 
     if (existingUser.length > 0 && existingUser[0].id !== userId) {
       throw new ConflictError('Email already in use');
     }
 
-    await db
-      .update(users)
-      .set({ pendingEmail: newEmail })
-      .where(eq(users.id, userId));
+    await db.update(users).set({ pendingEmail: newEmail }).where(eq(users.id, userId));
 
     const token = await this.createEmailVerificationToken(userId, newEmail);
     await emailService.sendEmailChangeVerification(newEmail, token);
@@ -491,9 +441,7 @@ export class AuthService {
   async verifyEmailChange(token: string) {
     await db
       .delete(emailVerificationTokens)
-      .where(and(
-        lt(emailVerificationTokens.expiresAt, new Date())
-      ));
+      .where(and(lt(emailVerificationTokens.expiresAt, new Date())));
 
     const [tokenRecord] = await db
       .select()
@@ -522,7 +470,10 @@ export class AuthService {
     // Invalidate all sessions for security
     await this.deleteAllUserSessions(tokenRecord.userId);
 
-    logger.info({ userId: user.id, email: user.email }, 'Email changed, verified, and sessions invalidated');
+    logger.info(
+      { userId: user.id, email: user.email },
+      'Email changed, verified, and sessions invalidated'
+    );
 
     return {
       id: user.id,
@@ -603,17 +554,13 @@ export class AuthService {
       }
     }
 
-    const [user] = await db
-      .update(users)
-      .set(updates)
-      .where(eq(users.id, userId))
-      .returning({
-        defaultImageWidth: users.defaultImageWidth,
-        defaultImageHeight: users.defaultImageHeight,
-        defaultStylePreset: users.defaultStylePreset,
-        hiddenPresetIds: users.hiddenPresetIds,
-        nodeTypeStyleDefaults: users.nodeTypeStyleDefaults,
-      });
+    const [user] = await db.update(users).set(updates).where(eq(users.id, userId)).returning({
+      defaultImageWidth: users.defaultImageWidth,
+      defaultImageHeight: users.defaultImageHeight,
+      defaultStylePreset: users.defaultStylePreset,
+      hiddenPresetIds: users.hiddenPresetIds,
+      nodeTypeStyleDefaults: users.nodeTypeStyleDefaults,
+    });
 
     logger.info({ userId, updates }, 'User preferences updated');
 
@@ -625,20 +572,14 @@ export class AuthService {
   }
 
   async requestPasswordReset(email: string) {
-    const [user] = await db
-      .select()
-      .from(users)
-      .where(eq(users.email, email))
-      .limit(1);
+    const [user] = await db.select().from(users).where(eq(users.email, email)).limit(1);
 
     if (!user) {
       logger.warn({ email }, 'Password reset requested for non-existent email');
       return;
     }
 
-    await db
-      .delete(passwordResetTokens)
-      .where(eq(passwordResetTokens.userId, user.id));
+    await db.delete(passwordResetTokens).where(eq(passwordResetTokens.userId, user.id));
 
     const token = crypto.randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + PASSWORD_RESET_DURATION_MS);
@@ -677,10 +618,7 @@ export class AuthService {
 
     const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
 
-    await db
-      .update(users)
-      .set({ passwordHash })
-      .where(eq(users.id, resetToken.userId));
+    await db.update(users).set({ passwordHash }).where(eq(users.id, resetToken.userId));
 
     await db.delete(passwordResetTokens).where(eq(passwordResetTokens.userId, resetToken.userId));
 

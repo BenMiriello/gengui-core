@@ -1,12 +1,12 @@
+import { and, desc, eq, isNull } from 'drizzle-orm';
 import { db } from '../config/database';
 import { documents, users } from '../models/schema';
-import { eq, and, isNull, desc } from 'drizzle-orm';
-import { NotFoundError, ForbiddenError } from '../utils/errors';
+import { ForbiddenError, NotFoundError } from '../utils/errors';
 import { logger } from '../utils/logger';
-import { sseService } from './sse';
 import { getImageProvider } from './image-generation/factory';
-import { versioningService } from './versioning';
 import { segmentService } from './segments';
+import { sseService } from './sse';
+import { versioningService } from './versioning';
 
 export class DocumentsService {
   async list(userId: string) {
@@ -125,9 +125,7 @@ export class DocumentsService {
       const provider = await getImageProvider();
       if (!provider.validateDimensions(updates.defaultImageWidth, updates.defaultImageHeight)) {
         const supportedDimensions = provider.getSupportedDimensions();
-        const dimensionsStr = supportedDimensions
-          .map((d) => `${d.width}x${d.height}`)
-          .join(', ');
+        const dimensionsStr = supportedDimensions.map((d) => `${d.width}x${d.height}`).join(', ');
         throw new Error(
           `Dimensions ${updates.defaultImageWidth}x${updates.defaultImageHeight} not supported by ${provider.name} provider. Supported sizes: ${dimensionsStr}`
         );
@@ -143,15 +141,16 @@ export class DocumentsService {
         await versioningService.createVersion(
           documentId,
           current.yjsState ?? '',
-          current.content ?? '',
+          current.content ?? ''
         );
       }
     }
 
     // Recompute segments if content changed
-    const newSegments = updates.content !== undefined
-      ? segmentService.computeSegments(updates.content, existingSegments)
-      : undefined;
+    const newSegments =
+      updates.content !== undefined
+        ? segmentService.computeSegments(updates.content, existingSegments)
+        : undefined;
 
     const [updated] = await db
       .update(documents)
@@ -160,12 +159,24 @@ export class DocumentsService {
         ...(newSegments !== undefined && { segmentSequence: newSegments }),
         ...(updates.yjsState !== undefined && { yjsState: updates.yjsState }),
         ...(updates.title !== undefined && { title: updates.title }),
-        ...(updates.defaultStylePreset !== undefined && { defaultStylePreset: updates.defaultStylePreset }),
-        ...(updates.defaultStylePrompt !== undefined && { defaultStylePrompt: updates.defaultStylePrompt }),
-        ...(updates.defaultImageWidth !== undefined && { defaultImageWidth: updates.defaultImageWidth }),
-        ...(updates.defaultImageHeight !== undefined && { defaultImageHeight: updates.defaultImageHeight }),
-        ...(updates.narrativeModeEnabled !== undefined && { narrativeModeEnabled: updates.narrativeModeEnabled }),
-        ...(updates.mediaModeEnabled !== undefined && { mediaModeEnabled: updates.mediaModeEnabled }),
+        ...(updates.defaultStylePreset !== undefined && {
+          defaultStylePreset: updates.defaultStylePreset,
+        }),
+        ...(updates.defaultStylePrompt !== undefined && {
+          defaultStylePrompt: updates.defaultStylePrompt,
+        }),
+        ...(updates.defaultImageWidth !== undefined && {
+          defaultImageWidth: updates.defaultImageWidth,
+        }),
+        ...(updates.defaultImageHeight !== undefined && {
+          defaultImageHeight: updates.defaultImageHeight,
+        }),
+        ...(updates.narrativeModeEnabled !== undefined && {
+          narrativeModeEnabled: updates.narrativeModeEnabled,
+        }),
+        ...(updates.mediaModeEnabled !== undefined && {
+          mediaModeEnabled: updates.mediaModeEnabled,
+        }),
         updatedAt: new Date(),
       })
       .where(eq(documents.id, documentId))
@@ -184,10 +195,7 @@ export class DocumentsService {
   async delete(documentId: string, userId: string) {
     await this.get(documentId, userId);
 
-    await db
-      .update(documents)
-      .set({ deletedAt: new Date() })
-      .where(eq(documents.id, documentId));
+    await db.update(documents).set({ deletedAt: new Date() }).where(eq(documents.id, documentId));
 
     logger.info({ userId, documentId }, 'Document deleted');
   }

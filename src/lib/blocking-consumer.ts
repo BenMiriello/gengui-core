@@ -1,6 +1,6 @@
 import Redis from 'ioredis';
-import { logger } from '../utils/logger';
 import { ConsumerStreams } from '../services/redis-streams';
+import { logger } from '../utils/logger';
 
 /**
  * Base class for Redis Stream consumers with blocking operations.
@@ -52,8 +52,8 @@ export abstract class BlockingConsumer {
       enableReadyCheck: true,
       lazyConnect: false,
       enableOfflineQueue: true,
-      keepAlive: 0,              // Disable (prevents issues)
-      family: 4,                 // Force IPv4
+      keepAlive: 0, // Disable (prevents issues)
+      family: 4, // Force IPv4
       enableAutoPipelining: false, // Disable (prevents queue buildup)
     });
 
@@ -92,7 +92,10 @@ export abstract class BlockingConsumer {
     if (this.loopPromise) {
       const loopTimeout = new Promise<void>((resolve) => {
         setTimeout(() => {
-          logger.warn({ service: this.serviceName }, 'Consumer loop did not exit in time, continuing shutdown');
+          logger.warn(
+            { service: this.serviceName },
+            'Consumer loop did not exit in time, continuing shutdown'
+          );
           resolve();
         }, 3000);
       });

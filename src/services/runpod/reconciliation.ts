@@ -1,21 +1,21 @@
+import { and, eq, isNull, lt, or } from 'drizzle-orm';
 import { db } from '../../config/database';
-import { media, documentMedia } from '../../models/schema';
-import { eq, and, or, lt, isNull } from 'drizzle-orm';
+import { documentMedia, media } from '../../models/schema';
+import { logger } from '../../utils/logger';
 import { redis } from '../redis';
 import { redisStreams } from '../redis-streams';
-import { runpodClient } from './client';
-import type { RunPodJobStatusResponse } from './types';
-import { logger } from '../../utils/logger';
 import { sseService } from '../sse';
+import { runpodClient } from './client';
 import { RUNPOD_CONSTANTS } from './constants';
+import type { RunPodJobStatusResponse } from './types';
 
 const {
   EXECUTION_TIMEOUT_MS,
   REDIS_JOB_TTL_SECONDS,
   RECONCILIATION_INTERVAL_MS,
   STALENESS_THRESHOLD_MS,
-  MAX_ATTEMPTS
-} = RUNPOD_CONSTANTS
+  MAX_ATTEMPTS,
+} = RUNPOD_CONSTANTS;
 
 /**
  * Job Reconciliation Service
@@ -56,7 +56,7 @@ class JobReconciliationService {
     logger.info(
       {
         intervalMs: RECONCILIATION_INTERVAL_MS,
-        stalenessThresholdMs: STALENESS_THRESHOLD_MS
+        stalenessThresholdMs: STALENESS_THRESHOLD_MS,
       },
       'Starting job reconciliation service...'
     );
@@ -82,7 +82,7 @@ class JobReconciliationService {
   }
 
   private interruptibleSleep(ms: number): Promise<void> {
-    return new Promise(resolve => {
+    return new Promise((resolve) => {
       const timeout = setTimeout(() => {
         this.sleepResolve = null;
         resolve();
@@ -204,7 +204,7 @@ class JobReconciliationService {
             .update(media)
             .set({
               status: 'processing',
-              updatedAt: new Date()
+              updatedAt: new Date(),
             })
             .where(eq(media.id, mediaId));
           await this.broadcastMediaUpdate(mediaId);
@@ -212,10 +212,7 @@ class JobReconciliationService {
         break;
 
       default:
-        logger.warn(
-          { mediaId, runpodJobId, status: runpodStatus.status },
-          'Unknown RunPod status'
-        );
+        logger.warn({ mediaId, runpodJobId, status: runpodStatus.status }, 'Unknown RunPod status');
     }
   }
 
@@ -252,7 +249,7 @@ class JobReconciliationService {
       .set({
         status: 'completed',
         s3Key,
-        updatedAt: new Date()
+        updatedAt: new Date(),
       })
       .where(eq(media.id, mediaId));
 
@@ -261,7 +258,7 @@ class JobReconciliationService {
     await redisStreams.add('generation:completed:stream', {
       mediaId,
       s3Key,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
 
     await this.broadcastMediaUpdate(mediaId);
@@ -314,7 +311,7 @@ class JobReconciliationService {
         status: 'failed',
         error: 'Cancelled',
         cancelledAt: job.cancelledAt || new Date(), // Set if not already set
-        updatedAt: new Date()
+        updatedAt: new Date(),
       })
       .where(eq(media.id, mediaId));
 
@@ -337,7 +334,7 @@ class JobReconciliationService {
         status: 'queued',
         attempts: newAttempts,
         error: `Retry ${newAttempts}/${MAX_ATTEMPTS}: ${reason}`,
-        updatedAt: new Date()
+        updatedAt: new Date(),
       })
       .where(eq(media.id, mediaId));
 
@@ -359,7 +356,11 @@ class JobReconciliationService {
 
       // Update Redis mapping with new RunPod job ID
       await redis.set(`runpod:job:${mediaId}`, newRunpodJobId, REDIS_JOB_TTL_SECONDS);
-      await redis.set(`runpod:job:${mediaId}:submitted`, Date.now().toString(), REDIS_JOB_TTL_SECONDS);
+      await redis.set(
+        `runpod:job:${mediaId}:submitted`,
+        Date.now().toString(),
+        REDIS_JOB_TTL_SECONDS
+      );
 
       logger.info(
         { mediaId, newRunpodJobId, attempts: newAttempts },
@@ -377,17 +378,14 @@ class JobReconciliationService {
   private async markFailed(job: typeof media.$inferSelect, reason: string) {
     const mediaId = job.id;
 
-    logger.error(
-      { mediaId, attempts: job.attempts, reason },
-      'Marking job as permanently failed'
-    );
+    logger.error({ mediaId, attempts: job.attempts, reason }, 'Marking job as permanently failed');
 
     await db
       .update(media)
       .set({
         status: 'failed',
         error: reason,
-        updatedAt: new Date()
+        updatedAt: new Date(),
       })
       .where(eq(media.id, mediaId));
 
@@ -395,7 +393,7 @@ class JobReconciliationService {
     await redisStreams.add('generation:failed:stream', {
       mediaId,
       error: reason,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
 
     await this.broadcastMediaUpdate(mediaId);

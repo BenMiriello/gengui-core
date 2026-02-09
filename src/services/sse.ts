@@ -1,4 +1,4 @@
-import { Response } from 'express';
+import type { Response } from 'express';
 import { logger } from '../utils/logger';
 
 interface SSEClient {
@@ -18,7 +18,7 @@ class SSEService {
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
+      Connection: 'keep-alive',
       'X-Accel-Buffering': 'no',
     });
 
@@ -55,9 +55,7 @@ class SSEService {
   broadcast(channel: string, event: string, data: any) {
     const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 
-    const channelClients = Array.from(this.clients.values()).filter(
-      c => c.channel === channel
-    );
+    const channelClients = Array.from(this.clients.values()).filter((c) => c.channel === channel);
 
     if (channelClients.length === 0) return;
 
@@ -120,7 +118,9 @@ class SSEService {
 
     for (const [, client] of this.clients) {
       try {
-        client.res.write(`event: shutdown\ndata: ${JSON.stringify({ reason: 'server_shutdown' })}\n\n`);
+        client.res.write(
+          `event: shutdown\ndata: ${JSON.stringify({ reason: 'server_shutdown' })}\n\n`
+        );
         client.res.end();
       } catch {
         // Connection may already be closed

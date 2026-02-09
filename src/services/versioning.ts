@@ -1,6 +1,6 @@
+import { and, desc, eq, sql } from 'drizzle-orm';
 import { db } from '../config/database';
 import { documents, documentVersions } from '../models/schema';
-import { eq, desc, and, sql } from 'drizzle-orm';
 import { logger } from '../utils/logger';
 
 export class VersioningService {

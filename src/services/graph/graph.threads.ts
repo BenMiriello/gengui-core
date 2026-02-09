@@ -13,7 +13,7 @@ export const graphThreads = {
       { documentId, userId }
     );
 
-    return result.data.map(row => ({
+    return result.data.map((row) => ({
       id: row[0] as string,
       documentId: row[1] as string,
       userId: row[2] as string,
@@ -80,7 +80,7 @@ export const graphThreads = {
       { threadId }
     );
 
-    return result.data.map(row => ({
+    return result.data.map((row) => ({
       eventId: row[0] as string,
       threadId: row[1] as string,
       order: row[2] as number,
@@ -98,7 +98,7 @@ export const graphThreads = {
       { eventId }
     );
 
-    return result.data.map(row => ({
+    return result.data.map((row) => ({
       threadId: row[0] as string,
       order: row[1] as number,
     }));

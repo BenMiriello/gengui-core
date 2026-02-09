@@ -1,9 +1,9 @@
+import { and, count, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
 import { db } from '../config/database';
-import { users, media } from '../models/schema';
-import { eq, or, ilike, sql, desc, count, inArray, and } from 'drizzle-orm';
-import { redis } from './redis';
-import { NotFoundError, BadRequestError } from '../utils/errors';
+import { media, users } from '../models/schema';
+import { BadRequestError, NotFoundError } from '../utils/errors';
 import { logger } from '../utils/logger';
+import { redis } from './redis';
 
 interface UserListFilters {
   search?: string;
@@ -58,14 +58,7 @@ export class AdminService {
    * List all users with optional filtering and pagination
    */
   async listUsers(filters: UserListFilters = {}) {
-    const {
-      search,
-      role,
-      emailVerified,
-      limit = 50,
-      offset = 0,
-      includeStats = false,
-    } = filters;
+    const { search, role, emailVerified, limit = 50, offset = 0, includeStats = false } = filters;
 
     // Validate limit
     if (limit < 1 || limit > 100) {
@@ -76,12 +69,7 @@ export class AdminService {
     const conditions = [];
 
     if (search) {
-      conditions.push(
-        or(
-          ilike(users.email, `%${search}%`),
-          ilike(users.username, `%${search}%`)
-        )!
-      );
+      conditions.push(or(ilike(users.email, `%${search}%`), ilike(users.username, `%${search}%`))!);
     }
 
     if (role) {
@@ -134,12 +122,7 @@ export class AdminService {
           failedCount: sql<number>`COUNT(CASE WHEN ${media.status} = 'failed' THEN 1 END)`,
         })
         .from(media)
-        .where(
-          and(
-            inArray(media.userId, userIds),
-            eq(media.sourceType, 'generation')
-          )
-        )
+        .where(and(inArray(media.userId, userIds), eq(media.sourceType, 'generation')))
         .groupBy(media.userId);
 
       // Build stats map
@@ -191,11 +174,7 @@ export class AdminService {
    * Get detailed information about a specific user
    */
   async getUserDetails(userId: string) {
-    const [user] = await db
-      .select()
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1);
+    const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
 
     if (!user) {
       throw new NotFoundError('User not found');
@@ -241,9 +220,7 @@ export class AdminService {
     const [{ value: totalGenerations }] = await db
       .select({ value: count() })
       .from(media)
-      .where(
-        sql`${media.userId} = ${userId} AND ${media.sourceType} = 'generation'`
-      );
+      .where(sql`${media.userId} = ${userId} AND ${media.sourceType} = 'generation'`);
 
     // Get account age
     const [user] = await db
@@ -339,7 +316,7 @@ export class AdminService {
         const oldestJobIds = await redis.lrange('generation:queue', -1, -1);
         if (oldestJobIds.length > 0) {
           const jobData = await redis.getJob(oldestJobIds[0]);
-          if (jobData && jobData.queuedAt) {
+          if (jobData?.queuedAt) {
             const queuedTime = parseInt(jobData.queuedAt, 10);
             oldestJobAge = Math.floor((Date.now() - queuedTime) / 1000);
           }

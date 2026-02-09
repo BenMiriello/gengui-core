@@ -1,4 +1,4 @@
-import { Request, Response, NextFunction } from 'express';
+import type { NextFunction, Request, Response } from 'express';
 import { ZodError } from 'zod';
 import { AppError } from '../utils/errors';
 import { logger } from '../utils/logger';
@@ -11,12 +11,7 @@ export interface ErrorResponse {
   };
 }
 
-export function errorHandler(
-  err: Error,
-  req: Request,
-  res: Response,
-  _next: NextFunction
-) {
+export function errorHandler(err: Error, req: Request, res: Response, _next: NextFunction) {
   if (err instanceof ZodError) {
     const response: ErrorResponse = {
       error: {

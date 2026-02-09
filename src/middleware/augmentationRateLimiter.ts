@@ -1,13 +1,9 @@
-import { Request, Response, NextFunction } from 'express';
-import { redis } from '../services/redis';
+import type { NextFunction, Request, Response } from 'express';
 import { RATE_LIMITS } from '../config/constants';
+import { redis } from '../services/redis';
 import { logger } from '../utils/logger';
 
-export async function augmentationRateLimiter(
-  req: Request,
-  res: Response,
-  next: NextFunction
-) {
+export async function augmentationRateLimiter(req: Request, res: Response, next: NextFunction) {
   try {
     // Only check augmentation limit if augmentation is enabled
     const promptEnhancement = req.body.promptEnhancement;
@@ -16,19 +12,16 @@ export async function augmentationRateLimiter(
       return;
     }
 
-    const userId = req.user!.id;
-    const userRole = req.user!.role;
+    const userId = req.user?.id;
+    const userRole = req.user?.role;
 
     // Determine limit based on role
-    const dailyLimit = userRole === 'admin' ? RATE_LIMITS.augmentation.admin : RATE_LIMITS.augmentation.user;
+    const dailyLimit =
+      userRole === 'admin' ? RATE_LIMITS.augmentation.admin : RATE_LIMITS.augmentation.user;
 
     // Calculate midnight UTC today
     const now = new Date();
-    const todayUTC = new Date(Date.UTC(
-      now.getUTCFullYear(),
-      now.getUTCMonth(),
-      now.getUTCDate()
-    ));
+    const todayUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
     const midnightTimestamp = todayUTC.getTime();
 
     // Redis key for today's augmentations
@@ -42,13 +35,16 @@ export async function augmentationRateLimiter(
     const currentCount = await redis.zcard(key);
 
     if (currentCount >= dailyLimit) {
-      logger.warn({
-        userId,
-        userRole,
-        currentCount,
-        dailyLimit,
-        date: dateStr
-      }, 'Augmentation rate limit exceeded');
+      logger.warn(
+        {
+          userId,
+          userRole,
+          currentCount,
+          dailyLimit,
+          date: dateStr,
+        },
+        'Augmentation rate limit exceeded'
+      );
 
       res.status(429).json({
         error: {
@@ -56,19 +52,22 @@ export async function augmentationRateLimiter(
           code: 'AUGMENTATION_RATE_LIMIT_EXCEEDED',
           limit: dailyLimit,
           used: currentCount,
-          resetAt: new Date(midnightTimestamp + 86400000).toISOString() // next midnight
-        }
+          resetAt: new Date(midnightTimestamp + 86400000).toISOString(), // next midnight
+        },
       });
       return;
     }
 
-    logger.debug({
-      userId,
-      userRole,
-      currentCount,
-      dailyLimit,
-      remaining: dailyLimit - currentCount
-    }, 'Augmentation rate limit check passed');
+    logger.debug(
+      {
+        userId,
+        userRole,
+        currentCount,
+        dailyLimit,
+        remaining: dailyLimit - currentCount,
+      },
+      'Augmentation rate limit check passed'
+    );
 
     next();
   } catch (error) {

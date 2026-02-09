@@ -1,4 +1,4 @@
-import type { StoryNodeType, StoryEdgeType } from '../../types/storyNodes';
+import type { StoryEdgeType, StoryNodeType } from '../../types/storyNodes';
 
 export interface NodeProperties {
   [key: string]: string | number | boolean | null;
@@ -68,7 +68,10 @@ export interface ThreadDetectionResult {
 }
 
 export const CAUSAL_EDGE_TYPES: StoryEdgeType[] = [
-  'CAUSES', 'ENABLES', 'PREVENTS', 'HAPPENS_BEFORE',
+  'CAUSES',
+  'ENABLES',
+  'PREVENTS',
+  'HAPPENS_BEFORE',
 ];
 
 /**

@@ -1,18 +1,18 @@
+import cookieParser from 'cookie-parser';
+import cors from 'cors';
 import express from 'express';
 import helmet from 'helmet';
-import cors from 'cors';
-import cookieParser from 'cookie-parser';
 import { env } from './config/env';
-import { logger } from './utils/logger';
 import { errorHandler } from './middleware/errorHandler';
-import authRoutes from './routes/auth';
-import mediaRoutes from './routes/media';
-import tagRoutes from './routes/tags';
-import generationsRoutes from './routes/generations';
-import documentsRoutes from './routes/documents';
-import customStylePromptsRoutes from './routes/customStylePrompts';
 import adminRoutes from './routes/admin';
+import authRoutes from './routes/auth';
+import customStylePromptsRoutes from './routes/customStylePrompts';
+import documentsRoutes from './routes/documents';
+import generationsRoutes from './routes/generations';
+import mediaRoutes from './routes/media';
 import nodesRoutes from './routes/nodes';
+import tagRoutes from './routes/tags';
+import { logger } from './utils/logger';
 
 export function createApp() {
   const app = express();
@@ -33,7 +33,8 @@ export function createApp() {
 
   app.use(
     cors({
-      origin: env.NODE_ENV === 'development' ? ['http://localhost:5173', 'http://localhost:3001'] : [],
+      origin:
+        env.NODE_ENV === 'development' ? ['http://localhost:5173', 'http://localhost:3001'] : [],
       credentials: true,
     })
   );

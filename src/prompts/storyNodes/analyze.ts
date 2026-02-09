@@ -8,9 +8,12 @@ export const analyzeTextPrompt: PromptDefinition<AnalyzeInput> = {
   id: 'story-nodes-analyze',
   version: 2,
   model: 'gemini-2.5-flash',
-  description: 'Extract characters, locations, events, concepts, and rich connections from narrative text',
+  description:
+    'Extract characters, locations, events, concepts, and rich connections from narrative text',
 
-  build: ({ content }) => `Analyze the following narrative text and extract story elements with rich relationships.
+  build: ({
+    content,
+  }) => `Analyze the following narrative text and extract story elements with rich relationships.
 
 CRITICAL RULES - FOLLOW EXACTLY:
 

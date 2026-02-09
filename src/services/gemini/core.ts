@@ -54,4 +54,4 @@ export const GeminiType = {
   OBJECT: 'object',
 } as const;
 
-export type GeminiTypeValue = typeof GeminiType[keyof typeof GeminiType];
+export type GeminiTypeValue = (typeof GeminiType)[keyof typeof GeminiType];

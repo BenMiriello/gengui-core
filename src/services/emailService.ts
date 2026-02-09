@@ -1,5 +1,5 @@
-import nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
+import nodemailer from 'nodemailer';
 import { logger } from '../utils/logger';
 
 export class EmailService {
@@ -8,8 +8,7 @@ export class EmailService {
   private devMode: boolean = false;
 
   constructor() {
-    const { NODE_ENV, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_FROM } =
-      process.env;
+    const { NODE_ENV, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_FROM } = process.env;
 
     if (SMTP_HOST === 'localhost' && SMTP_PORT === '1025') {
       this.transporter = nodemailer.createTransport({
@@ -32,17 +31,22 @@ export class EmailService {
     }
 
     if (!SMTP_HOST || !SMTP_PORT || !SMTP_FROM) {
-      throw new Error('SMTP configuration required in production (SMTP_HOST, SMTP_PORT, SMTP_FROM)');
+      throw new Error(
+        'SMTP configuration required in production (SMTP_HOST, SMTP_PORT, SMTP_FROM)'
+      );
     }
 
     this.transporter = nodemailer.createTransport({
       host: SMTP_HOST,
       port: Number(SMTP_PORT),
       secure: Number(SMTP_PORT) === 465,
-      auth: SMTP_USER && SMTP_PASSWORD ? {
-        user: SMTP_USER,
-        pass: SMTP_PASSWORD,
-      } : undefined,
+      auth:
+        SMTP_USER && SMTP_PASSWORD
+          ? {
+              user: SMTP_USER,
+              pass: SMTP_PASSWORD,
+            }
+          : undefined,
     });
 
     this.enabled = true;
@@ -95,10 +99,7 @@ export class EmailService {
     }
   }
 
-  async sendEmailChangeVerification(
-    newEmail: string,
-    token: string
-  ): Promise<void> {
+  async sendEmailChangeVerification(newEmail: string, token: string): Promise<void> {
     const frontendUrl = process.env.FRONTEND_URL;
     if (!frontendUrl) {
       throw new Error('FRONTEND_URL required for email links');
@@ -106,7 +107,10 @@ export class EmailService {
     const verificationUrl = `${frontendUrl}/verify-email-change?token=${token}`;
 
     if (!this.enabled || !this.transporter) {
-      logger.info({ newEmail, verificationUrl }, '📧 DEV MODE - Copy this URL to verify email change:');
+      logger.info(
+        { newEmail, verificationUrl },
+        '📧 DEV MODE - Copy this URL to verify email change:'
+      );
       console.log('\n🔗 Email Change Verification URL:');
       console.log(`   ${verificationUrl}\n`);
       return;
@@ -137,7 +141,10 @@ export class EmailService {
     });
 
     if (this.devMode) {
-      logger.info({ newEmail }, '📧 Email change verification sent to Mailhog - Check http://localhost:8025');
+      logger.info(
+        { newEmail },
+        '📧 Email change verification sent to Mailhog - Check http://localhost:8025'
+      );
     } else {
       logger.info({ newEmail }, 'Email change verification sent');
     }
@@ -182,7 +189,10 @@ export class EmailService {
     });
 
     if (this.devMode) {
-      logger.info({ email }, '📧 Password reset email sent to Mailhog - Check http://localhost:8025');
+      logger.info(
+        { email },
+        '📧 Password reset email sent to Mailhog - Check http://localhost:8025'
+      );
     } else {
       logger.info({ email }, 'Password reset email sent');
     }
@@ -215,7 +225,10 @@ export class EmailService {
     });
 
     if (this.devMode) {
-      logger.info({ email }, '📧 Password changed notification sent to Mailhog - Check http://localhost:8025');
+      logger.info(
+        { email },
+        '📧 Password changed notification sent to Mailhog - Check http://localhost:8025'
+      );
     } else {
       logger.info({ email }, 'Password changed notification sent');
     }

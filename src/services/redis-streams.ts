@@ -1,6 +1,6 @@
-import { redis } from './redis';
-import { logger } from '../utils/logger';
 import type Redis from 'ioredis';
+import { logger } from '../utils/logger';
+import { redis } from './redis';
 
 /**
  * Redis Streams utility for job queue operations
@@ -69,7 +69,15 @@ export class ProducerStreams {
     const result = await this.client.xadd(streamName, '*', ...args);
     const elapsed = Date.now() - start;
     if (elapsed > 100) {
-      logger.warn({ streamName, elapsed, dataSize: JSON.stringify(data).length, connectionStatus: this.client.status }, '[REDIS SLOW] xadd');
+      logger.warn(
+        {
+          streamName,
+          elapsed,
+          dataSize: JSON.stringify(data).length,
+          connectionStatus: this.client.status,
+        },
+        '[REDIS SLOW] xadd'
+      );
     }
     return result;
   }
@@ -83,22 +91,6 @@ export class ProducerStreams {
     } catch (error) {
       logger.error({ error, streamName, groupName, messageId }, 'Failed to acknowledge message');
       throw error;
-    }
-  }
-
-  /**
-   * Ensure consumer group exists (idempotent operation)
-   */
-  private async ensureGroup(streamName: string, groupName: string): Promise<void> {
-    try {
-      await this.client.xgroup('CREATE', streamName, groupName, '0', 'MKSTREAM');
-      logger.debug({ streamName, groupName }, 'Created consumer group');
-    } catch (error: any) {
-      // BUSYGROUP error means group already exists - this is fine
-      if (!error.message?.includes('BUSYGROUP')) {
-        logger.error({ error, streamName, groupName }, 'Failed to create consumer group');
-        throw error;
-      }
     }
   }
 
@@ -117,7 +109,10 @@ export class ProducerStreams {
   /**
    * Get pending messages for a consumer group
    */
-  async getPending(streamName: string, groupName: string): Promise<{
+  async getPending(
+    streamName: string,
+    groupName: string
+  ): Promise<{
     count: number;
     minId: string | null;
     maxId: string | null;
@@ -128,7 +123,7 @@ export class ProducerStreams {
       count: pending[0],
       minId: pending[1],
       maxId: pending[2],
-      consumers: pending[3]
+      consumers: pending[3],
     };
   }
 
@@ -144,7 +139,7 @@ export class ProducerStreams {
     return {
       length: info.length,
       firstEntry: info['first-entry'],
-      lastEntry: info['last-entry']
+      lastEntry: info['last-entry'],
     };
   }
 
@@ -172,10 +167,6 @@ export class ProducerStreams {
  * Recommended: Extend BlockingConsumer instead of instantiating this directly.
  */
 export class ConsumerStreams extends ProducerStreams {
-  constructor(dedicatedClient: Redis) {
-    super(dedicatedClient);
-  }
-
   /**
    * BLOCKING OPERATION - Consume messages from a stream using consumer groups
    *
@@ -197,10 +188,16 @@ export class ConsumerStreams extends ProducerStreams {
 
     try {
       const result = await this.client.xreadgroup(
-        'GROUP', groupName, consumerName,
-        'BLOCK', block,
-        'COUNT', count,
-        'STREAMS', streamName, '>'
+        'GROUP',
+        groupName,
+        consumerName,
+        'BLOCK',
+        block,
+        'COUNT',
+        count,
+        'STREAMS',
+        streamName,
+        '>'
       );
 
       if (!result || result.length === 0) {

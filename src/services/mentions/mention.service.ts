@@ -3,12 +3,12 @@
  * Handles linking graph nodes to text positions in documents.
  */
 
-import { createHash } from 'crypto';
+import { createHash } from 'node:crypto';
 import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '../../config/database';
 import { mentions } from '../../models/schema';
-import { segmentService } from '../segments';
 import type { Segment } from '../segments';
+import { segmentService } from '../segments';
 import type { CreateMentionInput, Mention, MentionWithAbsolutePosition } from './mention.types';
 import { findNameOccurrences, nameMatchesToMentionInputs } from './nameMatch';
 
@@ -79,7 +79,7 @@ export const mentionService = {
   async createBatch(inputs: CreateMentionInput[]): Promise<Mention[]> {
     if (inputs.length === 0) return [];
 
-    const values = inputs.map(input => ({
+    const values = inputs.map((input) => ({
       nodeId: input.nodeId,
       documentId: input.documentId,
       segmentId: input.segmentId,
@@ -101,10 +101,7 @@ export const mentionService = {
    * Get all mentions for a node.
    */
   async getByNodeId(nodeId: string): Promise<Mention[]> {
-    const rows = await db
-      .select()
-      .from(mentions)
-      .where(eq(mentions.nodeId, nodeId));
+    const rows = await db.select().from(mentions).where(eq(mentions.nodeId, nodeId));
 
     return rows.map(rowToMention);
   },
@@ -112,7 +109,10 @@ export const mentionService = {
   /**
    * Get all mentions for a node filtered by source type.
    */
-  async getByNodeIdAndSource(nodeId: string, source: 'extraction' | 'name_match' | 'reference' | 'semantic'): Promise<Mention[]> {
+  async getByNodeIdAndSource(
+    nodeId: string,
+    source: 'extraction' | 'name_match' | 'reference' | 'semantic'
+  ): Promise<Mention[]> {
     const rows = await db
       .select()
       .from(mentions)
@@ -125,10 +125,7 @@ export const mentionService = {
    * Get all mentions for a document.
    */
   async getByDocumentId(documentId: string): Promise<Mention[]> {
-    const rows = await db
-      .select()
-      .from(mentions)
-      .where(eq(mentions.documentId, documentId));
+    const rows = await db.select().from(mentions).where(eq(mentions.documentId, documentId));
 
     return rows.map(rowToMention);
   },
@@ -136,7 +133,9 @@ export const mentionService = {
   /**
    * Get all mentions for a document with absolute positions.
    */
-  async getByDocumentIdWithAbsolutePositions(documentId: string): Promise<MentionWithAbsolutePosition[]> {
+  async getByDocumentIdWithAbsolutePositions(
+    documentId: string
+  ): Promise<MentionWithAbsolutePosition[]> {
     const { documents } = await import('../../models/schema.js');
 
     const [doc] = await db
@@ -151,7 +150,7 @@ export const mentionService = {
     const mentionRows = await this.getByDocumentId(documentId);
 
     return mentionRows
-      .map(mention => {
+      .map((mention) => {
         const absolute = segmentService.toAbsolutePosition(
           segments,
           mention.segmentId,
@@ -173,11 +172,7 @@ export const mentionService = {
    * Get a single mention by ID with absolute positions.
    */
   async getMentionById(id: string): Promise<MentionWithAbsolutePosition | null> {
-    const [row] = await db
-      .select()
-      .from(mentions)
-      .where(eq(mentions.id, id))
-      .limit(1);
+    const [row] = await db.select().from(mentions).where(eq(mentions.id, id)).limit(1);
 
     if (!row) return null;
 
@@ -218,7 +213,7 @@ export const mentionService = {
     const mentionRows = await this.getByNodeId(nodeId);
 
     return mentionRows
-      .map(mention => {
+      .map((mention) => {
         const absolute = segmentService.toAbsolutePosition(
           segments,
           mention.segmentId,
@@ -240,18 +235,14 @@ export const mentionService = {
    * Delete all mentions for a node.
    */
   async deleteByNodeId(nodeId: string): Promise<void> {
-    await db
-      .delete(mentions)
-      .where(eq(mentions.nodeId, nodeId));
+    await db.delete(mentions).where(eq(mentions.nodeId, nodeId));
   },
 
   /**
    * Delete all mentions for a document.
    */
   async deleteByDocumentId(documentId: string): Promise<void> {
-    await db
-      .delete(mentions)
-      .where(eq(mentions.documentId, documentId));
+    await db.delete(mentions).where(eq(mentions.documentId, documentId));
   },
 
   /**
@@ -260,9 +251,7 @@ export const mentionService = {
   async deleteByNodeIds(nodeIds: string[]): Promise<void> {
     if (nodeIds.length === 0) return;
 
-    await db
-      .delete(mentions)
-      .where(inArray(mentions.nodeId, nodeIds));
+    await db.delete(mentions).where(inArray(mentions.nodeId, nodeIds));
   },
 
   /**
@@ -274,18 +263,14 @@ export const mentionService = {
 
     if (mentionsWithPos.length === 0) return null;
 
-    return Math.min(...mentionsWithPos.map(m => m.absoluteStart));
+    return Math.min(...mentionsWithPos.map((m) => m.absoluteStart));
   },
 
   /**
    * Validate a mention's text hash against current document content.
    * Returns true if the text at the stored position matches the hash.
    */
-  validateMention(
-    mention: Mention,
-    documentContent: string,
-    segments: Segment[]
-  ): boolean {
+  validateMention(mention: Mention, documentContent: string, segments: Segment[]): boolean {
     const absolute = segmentService.toAbsolutePosition(
       segments,
       mention.segmentId,
@@ -305,10 +290,7 @@ export const mentionService = {
    * Update the isKeyPassage flag for a mention.
    */
   async updateKeyPassage(mentionId: string, isKeyPassage: boolean): Promise<void> {
-    await db
-      .update(mentions)
-      .set({ isKeyPassage })
-      .where(eq(mentions.id, mentionId));
+    await db.update(mentions).set({ isKeyPassage }).where(eq(mentions.id, mentionId));
   },
 
   /**
@@ -326,7 +308,7 @@ export const mentionService = {
   ): Promise<number> {
     // Get existing mentions to exclude their spans
     const existingMentions = await this.getByNodeIdWithAbsolutePositions(nodeId, segments);
-    const excludeSpans = existingMentions.map(m => ({
+    const excludeSpans = existingMentions.map((m) => ({
       start: m.absoluteStart,
       end: m.absoluteEnd,
     }));
@@ -340,13 +322,7 @@ export const mentionService = {
     if (matches.length === 0) return 0;
 
     // Convert to mention inputs and create
-    const inputs = nameMatchesToMentionInputs(
-      nodeId,
-      documentId,
-      matches,
-      segments,
-      versionNumber
-    );
+    const inputs = nameMatchesToMentionInputs(nodeId, documentId, matches, segments, versionNumber);
 
     await this.createBatch(inputs);
     return inputs.length;

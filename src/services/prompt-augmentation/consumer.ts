@@ -2,19 +2,19 @@
  * Redis stream consumer and orchestration for prompt augmentation
  */
 
+import { and, eq } from 'drizzle-orm';
 import { db } from '../../config/database';
-import { documents, media } from '../../models/schema';
-import { eq, and } from 'drizzle-orm';
-import { logger } from '../../utils/logger';
-import { sseService } from '../sse';
-import type { StreamMessage } from '../redis-streams';
-import { getGeminiClient } from '../gemini';
 import { BlockingConsumer } from '../../lib/blocking-consumer';
+import { documents, media } from '../../models/schema';
+import { logger } from '../../utils/logger';
+import { getGeminiClient } from '../gemini';
 import type { ReferenceImage } from '../image-generation/types';
+import type { StreamMessage } from '../redis-streams';
+import { sseService } from '../sse';
+import { fetchCharacterReferenceImages } from './characterReferences';
+import { buildContext } from './contextBuilder';
 import type { PromptEnhancementSettings } from './promptBuilder';
 import { buildGeminiPrompt } from './promptBuilder';
-import { buildContext } from './contextBuilder';
-import { fetchCharacterReferenceImages } from './characterReferences';
 
 interface AugmentationJobData {
   mediaId: string;
@@ -36,7 +36,10 @@ class PromptAugmentationConsumer extends BlockingConsumer {
   }
 
   protected async onStart() {
-    await this.streams.ensureGroupOnce('prompt-augmentation:stream', 'prompt-augmentation-processors');
+    await this.streams.ensureGroupOnce(
+      'prompt-augmentation:stream',
+      'prompt-augmentation-processors'
+    );
   }
 
   protected async consumeLoop(): Promise<void> {
@@ -63,7 +66,11 @@ class PromptAugmentationConsumer extends BlockingConsumer {
             );
           } catch (error) {
             logger.error({ error, messageId: result.id }, 'Error processing augmentation request');
-            await this.streams.ack('prompt-augmentation:stream', 'prompt-augmentation-processors', result.id);
+            await this.streams.ack(
+              'prompt-augmentation:stream',
+              'prompt-augmentation-processors',
+              result.id
+            );
           }
         }
       } catch (error: any) {
@@ -76,7 +83,7 @@ class PromptAugmentationConsumer extends BlockingConsumer {
         }
 
         logger.error({ error }, 'Error in prompt augmentation consumer loop');
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise((resolve) => setTimeout(resolve, 1000));
       }
     }
   }
@@ -87,7 +94,18 @@ class PromptAugmentationConsumer extends BlockingConsumer {
     message: StreamMessage
   ) {
     const jobData = message.data as unknown as AugmentationJobData;
-    const { mediaId, userId, documentId, selectedText, startChar, endChar, stylePrompt, seed, width, height } = jobData;
+    const {
+      mediaId,
+      userId,
+      documentId,
+      selectedText,
+      startChar,
+      endChar,
+      stylePrompt,
+      seed,
+      width,
+      height,
+    } = jobData;
 
     // Parse settings from JSON string (Redis stores all values as strings)
     const settings: PromptEnhancementSettings = JSON.parse(jobData.settings);
@@ -134,11 +152,12 @@ class PromptAugmentationConsumer extends BlockingConsumer {
       const augmentedPrompt = await this.augmentPrompt(geminiPrompt);
 
       // Combine style prompt with augmented prompt
-      const finalPrompt = stylePrompt
-        ? `${stylePrompt}\n\n${augmentedPrompt}`
-        : augmentedPrompt;
+      const finalPrompt = stylePrompt ? `${stylePrompt}\n\n${augmentedPrompt}` : augmentedPrompt;
 
-      logger.info({ mediaId, originalLength: selectedText.length, augmentedLength: finalPrompt.length }, 'Prompt augmented successfully');
+      logger.info(
+        { mediaId, originalLength: selectedText.length, augmentedLength: finalPrompt.length },
+        'Prompt augmented successfully'
+      );
 
       // Handle character references if enabled
       let referenceImages: ReferenceImage[] | undefined;
@@ -155,7 +174,7 @@ class PromptAugmentationConsumer extends BlockingConsumer {
             {
               mediaId,
               referenceCount: referenceImages.length,
-              characterNames: referenceImages.map(r => r.nodeName),
+              characterNames: referenceImages.map((r) => r.nodeName),
             },
             'Character reference images prepared'
           );
@@ -168,28 +187,34 @@ class PromptAugmentationConsumer extends BlockingConsumer {
         .set({
           status: 'queued',
           prompt: finalPrompt,
-          updatedAt: new Date()
+          updatedAt: new Date(),
         })
         .where(eq(media.id, mediaId));
 
       // Submit to configured image generation provider
       // Use reference image provider when references are present
-      const { getImageProvider, getReferenceImageProvider } = await import('../image-generation/factory.js');
-      const provider = referenceImages && referenceImages.length > 0
-        ? getReferenceImageProvider()
-        : await getImageProvider();
+      const { getImageProvider, getReferenceImageProvider } = await import(
+        '../image-generation/factory.js'
+      );
+      const provider =
+        referenceImages && referenceImages.length > 0
+          ? getReferenceImageProvider()
+          : await getImageProvider();
 
       await provider.submitJob({
         mediaId,
         userId,
         prompt: finalPrompt,
-        seed: parseInt(seed),
-        width: parseInt(width),
-        height: parseInt(height),
+        seed: parseInt(seed, 10),
+        width: parseInt(width, 10),
+        height: parseInt(height, 10),
         referenceImages,
       });
 
-      logger.info({ mediaId, provider: provider.name }, 'Generation submitted to provider after successful augmentation');
+      logger.info(
+        { mediaId, provider: provider.name },
+        'Generation submitted to provider after successful augmentation'
+      );
 
       await this.streams.ack(streamName, groupName, message.id);
     } catch (error: any) {
@@ -222,9 +247,13 @@ class PromptAugmentationConsumer extends BlockingConsumer {
         const blockReason = result.promptFeedback?.blockReason;
         if (blockReason) {
           logger.error({ blockReason }, 'Content was blocked');
-          throw new Error('Unable to augment prompt. The content may contain inappropriate material.');
+          throw new Error(
+            'Unable to augment prompt. The content may contain inappropriate material.'
+          );
         }
-        throw new Error('Unable to augment prompt. The content may have been filtered. Please try again.');
+        throw new Error(
+          'Unable to augment prompt. The content may have been filtered. Please try again.'
+        );
       }
 
       const text = result.text;
@@ -252,14 +281,18 @@ class PromptAugmentationConsumer extends BlockingConsumer {
       }
 
       // Re-throw if it's already a formatted error message
-      if (error?.message?.includes('Unable to augment') ||
-          error?.message?.includes('quota') ||
-          error?.message?.includes('rate limit') ||
-          error?.message?.includes('inappropriate material')) {
+      if (
+        error?.message?.includes('Unable to augment') ||
+        error?.message?.includes('quota') ||
+        error?.message?.includes('rate limit') ||
+        error?.message?.includes('inappropriate material')
+      ) {
         throw error;
       }
 
-      throw new Error(`Augmentation failed: ${error?.message || 'Unknown error'}. Please try again.`);
+      throw new Error(
+        `Augmentation failed: ${error?.message || 'Unknown error'}. Please try again.`
+      );
     }
   }
 
@@ -270,7 +303,7 @@ class PromptAugmentationConsumer extends BlockingConsumer {
       .set({
         status: 'failed',
         error: errorMessage,
-        updatedAt: new Date()
+        updatedAt: new Date(),
       })
       .where(eq(media.id, mediaId));
 

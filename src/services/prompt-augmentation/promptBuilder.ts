@@ -29,10 +29,7 @@ export function buildGeminiPrompt(
   context: PromptContext,
   settings: PromptEnhancementSettings
 ): string {
-  const sections: string[] = [
-    'You are helping generate an image prompt for a story scene.',
-    '',
-  ];
+  const sections: string[] = ['You are helping generate an image prompt for a story scene.', ''];
 
   // Add story context if available
   if (context.storyContext) {
@@ -61,11 +58,19 @@ export function buildGeminiPrompt(
 
   // Add critical instructions
   sections.push('CRITICAL INSTRUCTIONS:');
-  sections.push('1. Character/location descriptions from story context show their general state. Use surrounding text to understand their appearance AT THIS SPECIFIC MOMENT.');
-  sections.push('2. Events that happen AFTER the selected text do not inform the image. They\'re included only for scene descriptors.');
-  sections.push('3. Focus only on relevant information. Lots of context is provided - assess what matters for THIS moment.');
+  sections.push(
+    '1. Character/location descriptions from story context show their general state. Use surrounding text to understand their appearance AT THIS SPECIFIC MOMENT.'
+  );
+  sections.push(
+    "2. Events that happen AFTER the selected text do not inform the image. They're included only for scene descriptors."
+  );
+  sections.push(
+    '3. Focus only on relevant information. Lots of context is provided - assess what matters for THIS moment.'
+  );
   sections.push('4. Capture the mood and feel of this moment in the story.');
-  sections.push('5. Do NOT specify art style (e.g., painting, anime, realistic). Focus on subject, scene, mood only.');
+  sections.push(
+    '5. Do NOT specify art style (e.g., painting, anime, realistic). Focus on subject, scene, mood only.'
+  );
   sections.push('');
 
   // Add scene treatment instructions
@@ -78,15 +83,17 @@ export function buildGeminiPrompt(
   sections.push(getStrengthInstructions(settings.strength));
   sections.push('');
 
-  sections.push('Generate a detailed, vivid image generation prompt. Return ONLY the prompt text, no explanation.');
+  sections.push(
+    'Generate a detailed, vivid image generation prompt. Return ONLY the prompt text, no explanation.'
+  );
 
   return sections.join('\n');
 }
 
 export function getSceneTreatmentLabel(treatment: string): string {
   const labels: Record<string, string> = {
-    'comprehensive': 'Comprehensive',
-    'focused': 'Focused',
+    comprehensive: 'Comprehensive',
+    focused: 'Focused',
     'selective-detail': 'Selective Detail',
   };
   return labels[treatment] || 'Comprehensive';
@@ -102,7 +109,7 @@ export function getSceneTreatmentInstructions(settings: PromptEnhancementSetting
       if (settings.selectiveDetailFocus) {
         return `Focus on this specific detail: ${settings.selectiveDetailFocus}. Use close-up framing. Provide enough context but exclude irrelevant elements.`;
       } else {
-        return 'Select ONE evocative detail from the scene. Use close-up framing. Provide enough context (e.g., \'a weathered hand\' not just \'a hand\'). Choose something visually striking - a face, object, body part, or scene detail. Vary your selection to keep it interesting.';
+        return "Select ONE evocative detail from the scene. Use close-up framing. Provide enough context (e.g., 'a weathered hand' not just 'a hand'). Choose something visually striking - a face, object, body part, or scene detail. Vary your selection to keep it interesting.";
       }
     default:
       return 'Include as many relevant elements as possible.';
@@ -111,9 +118,9 @@ export function getSceneTreatmentInstructions(settings: PromptEnhancementSetting
 
 export function getStrengthLabel(strength: string): string {
   const labels: Record<string, string> = {
-    'low': 'Low',
-    'medium': 'Medium',
-    'high': 'High',
+    low: 'Low',
+    medium: 'Medium',
+    high: 'High',
   };
   return labels[strength] || 'Medium';
 }
@@ -121,7 +128,7 @@ export function getStrengthLabel(strength: string): string {
 export function getStrengthInstructions(strength: string): string {
   switch (strength) {
     case 'low':
-      return 'Make minimal adjustments. Clarify ambiguities and add essential visual details only. Preserve the user\'s original phrasing.';
+      return "Make minimal adjustments. Clarify ambiguities and add essential visual details only. Preserve the user's original phrasing.";
     case 'medium':
       return 'You may restructure, add vivid descriptors, and remove redundant text. Keep the core subject and scene intact.';
     case 'high':

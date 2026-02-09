@@ -4,7 +4,7 @@
  * Creates mentions with source: 'name_match' and lower confidence.
  */
 
-import { segmentService, type Segment } from '../segments';
+import { type Segment, segmentService } from '../segments';
 import type { CreateMentionInput } from './mention.types';
 
 export interface NameMatchConfig {
@@ -30,14 +30,10 @@ export function findNameOccurrences(
   aliases: string[] = [],
   config: NameMatchConfig = {}
 ): NameMatchResult[] {
-  const {
-    caseSensitive = false,
-    minConfidence = 70,
-    excludeExistingSpans = [],
-  } = config;
+  const { caseSensitive = false, minConfidence = 70, excludeExistingSpans = [] } = config;
 
   const results: NameMatchResult[] = [];
-  const searchTerms = [name, ...aliases].filter(t => t && t.length > 0);
+  const searchTerms = [name, ...aliases].filter((t) => t && t.length > 0);
 
   for (const term of searchTerms) {
     const matches = findAllMatches(content, term, caseSensitive);
@@ -77,11 +73,7 @@ export function nameMatchesToMentionInputs(
   const inputs: CreateMentionInput[] = [];
 
   for (const match of matches) {
-    const relative = segmentService.toRelativePosition(
-      segments,
-      match.start,
-      match.end
-    );
+    const relative = segmentService.toRelativePosition(segments, match.start, match.end);
 
     if (!relative) continue;
 

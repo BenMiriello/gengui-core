@@ -21,10 +21,10 @@ export interface Mention {
 }
 
 export type MentionSource =
-  | 'extraction'    // LLM-extracted key passages
-  | 'name_match'    // Algorithmic name/alias matching
-  | 'reference'     // NLP reference resolution (pronouns, "the Count")
-  | 'semantic';     // Embedding similarity (future)
+  | 'extraction' // LLM-extracted key passages
+  | 'name_match' // Algorithmic name/alias matching
+  | 'reference' // NLP reference resolution (pronouns, "the Count")
+  | 'semantic'; // Embedding similarity (future)
 
 export interface CreateMentionInput {
   nodeId: string;

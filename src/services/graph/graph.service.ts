@@ -1,21 +1,21 @@
+import { randomUUID } from 'node:crypto';
 import Redis from 'ioredis';
-import { randomUUID } from 'crypto';
-import { logger } from '../../utils/logger';
+import { THREAD_COLORS } from '../../config/constants';
 import type {
+  NarrativeThreadResult,
+  StoryEdgeType,
   StoryNodeResult,
   StoryNodeType,
-  StoryEdgeType,
-  NarrativeThreadResult,
 } from '../../types/storyNodes';
+import { logger } from '../../utils/logger';
 import {
-  type NodeProperties,
-  type StoredStoryNode,
-  type StoredStoryConnection,
-  type QueryResult,
   CAUSAL_EDGE_TYPES,
   causalEdgePattern,
+  type NodeProperties,
+  type QueryResult,
+  type StoredStoryConnection,
+  type StoredStoryNode,
 } from './graph.types';
-import { THREAD_COLORS } from '../../config/constants';
 
 export type { NodeProperties, StoredStoryNode, StoredStoryConnection, QueryResult };
 
@@ -116,13 +116,13 @@ class GraphService {
         reject(new Error('FalkorDB connection timeout'));
       }, 10000);
 
-      this.client!.once('ready', () => {
+      this.client?.once('ready', () => {
         clearTimeout(timeout);
         logger.info('FalkorDB connected');
         resolve();
       });
 
-      this.client!.once('error', (err) => {
+      this.client?.once('error', (err) => {
         clearTimeout(timeout);
         logger.error({ error: err }, 'FalkorDB connection error');
         reject(err);
@@ -160,7 +160,7 @@ class GraphService {
       queryString = cypherParams + cypher;
     }
 
-    const result = await client.call('GRAPH.QUERY', GRAPH_NAME, queryString) as unknown[];
+    const result = (await client.call('GRAPH.QUERY', GRAPH_NAME, queryString)) as unknown[];
 
     return this.parseResult(result);
   }
@@ -170,13 +170,13 @@ class GraphService {
       return { headers: [], data: [], stats: {} };
     }
 
-    const headers = Array.isArray(result[0]) ? result[0] as string[] : [];
-    const data = Array.isArray(result[1]) ? result[1] as unknown[][] : [];
-    const statsArray = Array.isArray(result[2]) ? result[2] as string[] : [];
+    const headers = Array.isArray(result[0]) ? (result[0] as string[]) : [];
+    const data = Array.isArray(result[1]) ? (result[1] as unknown[][]) : [];
+    const statsArray = Array.isArray(result[2]) ? (result[2] as string[]) : [];
 
     const stats: Record<string, string> = {};
     for (const stat of statsArray) {
-      const [key, value] = stat.split(':').map(s => s.trim());
+      const [key, value] = stat.split(':').map((s) => s.trim());
       if (key && value) {
         stats[key] = value;
       }
@@ -312,7 +312,9 @@ class GraphService {
    */
   private validateLabel(label: string): void {
     if (!ALLOWED_NODE_LABELS.has(label)) {
-      throw new Error(`Invalid node label: ${label}. Allowed: ${[...ALLOWED_NODE_LABELS].join(', ')}`);
+      throw new Error(
+        `Invalid node label: ${label}. Allowed: ${[...ALLOWED_NODE_LABELS].join(', ')}`
+      );
     }
   }
 
@@ -322,7 +324,9 @@ class GraphService {
    */
   private validateEdgeType(edgeType: string): void {
     if (!ALLOWED_EDGE_TYPES.has(edgeType)) {
-      throw new Error(`Invalid edge type: ${edgeType}. Allowed: ${[...ALLOWED_EDGE_TYPES].join(', ')}`);
+      throw new Error(
+        `Invalid edge type: ${edgeType}. Allowed: ${[...ALLOWED_EDGE_TYPES].join(', ')}`
+      );
     }
   }
 
@@ -342,7 +346,7 @@ class GraphService {
    */
   private validateInternalId(id: string): number {
     const parsed = parseInt(id, 10);
-    if (isNaN(parsed) || parsed < 0) {
+    if (Number.isNaN(parsed) || parsed < 0) {
       throw new Error(`Invalid internal node/edge ID: ${id}`);
     }
     return parsed;
@@ -359,7 +363,7 @@ class GraphService {
       throw new Error(`Embedding must have ${expectedDim} dimensions, got ${embedding.length}`);
     }
     for (let i = 0; i < embedding.length; i++) {
-      if (typeof embedding[i] !== 'number' || !isFinite(embedding[i])) {
+      if (typeof embedding[i] !== 'number' || !Number.isFinite(embedding[i])) {
         throw new Error(`Embedding contains invalid value at index ${i}`);
       }
     }
@@ -481,7 +485,7 @@ class GraphService {
       queryString = cypherParams + cypher;
     }
 
-    const result = await client.call('GRAPH.EXPLAIN', GRAPH_NAME, queryString) as string[];
+    const result = (await client.call('GRAPH.EXPLAIN', GRAPH_NAME, queryString)) as string[];
     return result.join('\n');
   }
 
@@ -519,7 +523,7 @@ class GraphService {
     `;
     const result = await this.query(cypher, { documentId, userId, limit });
 
-    return result.data.map(row => {
+    return result.data.map((row) => {
       const aliasesRaw = row[6] as string | null;
       const aliases = aliasesRaw ? JSON.parse(aliasesRaw) : null;
 
@@ -548,11 +552,16 @@ class GraphService {
 
   private getLabelForType(type: StoryNodeType): string {
     switch (type) {
-      case 'character': return 'Character';
-      case 'location': return 'Location';
-      case 'event': return 'Event';
-      case 'concept': return 'Concept';
-      default: return 'Other';
+      case 'character':
+        return 'Character';
+      case 'location':
+        return 'Location';
+      case 'event':
+        return 'Event';
+      case 'concept':
+        return 'Concept';
+      default:
+        return 'Other';
     }
   }
 
@@ -646,10 +655,7 @@ class GraphService {
     return connectionId;
   }
 
-  async getStoryNodesForDocument(
-    documentId: string,
-    userId: string
-  ): Promise<StoredStoryNode[]> {
+  async getStoryNodesForDocument(documentId: string, userId: string): Promise<StoredStoryNode[]> {
     const cypher = `
       MATCH (n:StoryNode)
       WHERE n.documentId = $documentId AND n.userId = $userId AND ${this.deletedAtFilter('n')}
@@ -660,7 +666,7 @@ class GraphService {
     `;
     const result = await this.query(cypher, { documentId, userId });
 
-    return result.data.map(row => {
+    return result.data.map((row) => {
       const aliasesRaw = row[6] as string | null;
       const aliases = aliasesRaw ? JSON.parse(aliasesRaw) : null;
 
@@ -694,7 +700,7 @@ class GraphService {
     `;
     const result = await this.query(cypher, { documentId });
 
-    return result.data.map(row => ({
+    return result.data.map((row) => ({
       id: row[0] as string,
       fromNodeId: row[1] as string,
       toNodeId: row[2] as string,
@@ -897,7 +903,7 @@ class GraphService {
       `,
       { threshold }
     );
-    const connectionsDeleted = connResult.data[0]?.[0] as number || 0;
+    const connectionsDeleted = (connResult.data[0]?.[0] as number) || 0;
 
     const nodeResult = await this.query(
       `
@@ -908,7 +914,7 @@ class GraphService {
       `,
       { threshold }
     );
-    const nodesDeleted = nodeResult.data[0]?.[0] as number || 0;
+    const nodesDeleted = (nodeResult.data[0]?.[0] as number) || 0;
 
     if (nodesDeleted > 0 || connectionsDeleted > 0) {
       logger.info(
@@ -1094,14 +1100,20 @@ class GraphService {
           logger.warn({ nodeId }, 'Skipping node with empty embedding string');
           continue;
         }
-        embedding = cleaned.split(',').map(s => parseFloat(s.trim()));
+        embedding = cleaned.split(',').map((s) => parseFloat(s.trim()));
       } else {
-        logger.warn({ nodeId, embeddingType: typeof embeddingRaw }, 'Skipping node with invalid embedding format');
+        logger.warn(
+          { nodeId, embeddingType: typeof embeddingRaw },
+          'Skipping node with invalid embedding format'
+        );
         continue;
       }
 
       if (embedding.length !== 1536) {
-        logger.warn({ nodeId, length: embedding.length }, 'Skipping node with wrong embedding dimension');
+        logger.warn(
+          { nodeId, length: embedding.length },
+          'Skipping node with wrong embedding dimension'
+        );
         continue;
       }
 
@@ -1110,7 +1122,10 @@ class GraphService {
     }
 
     if (embeddings.length < 2) {
-      logger.info({ count: embeddings.length }, 'Not enough embeddings for PCA, returning empty projection');
+      logger.info(
+        { count: embeddings.length },
+        'Not enough embeddings for PCA, returning empty projection'
+      );
       return [];
     }
 

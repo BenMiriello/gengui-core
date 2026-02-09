@@ -1,5 +1,5 @@
-import type { PromptDefinition } from '../types';
 import type { ExistingNode } from '../../types/storyNodes';
+import type { PromptDefinition } from '../types';
 
 interface UpdateInput {
   content: string;
@@ -10,11 +10,12 @@ export const updateNodesPrompt: PromptDefinition<UpdateInput> = {
   id: 'story-nodes-update',
   version: 2,
   model: 'gemini-2.5-flash',
-  description: 'Analyze document for incremental changes to existing story nodes with rich relationships',
+  description:
+    'Analyze document for incremental changes to existing story nodes with rich relationships',
 
   build: ({ content, existingNodes }) => {
     const existingNodesJson = JSON.stringify(
-      existingNodes.map(n => ({
+      existingNodes.map((n) => ({
         id: n.id,
         type: n.type,
         name: n.name,

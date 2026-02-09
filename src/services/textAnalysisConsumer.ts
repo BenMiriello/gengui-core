@@ -2,18 +2,19 @@
  * Text analysis stream consumer.
  * Orchestrates document analysis and node updates via Redis streams.
  */
+
+import { and, eq } from 'drizzle-orm';
 import { db } from '../config/database';
-import { documents } from '../models/schema';
-import { eq, and } from 'drizzle-orm';
-import { logger } from '../utils/logger';
-import { sseService } from './sse';
-import type { StreamMessage } from './redis-streams';
-import { analyzeText, updateNodes } from './gemini';
-import { graphStoryNodesRepository } from './storyNodes';
-import { segmentService, type Segment } from './segments';
-import { mentionService } from './mentions';
 import { BlockingConsumer } from '../lib/blocking-consumer';
+import { documents } from '../models/schema';
 import type { ExistingNode } from '../types/storyNodes';
+import { logger } from '../utils/logger';
+import { analyzeText, updateNodes } from './gemini';
+import { mentionService } from './mentions';
+import type { StreamMessage } from './redis-streams';
+import { type Segment, segmentService } from './segments';
+import { sseService } from './sse';
+import { graphStoryNodesRepository } from './storyNodes';
 
 const MIN_CONTENT_LENGTH = 50;
 const MAX_CONTENT_LENGTH = 50000;
@@ -52,7 +53,7 @@ class TextAnalysisConsumer extends BlockingConsumer {
         }
 
         logger.error({ error }, 'Error in text analysis consumer loop');
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise((resolve) => setTimeout(resolve, 1000));
       }
     }
   }
@@ -159,13 +160,16 @@ class TextAnalysisConsumer extends BlockingConsumer {
           type: n.type,
           name: n.name,
           description: n.description || '',
-          mentions: mentions.map(m => ({ text: m.originalText })),
+          mentions: mentions.map((m) => ({ text: m.originalText })),
         };
       })
     );
 
     // Call Gemini
-    logger.info({ documentId, existingNodeCount: existingNodes.length }, 'Calling Gemini updateNodes');
+    logger.info(
+      { documentId, existingNodeCount: existingNodes.length },
+      'Calling Gemini updateNodes'
+    );
     const updates = await updateNodes(document.content, existingNodes);
 
     // Apply updates (new nodes inherit document style)
@@ -175,7 +179,7 @@ class TextAnalysisConsumer extends BlockingConsumer {
       documentContent: document.content,
       segments,
       versionNumber: document.currentVersion,
-      existingNodes: existingDbNodes.map(n => ({ id: n.id, name: n.name })),
+      existingNodes: existingDbNodes.map((n) => ({ id: n.id, name: n.name })),
       updates,
       documentStyle: {
         preset: document.defaultStylePreset,
@@ -188,11 +192,7 @@ class TextAnalysisConsumer extends BlockingConsumer {
     logger.info({ documentId, ...result }, 'Node update completed successfully');
   }
 
-  private async fetchAndValidateDocument(
-    documentId: string,
-    userId: string,
-    errorEvent: string
-  ) {
+  private async fetchAndValidateDocument(documentId: string, userId: string, errorEvent: string) {
     const [document] = await db
       .select()
       .from(documents)

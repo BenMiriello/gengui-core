@@ -1,11 +1,11 @@
-import type { ImageGenerationProvider } from '../provider.interface.js';
-import type { GenerationInput, DimensionWhitelist } from '../types.js';
+import { eq } from 'drizzle-orm';
 import { db } from '../../../config/database.js';
 import { media } from '../../../models/schema.js';
-import { eq } from 'drizzle-orm';
-import { s3 } from '../../s3.js';
-import { redisStreams } from '../../redis-streams.js';
 import { logger } from '../../../utils/logger.js';
+import { redisStreams } from '../../redis-streams.js';
+import { s3 } from '../../s3.js';
+import type { ImageGenerationProvider } from '../provider.interface.js';
+import type { DimensionWhitelist, GenerationInput } from '../types.js';
 
 // Dynamic import: @google/genai is ESM-only
 let genAI: Awaited<ReturnType<typeof getGeminiClient>> | null = null;
@@ -27,10 +27,10 @@ async function ensureGenAI() {
 // Gemini Pro Image supported dimensions (same as Imagen for consistency)
 const SUPPORTED_DIMENSIONS: Array<[number, number]> = [
   [1024, 1024], // 1:1
-  [1408, 768],  // 16:9 landscape
-  [768, 1408],  // 9:16 portrait
-  [1280, 896],  // 4:3 landscape
-  [896, 1280],  // 3:4 portrait
+  [1408, 768], // 16:9 landscape
+  [768, 1408], // 9:16 portrait
+  [1280, 896], // 4:3 landscape
+  [896, 1280], // 3:4 portrait
 ];
 
 class GeminiProImageProvider implements ImageGenerationProvider {
@@ -92,7 +92,7 @@ class GeminiProImageProvider implements ImageGenerationProvider {
           {
             mediaId: input.mediaId,
             referenceCount: input.referenceImages.length,
-            characterNames: input.referenceImages.map(r => r.nodeName),
+            characterNames: input.referenceImages.map((r) => r.nodeName),
           },
           'Including character reference images'
         );
@@ -221,7 +221,7 @@ class GeminiProImageProvider implements ImageGenerationProvider {
 
     const requestedRatio = width / height;
     let nearest = SUPPORTED_DIMENSIONS[0];
-    let minDiff = Math.abs((nearest[0] / nearest[1]) - requestedRatio);
+    let minDiff = Math.abs(nearest[0] / nearest[1] - requestedRatio);
 
     for (const dims of SUPPORTED_DIMENSIONS) {
       const ratio = dims[0] / dims[1];

@@ -15,11 +15,7 @@ export interface SegmentBoundary {
   type: BoundaryType;
 }
 
-export type BoundaryType =
-  | 'double_newline'
-  | 'scene_marker'
-  | 'chapter_heading'
-  | 'size_split';
+export type BoundaryType = 'double_newline' | 'scene_marker' | 'chapter_heading' | 'size_split';
 
 export interface SegmentationResult {
   segments: Segment[];

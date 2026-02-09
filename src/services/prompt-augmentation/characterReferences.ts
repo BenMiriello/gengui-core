@@ -2,14 +2,14 @@
  * Character reference image fetching and detection
  */
 
+import { inArray } from 'drizzle-orm';
 import { db } from '../../config/database';
 import { media } from '../../models/schema';
-import { inArray } from 'drizzle-orm';
 import { logger } from '../../utils/logger';
 import { generateEmbedding } from '../embeddings';
-import { s3 } from '../s3';
 import { graphService } from '../graph/graph.service';
 import type { ReferenceImage } from '../image-generation/types';
+import { s3 } from '../s3';
 import type { CharacterReferences } from './promptBuilder';
 
 export async function fetchCharacterReferenceImages(
@@ -19,7 +19,7 @@ export async function fetchCharacterReferenceImages(
   selectedText: string
 ): Promise<ReferenceImage[]> {
   const allNodes = await graphService.getStoryNodesForDocument(documentId, userId);
-  const allCharacterNodes = allNodes.filter(n => n.type === 'character');
+  const allCharacterNodes = allNodes.filter((n) => n.type === 'character');
 
   if (allCharacterNodes.length === 0) {
     logger.info({ documentId }, 'No character nodes found for document');
@@ -35,17 +35,20 @@ export async function fetchCharacterReferenceImages(
       selectedText,
       allCharacterNodes,
       documentId,
-      userId,
+      userId
     );
   }
 
   if (targetNodeIds.length === 0) {
-    logger.info({ documentId, mode: characterRefs.mode }, 'No character nodes selected for references');
+    logger.info(
+      { documentId, mode: characterRefs.mode },
+      'No character nodes selected for references'
+    );
     return [];
   }
 
   const nodesWithMedia = allCharacterNodes.filter(
-    node => targetNodeIds.includes(node.id) && node.primaryMediaId
+    (node) => targetNodeIds.includes(node.id) && node.primaryMediaId
   );
 
   if (nodesWithMedia.length === 0) {
@@ -56,13 +59,10 @@ export async function fetchCharacterReferenceImages(
     return [];
   }
 
-  const mediaIds = nodesWithMedia.map(n => n.primaryMediaId!);
-  const mediaRecords = await db
-    .select()
-    .from(media)
-    .where(inArray(media.id, mediaIds));
+  const mediaIds = nodesWithMedia.map((n) => n.primaryMediaId!);
+  const mediaRecords = await db.select().from(media).where(inArray(media.id, mediaIds));
 
-  const mediaMap = new Map(mediaRecords.map(m => [m.id, m]));
+  const mediaMap = new Map(mediaRecords.map((m) => [m.id, m]));
 
   const referenceImages: ReferenceImage[] = [];
 
@@ -90,10 +90,7 @@ export async function fetchCharacterReferenceImages(
   }
 
   if (referenceImages.length > 5) {
-    logger.warn(
-      { count: referenceImages.length },
-      'Limiting reference images to 5 for Gemini API'
-    );
+    logger.warn({ count: referenceImages.length }, 'Limiting reference images to 5 for Gemini API');
     return referenceImages.slice(0, 5);
   }
 
@@ -104,7 +101,7 @@ export async function detectCharactersInText(
   selectedText: string,
   characterNodes: Array<{ id: string; name: string; description: string | null }>,
   documentId: string,
-  userId: string,
+  userId: string
 ): Promise<string[]> {
   if (characterNodes.length === 0) {
     return [];
@@ -113,10 +110,8 @@ export async function detectCharactersInText(
   try {
     const queryEmbedding = await generateEmbedding(selectedText);
     const similar = await graphService.findSimilarNodes(queryEmbedding, documentId, userId, 10);
-    const characterIds = new Set(characterNodes.map(c => c.id));
-    const result = similar
-      .filter(n => characterIds.has(n.id) && n.score > 0.3)
-      .map(n => n.id);
+    const characterIds = new Set(characterNodes.map((c) => c.id));
+    const result = similar.filter((n) => characterIds.has(n.id) && n.score > 0.3).map((n) => n.id);
 
     logger.info(
       { detectedCount: result.length, detectedCharacters: result },

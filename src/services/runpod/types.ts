@@ -29,4 +29,3 @@ export interface RunPodJobStatusResponse {
   output?: any;
   error?: string;
 }
-

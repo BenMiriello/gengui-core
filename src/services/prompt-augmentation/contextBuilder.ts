@@ -2,9 +2,13 @@
  * Context building from FalkorDB queries
  */
 
-import { graphService } from '../graph/graph.service';
-import { generateEmbedding } from '../embeddings';
 import { logger } from '../../utils/logger';
+import { generateEmbedding } from '../embeddings';
+import {
+  graphService,
+  type StoredStoryConnection,
+  type StoredStoryNode,
+} from '../graph/graph.service';
 import type { PromptContext, PromptEnhancementSettings } from './promptBuilder';
 
 export async function buildContext(
@@ -21,7 +25,7 @@ export async function buildContext(
   };
 
   if (settings.useNarrativeContext) {
-    let nodes;
+    let nodes: StoredStoryNode[] = [];
     try {
       const queryEmbedding = await generateEmbedding(selectedText);
       nodes = await graphService.findSimilarNodes(queryEmbedding, documentId, userId, 10);
@@ -50,12 +54,12 @@ export async function buildContext(
 }
 
 function convertNodeTreeToText(
-  nodes: any[],
-  connections: any[]
+  nodes: StoredStoryNode[],
+  connections: StoredStoryConnection[]
 ): string {
   const sections: string[] = ['STORY CONTEXT:\n'];
 
-  const nodesByType: Record<string, any[]> = {
+  const nodesByType: Record<string, StoredStoryNode[]> = {
     character: [],
     location: [],
     event: [],
@@ -104,7 +108,7 @@ function convertNodeTreeToText(
 
   if (connections.length > 0) {
     sections.push('\nRELATIONSHIPS:');
-    const nodeMap = new Map(nodes.map(n => [n.id, n.name]));
+    const nodeMap = new Map(nodes.map((n) => [n.id, n.name]));
     for (const conn of connections) {
       const fromName = nodeMap.get(conn.fromNodeId);
       const toName = nodeMap.get(conn.toNodeId);

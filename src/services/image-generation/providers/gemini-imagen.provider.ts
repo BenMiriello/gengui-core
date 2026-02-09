@@ -1,12 +1,12 @@
-import type { ImageGenerationProvider } from '../provider.interface.js';
-import type { GenerationInput, DimensionWhitelist } from '../types.js';
-import { db } from '../../../config/database.js';
-import { media } from '../../../models/schema.js';
 import { eq } from 'drizzle-orm';
-import { s3 } from '../../s3.js';
-import { redisStreams } from '../../redis-streams.js';
-import { logger } from '../../../utils/logger.js';
+import { db } from '../../../config/database.js';
 import { env } from '../../../config/env.js';
+import { media } from '../../../models/schema.js';
+import { logger } from '../../../utils/logger.js';
+import { redisStreams } from '../../redis-streams.js';
+import { s3 } from '../../s3.js';
+import type { ImageGenerationProvider } from '../provider.interface.js';
+import type { DimensionWhitelist, GenerationInput } from '../types.js';
 
 // Dynamic import: @google/genai is ESM-only, causes TypeScript errors with static import in CommonJS.
 // Could use static import if we converted core to ESM, but not worth it just for this.
@@ -29,10 +29,10 @@ async function ensureGenAI() {
 // Gemini Imagen 3 supported dimensions
 const SUPPORTED_DIMENSIONS: Array<[number, number]> = [
   [1024, 1024], // 1:1
-  [1408, 768],  // 16:9 landscape
-  [768, 1408],  // 9:16 portrait
-  [1280, 896],  // 4:3 landscape
-  [896, 1280],  // 3:4 portrait
+  [1408, 768], // 16:9 landscape
+  [768, 1408], // 9:16 portrait
+  [1280, 896], // 4:3 landscape
+  [896, 1280], // 3:4 portrait
 ];
 
 class GeminiImagenProvider implements ImageGenerationProvider {
@@ -75,7 +75,7 @@ class GeminiImagenProvider implements ImageGenerationProvider {
           mediaId: input.mediaId,
           prompt: input.prompt,
           requestedDimensions: `${input.width}x${input.height}`,
-          mappedDimensions: `${width}x${height}`
+          mappedDimensions: `${width}x${height}`,
         },
         'Generating image with Gemini Imagen'
       );
@@ -188,7 +188,7 @@ class GeminiImagenProvider implements ImageGenerationProvider {
     // Find nearest by aspect ratio
     const requestedRatio = width / height;
     let nearest = SUPPORTED_DIMENSIONS[0];
-    let minDiff = Math.abs((nearest[0] / nearest[1]) - requestedRatio);
+    let minDiff = Math.abs(nearest[0] / nearest[1] - requestedRatio);
 
     for (const dims of SUPPORTED_DIMENSIONS) {
       const ratio = dims[0] / dims[1];

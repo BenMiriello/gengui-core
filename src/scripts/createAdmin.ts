@@ -1,6 +1,6 @@
+import { eq } from 'drizzle-orm';
 import { db } from '../config/database';
 import { users } from '../models/schema';
-import { eq } from 'drizzle-orm';
 
 const adminEmail = process.env.ADMIN_EMAIL;
 

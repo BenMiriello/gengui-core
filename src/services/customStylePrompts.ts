@@ -1,7 +1,7 @@
+import { and, eq, isNull, lt } from 'drizzle-orm';
 import { db } from '../config/database';
-import { userStylePrompts, users, documents, media } from '../models/schema';
-import { eq, and, isNull, lt } from 'drizzle-orm';
-import { NotFoundError, ForbiddenError, BadRequestError } from '../utils/errors';
+import { documents, media, userStylePrompts, users } from '../models/schema';
+import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/errors';
 import { logger } from '../utils/logger';
 import { buildSoftDeleteUpdate, getDaysAgo } from '../utils/softDelete';
 
@@ -16,10 +16,7 @@ export class CustomStylePromptsService {
         updatedAt: userStylePrompts.updatedAt,
       })
       .from(userStylePrompts)
-      .where(and(
-        eq(userStylePrompts.userId, userId),
-        isNull(userStylePrompts.deletedAt)
-      ))
+      .where(and(eq(userStylePrompts.userId, userId), isNull(userStylePrompts.deletedAt)))
       .orderBy(userStylePrompts.createdAt);
 
     return prompts;
@@ -41,10 +38,7 @@ export class CustomStylePromptsService {
     const existingCount = await db
       .select({ count: userStylePrompts.id })
       .from(userStylePrompts)
-      .where(and(
-        eq(userStylePrompts.userId, userId),
-        isNull(userStylePrompts.deletedAt)
-      ));
+      .where(and(eq(userStylePrompts.userId, userId), isNull(userStylePrompts.deletedAt)));
 
     if (existingCount.length >= 100) {
       throw new BadRequestError('Maximum 100 custom prompts allowed');
@@ -94,18 +88,12 @@ export class CustomStylePromptsService {
     await db
       .update(documents)
       .set({ defaultStylePreset: 'none', defaultStylePrompt: null })
-      .where(and(
-        eq(documents.userId, userId),
-        eq(documents.defaultStylePreset, promptId)
-      ));
+      .where(and(eq(documents.userId, userId), eq(documents.defaultStylePreset, promptId)));
 
     await db
       .update(media)
       .set({ stylePreset: 'none', stylePrompt: null })
-      .where(and(
-        eq(media.userId, userId),
-        eq(media.stylePreset, promptId)
-      ));
+      .where(and(eq(media.userId, userId), eq(media.stylePreset, promptId)));
 
     const [user] = await db
       .select({ defaultStylePreset: users.defaultStylePreset })
@@ -114,29 +102,21 @@ export class CustomStylePromptsService {
       .limit(1);
 
     if (user?.defaultStylePreset === promptId) {
-      await db
-        .update(users)
-        .set({ defaultStylePreset: 'none' })
-        .where(eq(users.id, userId));
+      await db.update(users).set({ defaultStylePreset: 'none' }).where(eq(users.id, userId));
     }
 
     logger.info({ userId, promptId }, 'Custom style prompt soft deleted');
   }
 
   async hardDelete(promptId: string) {
-    await db
-      .delete(userStylePrompts)
-      .where(eq(userStylePrompts.id, promptId));
+    await db.delete(userStylePrompts).where(eq(userStylePrompts.id, promptId));
   }
 
   async get(promptId: string, userId: string) {
     const [prompt] = await db
       .select()
       .from(userStylePrompts)
-      .where(and(
-        eq(userStylePrompts.id, promptId),
-        isNull(userStylePrompts.deletedAt)
-      ))
+      .where(and(eq(userStylePrompts.id, promptId), isNull(userStylePrompts.deletedAt)))
       .limit(1);
 
     if (!prompt) {
@@ -155,9 +135,7 @@ export class CustomStylePromptsService {
 
     const deleted = await db
       .delete(userStylePrompts)
-      .where(and(
-        lt(userStylePrompts.deletedAt, thirtyOneDaysAgo)
-      ))
+      .where(and(lt(userStylePrompts.deletedAt, thirtyOneDaysAgo)))
       .returning({ id: userStylePrompts.id });
 
     logger.info({ count: deleted.length }, 'Cleaned up deleted custom style prompts');

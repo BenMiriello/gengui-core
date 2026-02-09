@@ -1,7 +1,7 @@
-import { Request, Response, NextFunction } from 'express';
+import type { NextFunction, Request, Response } from 'express';
 import { env } from '../config/env';
-import { logger } from '../utils/logger';
 import { UnauthorizedError } from '../utils/errors';
+import { logger } from '../utils/logger';
 
 export function devAuth(req: Request, _res: Response, next: NextFunction) {
   if (env.NODE_ENV !== 'development') {

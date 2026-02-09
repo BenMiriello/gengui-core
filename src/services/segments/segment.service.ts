@@ -105,7 +105,7 @@ export const segmentService = {
     relativeStart: number,
     relativeEnd: number
   ): { absoluteStart: number; absoluteEnd: number } | null {
-    const segment = segments.find(s => s.id === segmentId);
+    const segment = segments.find((s) => s.id === segmentId);
     if (!segment) return null;
 
     return {
@@ -118,7 +118,7 @@ export const segmentService = {
    * Get segment by ID.
    */
   getSegmentById(segments: Segment[], segmentId: string): Segment | undefined {
-    return segments.find(s => s.id === segmentId);
+    return segments.find((s) => s.id === segmentId);
   },
 
   /**

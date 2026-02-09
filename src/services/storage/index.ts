@@ -1,4 +1,4 @@
-import { StorageProvider } from './interface';
+import type { StorageProvider } from './interface';
 import { S3StorageProvider } from './s3Provider';
 
 export function createStorageProvider(): StorageProvider {
@@ -7,4 +7,4 @@ export function createStorageProvider(): StorageProvider {
 
 export const storageProvider = createStorageProvider();
 
-export { StorageProvider } from './interface';
+export type { StorageProvider } from './interface';

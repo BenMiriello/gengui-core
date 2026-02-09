@@ -8,7 +8,6 @@ export function getEmbeddingProvider(): EmbeddingProvider {
   const providerName = process.env.EMBEDDING_PROVIDER || 'openai';
 
   switch (providerName) {
-    case 'openai':
     default: {
       const { openaiEmbeddingProvider } = require('./providers/openai.provider');
       cachedProvider = openaiEmbeddingProvider;
