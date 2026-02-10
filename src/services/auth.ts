@@ -545,9 +545,13 @@ export class AuthService {
       const provider = await getImageProvider();
       if (!provider.validateDimensions(updates.defaultImageWidth, updates.defaultImageHeight)) {
         const supportedDimensions = provider.getSupportedDimensions();
-        const dimensionsStr = supportedDimensions
-          .map((d: any) => `${d.width}x${d.height}`)
-          .join(', ');
+        let dimensionsStr: string;
+        if (Array.isArray(supportedDimensions)) {
+          dimensionsStr = supportedDimensions.map((d) => `${d.width}x${d.height}`).join(', ');
+        } else {
+          const { min, max, step } = supportedDimensions;
+          dimensionsStr = `${min}-${max}px (step: ${step})`;
+        }
         throw new ConflictError(
           `Dimensions ${updates.defaultImageWidth}x${updates.defaultImageHeight} not supported by ${provider.name} provider. Supported sizes: ${dimensionsStr}`
         );

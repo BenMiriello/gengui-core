@@ -1,4 +1,4 @@
-import type Redis from 'ioredis';
+import type { Redis } from 'ioredis';
 import { logger } from '../utils/logger';
 import { redis } from './redis';
 
@@ -79,7 +79,7 @@ export class ProducerStreams {
         '[REDIS SLOW] xadd'
       );
     }
-    return result;
+    return result as string;
   }
 
   /**
@@ -118,7 +118,12 @@ export class ProducerStreams {
     maxId: string | null;
     consumers: any[];
   }> {
-    const pending = await this.client.xpending(streamName, groupName);
+    const pending = (await this.client.xpending(streamName, groupName)) as [
+      number,
+      string | null,
+      string | null,
+      any[],
+    ];
     return {
       count: pending[0],
       minId: pending[1],
@@ -135,11 +140,15 @@ export class ProducerStreams {
     firstEntry: any;
     lastEntry: any;
   }> {
-    const info = await this.client.xinfoStream(streamName);
+    const info = (await this.client.call('XINFO', 'STREAM', streamName)) as any[];
+    const infoMap: Record<string, any> = {};
+    for (let i = 0; i < info.length; i += 2) {
+      infoMap[info[i]] = info[i + 1];
+    }
     return {
-      length: info.length,
-      firstEntry: info['first-entry'],
-      lastEntry: info['last-entry'],
+      length: infoMap['length'] ?? 0,
+      firstEntry: infoMap['first-entry'],
+      lastEntry: infoMap['last-entry'],
     };
   }
 
@@ -151,9 +160,17 @@ export class ProducerStreams {
     groupName: string,
     consumerName: string
   ): Promise<number> {
-    const info = await this.client.xinfoConsumers(streamName, groupName);
-    const consumer = info.find((c: any) => c.name === consumerName);
-    return consumer?.pending || 0;
+    const info = (await this.client.call('XINFO', 'CONSUMERS', streamName, groupName)) as any[];
+    for (const consumerArr of info) {
+      const consumerMap: Record<string, any> = {};
+      for (let i = 0; i < consumerArr.length; i += 2) {
+        consumerMap[consumerArr[i]] = consumerArr[i + 1];
+      }
+      if (consumerMap['name'] === consumerName) {
+        return consumerMap['pending'] ?? 0;
+      }
+    }
+    return 0;
   }
 }
 
@@ -187,18 +204,18 @@ export class ConsumerStreams extends ProducerStreams {
     const { count = 1, block = 2000 } = options;
 
     try {
-      const result = await this.client.xreadgroup(
+      const result = (await this.client.xreadgroup(
         'GROUP',
         groupName,
         consumerName,
-        'BLOCK',
-        block,
         'COUNT',
         count,
+        'BLOCK',
+        block,
         'STREAMS',
         streamName,
         '>'
-      );
+      )) as [string, [string, string[]][]][] | null;
 
       if (!result || result.length === 0) {
         return null;

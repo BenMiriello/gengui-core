@@ -7,6 +7,7 @@ import { logger } from '../utils/logger';
 import { getImageProvider } from './image-generation/factory';
 import { redis } from './redis';
 import { redisStreams } from './redis-streams';
+import { runpodClient } from './runpod/client';
 
 export interface CharacterReferences {
   mode: 'auto' | 'manual';

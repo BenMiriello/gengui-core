@@ -14,6 +14,7 @@ const queryClient = postgres({
   idle_timeout: env.DB_IDLE_TIMEOUT ?? 20,
   connect_timeout: env.DB_CONNECT_TIMEOUT ?? (isProd ? 5 : 10),
   onnotice: () => {},
+  ssl: isProd ? 'require' : false,
 });
 
 export const db = drizzle(queryClient);

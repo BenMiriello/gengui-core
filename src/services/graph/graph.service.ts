@@ -977,7 +977,7 @@ class GraphService {
     const now = new Date().toISOString();
 
     // Auto-assign color from Material Design palette
-    const { graphThreads } = await import('./graph.threads');
+    const { graphThreads } = await import('./graph.threads.js');
     const existingThreads = await graphThreads.getThreadsForDocument(documentId, userId);
     const usedColors = new Set(existingThreads.map((t: any) => t.color).filter(Boolean));
 

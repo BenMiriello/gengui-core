@@ -7,7 +7,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "bun --watch src/index.ts",
-    "start": "bun run dist/index.js",
+    "start": "bun run src/index.ts",
     "typecheck": "tsc --noEmit",
     "lint": "biome check src",
     "lint:fix": "biome check --write src",
