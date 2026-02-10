@@ -6,7 +6,6 @@ import {
   createVerifiedUser,
   getSessionsForUser,
   resetUserCounter,
-  runMigrations,
   truncateAll,
 } from '../helpers';
 import { clearRedisStore, startTestServer, stopTestServer } from '../helpers/testApp';
@@ -15,7 +14,6 @@ describe('Session Lifecycle', () => {
   let baseUrl: string;
 
   beforeAll(async () => {
-    await runMigrations();
     const server = await startTestServer();
     baseUrl = server.baseUrl;
   });

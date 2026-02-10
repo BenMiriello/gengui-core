@@ -6,7 +6,6 @@ import {
   getEmailVerificationTokensForUser,
   getUserFromDb,
   resetUserCounter,
-  runMigrations,
   truncateAll,
 } from '../helpers';
 import { clearRedisStore, emailMock, startTestServer, stopTestServer } from '../helpers/testApp';
@@ -15,7 +14,6 @@ describe('POST /api/auth/signup', () => {
   let baseUrl: string;
 
   beforeAll(async () => {
-    await runMigrations();
     const server = await startTestServer();
     baseUrl = server.baseUrl;
   });

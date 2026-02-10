@@ -1,12 +1,11 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
-import { closeDb, resetUserCounter, runMigrations, truncateAll } from '../helpers';
+import { closeDb, resetUserCounter, truncateAll } from '../helpers';
 import { clearRedisStore, emailMock, startTestServer, stopTestServer } from '../helpers/testApp';
 
 describe('CORS', () => {
   let baseUrl: string;
 
   beforeAll(async () => {
-    await runMigrations();
     const server = await startTestServer();
     baseUrl = server.baseUrl;
   });

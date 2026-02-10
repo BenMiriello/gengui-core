@@ -19,7 +19,7 @@ import {
 
 export type { NodeProperties, StoredStoryNode, StoredStoryConnection, QueryResult };
 
-const GRAPH_NAME = 'gengui';
+const GRAPH_NAME = process.env.FALKORDB_GRAPH_NAME || 'gengui';
 
 // Allowed node labels - must be validated before interpolation into queries
 const ALLOWED_NODE_LABELS = new Set([
@@ -706,7 +706,7 @@ class GraphService {
       toNodeId: row[2] as string,
       edgeType: row[3] as StoryEdgeType,
       description: row[4] as string | null,
-      strength: row[5] as number | null,
+      strength: row[5] != null ? Number(row[5]) : null,
       narrativeDistance: null,
       createdAt: row[6] as string,
       deletedAt: row[7] as string | null,
@@ -1182,3 +1182,6 @@ class GraphService {
 }
 
 export const graphService = new GraphService();
+
+// Export class for tests that need to bypass mocks
+export { GraphService };

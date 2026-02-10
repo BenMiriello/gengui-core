@@ -5,7 +5,6 @@ import {
   createVerifiedUser,
   getSessionsForUser,
   resetUserCounter,
-  runMigrations,
   truncateAll,
 } from '../helpers';
 import { clearRedisStore, emailMock, startTestServer, stopTestServer } from '../helpers/testApp';
@@ -14,7 +13,6 @@ describe('Password Change', () => {
   let baseUrl: string;
 
   beforeAll(async () => {
-    await runMigrations();
     const server = await startTestServer();
     baseUrl = server.baseUrl;
   });

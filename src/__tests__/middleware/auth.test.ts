@@ -6,7 +6,6 @@ import {
   createTestUser,
   createVerifiedUser,
   resetUserCounter,
-  runMigrations,
   truncateAll,
 } from '../helpers';
 import { clearRedisStore, emailMock, startTestServer, stopTestServer } from '../helpers/testApp';
@@ -15,7 +14,6 @@ describe('Auth Middleware', () => {
   let baseUrl: string;
 
   beforeAll(async () => {
-    await runMigrations();
     const server = await startTestServer();
     baseUrl = server.baseUrl;
   });

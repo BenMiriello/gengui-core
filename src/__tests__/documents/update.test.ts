@@ -6,7 +6,6 @@ import {
   getDocumentById,
   resetDocumentCounter,
   resetUserCounter,
-  runMigrations,
   truncateAll,
 } from '../helpers';
 import {
@@ -21,7 +20,6 @@ describe('Document Update', () => {
   let baseUrl: string;
 
   beforeAll(async () => {
-    await runMigrations();
     const server = await startTestServer();
     baseUrl = server.baseUrl;
   });

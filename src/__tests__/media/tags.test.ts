@@ -9,7 +9,6 @@ import {
   resetMediaCounter,
   resetTagCounter,
   resetUserCounter,
-  runMigrations,
   truncateAll,
 } from '../helpers';
 import { clearRedisStore, clearStorageData, startTestServer, stopTestServer } from '../helpers/testApp';
@@ -18,7 +17,6 @@ describe('Media Tags', () => {
   let baseUrl: string;
 
   beforeAll(async () => {
-    await runMigrations();
     const server = await startTestServer();
     baseUrl = server.baseUrl;
   });

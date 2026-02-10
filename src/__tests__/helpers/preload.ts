@@ -9,6 +9,23 @@ process.env.FRONTEND_URL = 'http://localhost:5173';
 process.env.GEMINI_API_KEY = 'test-key';
 process.env.OPENAI_API_KEY = 'test-key';
 process.env.REDIS_URL = 'redis://localhost:6379';
+process.env.FALKORDB_URL = process.env.FALKORDB_URL || 'redis://localhost:6381';
+process.env.FALKORDB_GRAPH_NAME = 'gengui_test';
+
+// Check if FalkorDB is available - if so, use real graph instead of mock
+import Redis from 'ioredis';
+try {
+  const testClient = new Redis(process.env.FALKORDB_URL, {
+    lazyConnect: true,
+    connectTimeout: 1000,
+    maxRetriesPerRequest: 0,
+  });
+  await testClient.connect();
+  await testClient.quit();
+  process.env.FALKORDB_AVAILABLE = 'true';
+} catch {
+  process.env.FALKORDB_AVAILABLE = 'false';
+}
 
 import { mock } from 'bun:test';
 
@@ -20,3 +37,8 @@ mock.module('../../../src/middleware/rateLimiter', () => ({
   passwordResetRateLimiter: noOpRateLimiter,
   emailVerificationRateLimiter: noOpRateLimiter,
 }));
+
+// Ensure database schema is up-to-date ONCE before any tests run.
+// Test files should only call truncateAll(), never runMigrations().
+import { ensureSchema } from './setup';
+await ensureSchema();

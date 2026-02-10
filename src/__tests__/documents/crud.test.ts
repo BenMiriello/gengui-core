@@ -7,7 +7,6 @@ import {
   getDocumentsForUser,
   resetDocumentCounter,
   resetUserCounter,
-  runMigrations,
   truncateAll,
 } from '../helpers';
 import { clearRedisStore, startTestServer, stopTestServer } from '../helpers/testApp';
@@ -16,7 +15,6 @@ describe('Document CRUD', () => {
   let baseUrl: string;
 
   beforeAll(async () => {
-    await runMigrations();
     const server = await startTestServer();
     baseUrl = server.baseUrl;
   });

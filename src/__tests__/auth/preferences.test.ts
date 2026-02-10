@@ -3,7 +3,6 @@ import {
   closeDb,
   createVerifiedUser,
   resetUserCounter,
-  runMigrations,
   truncateAll,
 } from '../helpers';
 import { clearRedisStore, emailMock, startTestServer, stopTestServer } from '../helpers/testApp';
@@ -12,7 +11,6 @@ describe('User Preferences', () => {
   let baseUrl: string;
 
   beforeAll(async () => {
-    await runMigrations();
     const server = await startTestServer();
     baseUrl = server.baseUrl;
   });

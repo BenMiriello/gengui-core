@@ -5,7 +5,6 @@ import {
   createVerifiedUser,
   resetGenerationCounter,
   resetUserCounter,
-  runMigrations,
   truncateAll,
 } from '../helpers';
 import { clearRedisStore, clearStorageData, startTestServer, stopTestServer } from '../helpers/testApp';
@@ -14,7 +13,6 @@ describe('Generations List', () => {
   let baseUrl: string;
 
   beforeAll(async () => {
-    await runMigrations();
     const server = await startTestServer();
     baseUrl = server.baseUrl;
   });

@@ -268,8 +268,12 @@ export function setMockStoryNode(nodeId: string, node: any) {
   mockStoryNodes.set(nodeId, node);
 }
 
+// Always mock graphService for API tests that use setMockStoryNode helper
+// Graph integration tests (in __tests__/graph/) create their own connection
+{
 mock.module('../../services/graph/graph.service', () => ({
   graphService: {
+    __isMocked: true,
     connect: async () => {},
     disconnect: async () => {},
     getConnectionStatus: () => true,
@@ -321,6 +325,7 @@ mock.module('../../services/graph/graph.threads.js', () => ({
     deleteThread: async () => {},
   },
 }));
+} // end skipGraphMock conditional
 
 mock.module('../../config/env', () => ({
   env: {

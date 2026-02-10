@@ -7,7 +7,6 @@ import {
   getDocumentVersions,
   resetDocumentCounter,
   resetUserCounter,
-  runMigrations,
   truncateAll,
 } from '../helpers';
 import {
@@ -22,7 +21,6 @@ describe('Document Versioning', () => {
   let baseUrl: string;
 
   beforeAll(async () => {
-    await runMigrations();
     const server = await startTestServer();
     baseUrl = server.baseUrl;
   });

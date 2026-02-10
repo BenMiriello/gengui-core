@@ -44,12 +44,7 @@ export {
   mockImageProvider,
   resetAllMocks,
 } from './mocks';
-export {
-  closeDb,
-  getTestDb,
-  runMigrations,
-  truncateAll,
-} from './setup';
+export { closeDb, ensureSchema, getTestDb, truncateAll } from './setup';
 
 export {
   clearMockStoryNodes,

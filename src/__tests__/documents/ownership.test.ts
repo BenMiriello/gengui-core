@@ -5,7 +5,6 @@ import {
   createVerifiedUser,
   resetDocumentCounter,
   resetUserCounter,
-  runMigrations,
   truncateAll,
 } from '../helpers';
 import {
@@ -20,7 +19,6 @@ describe('Document Ownership', () => {
   let baseUrl: string;
 
   beforeAll(async () => {
-    await runMigrations();
     const server = await startTestServer();
     baseUrl = server.baseUrl;
   });
