@@ -6,6 +6,9 @@ import { getTestDb } from './setup';
 
 const BCRYPT_ROUNDS = 12;
 
+let mediaCounter = 0;
+let tagCounter = 0;
+
 interface UserInsert {
   email?: string;
   username?: string;
@@ -221,4 +224,234 @@ export async function getPasswordResetTokensForUser(userId: string) {
     SELECT * FROM password_reset_tokens WHERE user_id = ${userId}
   `);
   return result as any[];
+}
+
+interface DocumentInsert {
+  title?: string;
+  content?: string;
+  narrativeModeEnabled?: boolean;
+  mediaModeEnabled?: boolean;
+}
+
+interface TestDocument {
+  id: string;
+  userId: string;
+  title: string;
+  content: string;
+  narrativeModeEnabled: boolean;
+  mediaModeEnabled: boolean;
+  currentVersion: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+let documentCounter = 0;
+
+export async function createTestDocument(
+  userId: string,
+  overrides: DocumentInsert = {}
+): Promise<TestDocument> {
+  const db = await getTestDb();
+  const uniqueId = ++documentCounter;
+
+  const title = overrides.title ?? `Test Document ${uniqueId}`;
+  const content = overrides.content ?? `This is test content for document ${uniqueId}.`;
+  const narrativeModeEnabled = overrides.narrativeModeEnabled ?? false;
+  const mediaModeEnabled = overrides.mediaModeEnabled ?? false;
+
+  const result = await db.execute(sql`
+    INSERT INTO documents (user_id, title, content, narrative_mode_enabled, media_mode_enabled, segment_sequence)
+    VALUES (${userId}, ${title}, ${content}, ${narrativeModeEnabled}, ${mediaModeEnabled}, '[]'::jsonb)
+    RETURNING id, user_id, title, content, narrative_mode_enabled, media_mode_enabled, current_version, created_at, updated_at
+  `);
+
+  const row = result[0] as any;
+
+  return {
+    id: row.id,
+    userId: row.user_id,
+    title: row.title,
+    content: row.content,
+    narrativeModeEnabled: row.narrative_mode_enabled,
+    mediaModeEnabled: row.media_mode_enabled,
+    currentVersion: row.current_version,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export async function getDocumentsForUser(userId: string) {
+  const db = await getTestDb();
+  const result = await db.execute(sql`
+    SELECT * FROM documents WHERE user_id = ${userId} AND deleted_at IS NULL
+    ORDER BY updated_at DESC
+  `);
+  return result as any[];
+}
+
+export async function getDocumentById(documentId: string) {
+  const db = await getTestDb();
+  const result = await db.execute(sql`
+    SELECT * FROM documents WHERE id = ${documentId}
+  `);
+  return result[0] as any;
+}
+
+export async function getDocumentVersions(documentId: string) {
+  const db = await getTestDb();
+  const result = await db.execute(sql`
+    SELECT * FROM document_versions WHERE document_id = ${documentId}
+    ORDER BY version_number DESC
+  `);
+  return result as any[];
+}
+
+export function resetDocumentCounter() {
+  documentCounter = 0;
+}
+
+// ========== Media Factories ==========
+
+interface MediaInsert {
+  storageKey?: string;
+  s3Key?: string;
+  size?: number;
+  mimeType?: string;
+  hash?: string;
+  generated?: boolean;
+  status?: string;
+  sourceType?: string;
+}
+
+interface TestMedia {
+  id: string;
+  userId: string;
+  storageKey: string | null;
+  s3Key: string | null;
+  size: number | null;
+  mimeType: string | null;
+  hash: string | null;
+  generated: boolean;
+  status: string;
+  createdAt: Date;
+}
+
+export async function createTestMedia(
+  userId: string,
+  overrides: MediaInsert = {}
+): Promise<TestMedia> {
+  const db = await getTestDb();
+  const uniqueId = ++mediaCounter;
+
+  const storageKey = overrides.storageKey ?? `${userId}/media-${uniqueId}/1`;
+  const s3Key = overrides.s3Key ?? storageKey;
+  const size = overrides.size ?? 1024;
+  const mimeType = overrides.mimeType ?? 'image/png';
+  const hash = overrides.hash ?? crypto.randomBytes(32).toString('hex');
+  const generated = overrides.generated ?? false;
+  const status = overrides.status ?? 'completed';
+  const sourceType = overrides.sourceType ?? 'upload';
+
+  const result = await db.execute(sql`
+    INSERT INTO media (user_id, storage_key, s3_key, size, mime_type, hash, generated, status, source_type)
+    VALUES (${userId}, ${storageKey}, ${s3Key}, ${size}, ${mimeType}, ${hash}, ${generated}, ${status}, ${sourceType})
+    RETURNING id, user_id, storage_key, s3_key, size, mime_type, hash, generated, status, created_at
+  `);
+
+  const row = result[0] as any;
+
+  return {
+    id: row.id,
+    userId: row.user_id,
+    storageKey: row.storage_key,
+    s3Key: row.s3_key,
+    size: row.size,
+    mimeType: row.mime_type,
+    hash: row.hash,
+    generated: row.generated,
+    status: row.status,
+    createdAt: row.created_at,
+  };
+}
+
+export async function getMediaForUser(userId: string) {
+  const db = await getTestDb();
+  const result = await db.execute(sql`
+    SELECT * FROM media WHERE user_id = ${userId} AND deleted_at IS NULL
+    ORDER BY created_at DESC
+  `);
+  return result as any[];
+}
+
+export async function getMediaById(mediaId: string) {
+  const db = await getTestDb();
+  const result = await db.execute(sql`
+    SELECT * FROM media WHERE id = ${mediaId}
+  `);
+  return result[0] as any;
+}
+
+export function resetMediaCounter() {
+  mediaCounter = 0;
+}
+
+// ========== Tag Factories ==========
+
+interface TestTag {
+  id: string;
+  userId: string;
+  name: string;
+  createdAt: Date;
+}
+
+export async function createTestTag(userId: string, name?: string): Promise<TestTag> {
+  const db = await getTestDb();
+  const uniqueId = ++tagCounter;
+  const tagName = name ?? `tag-${uniqueId}`;
+
+  const result = await db.execute(sql`
+    INSERT INTO tags (user_id, name)
+    VALUES (${userId}, ${tagName})
+    RETURNING id, user_id, name, created_at
+  `);
+
+  const row = result[0] as any;
+
+  return {
+    id: row.id,
+    userId: row.user_id,
+    name: row.name,
+    createdAt: row.created_at,
+  };
+}
+
+export async function getTagsForUser(userId: string) {
+  const db = await getTestDb();
+  const result = await db.execute(sql`
+    SELECT * FROM tags WHERE user_id = ${userId}
+    ORDER BY name
+  `);
+  return result as any[];
+}
+
+export async function addTagToMedia(mediaId: string, tagId: string) {
+  const db = await getTestDb();
+  await db.execute(sql`
+    INSERT INTO media_tags (media_id, tag_id)
+    VALUES (${mediaId}, ${tagId})
+  `);
+}
+
+export async function getMediaTags(mediaId: string) {
+  const db = await getTestDb();
+  const result = await db.execute(sql`
+    SELECT t.* FROM tags t
+    INNER JOIN media_tags mt ON t.id = mt.tag_id
+    WHERE mt.media_id = ${mediaId}
+  `);
+  return result as any[];
+}
+
+export function resetTagCounter() {
+  tagCounter = 0;
 }

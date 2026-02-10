@@ -11,6 +11,71 @@ export function clearRedisStore() {
   redisStore.clear();
 }
 
+const mockStorageData = new Map<string, Buffer>();
+let storageKeyCounter = 0;
+
+export function clearStorageData() {
+  mockStorageData.clear();
+  storageKeyCounter = 0;
+}
+
+mock.module('../../services/storage', () => ({
+  storageProvider: {
+    upload: async (userId: string, mediaId: string, buffer: Buffer, _mimeType: string) => {
+      const key = `${userId}/${mediaId}/${++storageKeyCounter}`;
+      mockStorageData.set(key, buffer);
+      return key;
+    },
+    delete: async (key: string) => {
+      mockStorageData.delete(key);
+    },
+    getSignedUrl: async (key: string, _expiresIn?: number) => {
+      return `https://test-bucket.s3.amazonaws.com/${key}?signature=test`;
+    },
+    downloadToBuffer: async (key: string) => {
+      const data = mockStorageData.get(key);
+      if (!data) throw new Error(`Key not found: ${key}`);
+      return data;
+    },
+    healthCheck: async () => true,
+  },
+  createStorageProvider: () => ({
+    upload: async (userId: string, mediaId: string, buffer: Buffer, _mimeType: string) => {
+      const key = `${userId}/${mediaId}/${++storageKeyCounter}`;
+      mockStorageData.set(key, buffer);
+      return key;
+    },
+    delete: async (key: string) => {
+      mockStorageData.delete(key);
+    },
+    getSignedUrl: async (key: string, _expiresIn?: number) => {
+      return `https://test-bucket.s3.amazonaws.com/${key}?signature=test`;
+    },
+    downloadToBuffer: async (key: string) => {
+      const data = mockStorageData.get(key);
+      if (!data) throw new Error(`Key not found: ${key}`);
+      return data;
+    },
+    healthCheck: async () => true,
+  }),
+}));
+
+mock.module('../../services/imageProcessor', () => ({
+  imageProcessor: {
+    extractDimensions: async (_buffer: Buffer) => ({ width: 100, height: 100 }),
+    createThumbnail: async (buffer: Buffer, _size: number) => buffer,
+  },
+}));
+
+mock.module('../../services/cache', () => ({
+  cache: {
+    getMediaUrl: async () => null,
+    setMediaUrl: async () => {},
+    delMediaUrl: async () => {},
+    delMetadata: async () => {},
+  },
+}));
+
 const mockRedisClient = {
   status: 'ready',
   mode: 'standalone',
@@ -123,7 +188,140 @@ mock.module('../../services/image-generation/factory', () => ({
       success: true,
       imageData: Buffer.from('fake-image'),
     }),
+    submitJob: async () => ({ jobId: 'test-job-id' }),
   }),
+  getImageProviderName: () => 'test',
+}));
+
+const primaryEditors = new Map<string, string>();
+
+export function setPrimaryEditor(documentId: string, sessionId: string) {
+  primaryEditors.set(documentId, sessionId);
+}
+
+export function clearPrimaryEditors() {
+  primaryEditors.clear();
+}
+
+mock.module('../../services/presence', () => ({
+  presenceService: {
+    isPrimaryEditor: async (documentId: string, sessionId: string) => {
+      const primary = primaryEditors.get(documentId);
+      return primary === sessionId;
+    },
+    getPrimaryEditor: async (documentId: string) => primaryEditors.get(documentId) || null,
+    recordHeartbeat: async () => {},
+    renewPrimaryLock: async () => true,
+    attemptTakeover: async (documentId: string, sessionId: string) => {
+      primaryEditors.set(documentId, sessionId);
+      return true;
+    },
+    getActiveEditorCount: async () => 1,
+    removeEditor: async () => {},
+    cleanupStaleEditors: async () => {},
+  },
+}));
+
+mock.module('../../services/sse', () => ({
+  sseService: {
+    addClient: () => {},
+    removeClient: () => {},
+    broadcastToDocument: () => {},
+    broadcastToUser: () => {},
+  },
+}));
+
+mock.module('../../services/redis-streams', () => ({
+  redisStreams: {
+    add: async () => 'mock-stream-id',
+  },
+}));
+
+const mockStoryNodes = new Map<string, any>();
+
+export function clearMockStoryNodes() {
+  mockStoryNodes.clear();
+}
+
+export function setMockStoryNode(nodeId: string, node: any) {
+  mockStoryNodes.set(nodeId, node);
+}
+
+mock.module('../../services/graph/graph.service', () => ({
+  graphService: {
+    connect: async () => {},
+    disconnect: async () => {},
+    getConnectionStatus: () => true,
+    query: async () => ({ headers: [], data: [], stats: {} }),
+    createStoryNode: async () => 'mock-node-id',
+    getStoryNodeById: async (nodeId: string, userId: string) => {
+      const node = mockStoryNodes.get(nodeId);
+      if (!node || node.userId !== userId) return null;
+      return node;
+    },
+    getStoryNodeByIdInternal: async (nodeId: string) => mockStoryNodes.get(nodeId) || null,
+    getStoryNodesForDocument: async (documentId: string, userId: string) => {
+      const nodes: any[] = [];
+      for (const node of mockStoryNodes.values()) {
+        if (node.documentId === documentId && node.userId === userId) {
+          nodes.push(node);
+        }
+      }
+      return nodes;
+    },
+    updateStoryNode: async () => {},
+    updateStoryNodeStyle: async (nodeId: string, stylePreset: string | null, stylePrompt: string | null) => {
+      const node = mockStoryNodes.get(nodeId);
+      if (!node) return null;
+      node.stylePreset = stylePreset;
+      node.stylePrompt = stylePrompt;
+      return node;
+    },
+    updateStoryNodePrimaryMedia: async () => {},
+    softDeleteStoryNode: async () => {},
+    deleteAllStoryNodesForDocument: async () => {},
+    getStoryConnectionsForDocument: async () => [],
+    createStoryConnection: async () => 'mock-connection-id',
+    softDeleteStoryConnection: async () => {},
+    setNodeEmbedding: async () => {},
+    findSimilarNodes: async () => [],
+    getNodeSimilaritiesForDocument: async () => [],
+    getNodeEmbeddingsProjection: async () => [],
+  },
+}));
+
+mock.module('../../services/graph/graph.threads.js', () => ({
+  graphThreads: {
+    getThreadsForDocument: async () => [],
+    getThreadById: async () => null,
+    getThreadsForEvent: async () => [],
+    getEventsForThread: async () => [],
+    renameThread: async () => {},
+    deleteThread: async () => {},
+  },
+}));
+
+mock.module('../../config/env', () => ({
+  env: {
+    NODE_ENV: 'development',
+    PORT: 3000,
+    LOG_LEVEL: 'error',
+    DB_HOST: 'localhost',
+    DB_PORT: 5432,
+    DB_USER: 'gengui',
+    DB_PASSWORD: 'gengui_dev_pass',
+    DB_NAME: 'gengui_test',
+    MINIO_ENDPOINT: 'localhost',
+    MINIO_PORT: 9000,
+    MINIO_ACCESS_KEY: 'minioadmin',
+    MINIO_SECRET_KEY: 'minioadmin',
+    MINIO_BUCKET: 'media',
+    TEXT_INFERENCE_PROVIDER: 'gemini',
+    IMAGE_INFERENCE_PROVIDER: 'local',
+    EMBEDDING_PROVIDER: 'openai',
+    GEMINI_API_KEY: 'test-key',
+    OPENAI_API_KEY: 'test-key',
+  },
 }));
 
 import cookieParser from 'cookie-parser';
@@ -134,6 +332,10 @@ import { requireAuth, requireEmailVerified } from '../../middleware/auth';
 import { errorHandler } from '../../middleware/errorHandler';
 import { requireAdmin } from '../../middleware/requireAdmin';
 import authRoutes from '../../routes/auth';
+import documentRoutes from '../../routes/documents';
+import mediaRoutes from '../../routes/media';
+import nodeRoutes from '../../routes/nodes';
+import tagRoutes from '../../routes/tags';
 
 function createTestApp() {
   const app = express();
@@ -185,6 +387,10 @@ function createTestApp() {
   });
 
   app.use('/api', authRoutes);
+  app.use('/api', documentRoutes);
+  app.use('/api/media', mediaRoutes);
+  app.use('/api', nodeRoutes);
+  app.use('/api', tagRoutes);
 
   app.use(errorHandler);
 
@@ -240,4 +446,4 @@ export function getBaseUrl(): string {
   return `http://127.0.0.1:${serverPort}`;
 }
 
-export { emailMock };
+export { emailMock, mockStorageData, mockStoryNodes };

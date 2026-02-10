@@ -1,4 +1,5 @@
 export {
+  addTagToMedia,
   createAdminUser,
   createEmailVerificationToken,
   createExpiredEmailVerificationToken,
@@ -6,14 +7,27 @@ export {
   createExpiredSession,
   createPasswordResetToken,
   createSession,
+  createTestDocument,
+  createTestMedia,
+  createTestTag,
   createTestUser,
   createVerifiedUser,
   getAuthCookie,
+  getDocumentById,
+  getDocumentsForUser,
+  getDocumentVersions,
   getEmailVerificationTokensForUser,
+  getMediaById,
+  getMediaForUser,
+  getMediaTags,
   getPasswordResetTokensForUser,
   getSessionsForUser,
+  getTagsForUser,
   getUserFromDb,
   loginAs,
+  resetDocumentCounter,
+  resetMediaCounter,
+  resetTagCounter,
   resetUserCounter,
 } from './factories';
 export {
@@ -29,4 +43,13 @@ export {
   truncateAll,
 } from './setup';
 
-export { clearRedisStore } from './testApp';
+export {
+  clearMockStoryNodes,
+  clearPrimaryEditors,
+  clearRedisStore,
+  clearStorageData,
+  mockStorageData,
+  mockStoryNodes,
+  setMockStoryNode,
+  setPrimaryEditor,
+} from './testApp';
