@@ -144,9 +144,14 @@ mock.module('../../services/redis', () => ({
     lpush: async () => 1,
     llen: async () => 0,
     lrange: async () => [],
-    get: async () => null,
-    set: async () => {},
-    del: async () => 1,
+    get: async (key: string) => redisStore.get(key) || null,
+    set: async (key: string, value: string) => {
+      redisStore.set(key, value);
+    },
+    del: async (key: string) => {
+      redisStore.delete(key);
+      return 1;
+    },
     zadd: async () => 1,
     zcard: async () => 0,
     zrem: async () => 1,
@@ -164,6 +169,22 @@ mock.module('../../middleware/rateLimiter', () => ({
   signupRateLimiter: noOpRateLimiter,
   passwordResetRateLimiter: noOpRateLimiter,
   emailVerificationRateLimiter: noOpRateLimiter,
+}));
+
+mock.module('../../middleware/generationRateLimiter', () => ({
+  generationRateLimiter: noOpRateLimiter,
+}));
+
+mock.module('../../middleware/augmentationRateLimiter', () => ({
+  augmentationRateLimiter: noOpRateLimiter,
+}));
+
+mock.module('../../services/runpod/client', () => ({
+  runpodClient: {
+    isEnabled: () => false,
+    getJobStatus: async () => ({ status: 'COMPLETED' }),
+    cancelJob: async () => {},
+  },
 }));
 
 mock.module('../../services/emailService', () => ({
@@ -331,8 +352,10 @@ import helmet from 'helmet';
 import { requireAuth, requireEmailVerified } from '../../middleware/auth';
 import { errorHandler } from '../../middleware/errorHandler';
 import { requireAdmin } from '../../middleware/requireAdmin';
+import adminRoutes from '../../routes/admin';
 import authRoutes from '../../routes/auth';
 import documentRoutes from '../../routes/documents';
+import generationRoutes from '../../routes/generations';
 import mediaRoutes from '../../routes/media';
 import nodeRoutes from '../../routes/nodes';
 import tagRoutes from '../../routes/tags';
@@ -387,7 +410,9 @@ function createTestApp() {
   });
 
   app.use('/api', authRoutes);
+  app.use('/api', adminRoutes);
   app.use('/api', documentRoutes);
+  app.use('/api/generations', generationRoutes);
   app.use('/api/media', mediaRoutes);
   app.use('/api', nodeRoutes);
   app.use('/api', tagRoutes);

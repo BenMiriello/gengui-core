@@ -455,3 +455,129 @@ export async function getMediaTags(mediaId: string) {
 export function resetTagCounter() {
   tagCounter = 0;
 }
+
+// ========== Generation Factories ==========
+
+let generationCounter = 0;
+
+interface GenerationInsert {
+  prompt?: string;
+  seed?: number;
+  width?: number;
+  height?: number;
+  status?: string;
+  documentId?: string;
+}
+
+interface TestGeneration {
+  id: string;
+  userId: string;
+  prompt: string;
+  seed: number;
+  width: number;
+  height: number;
+  status: string;
+  createdAt: Date;
+}
+
+export async function createTestGeneration(
+  userId: string,
+  overrides: GenerationInsert = {}
+): Promise<TestGeneration> {
+  const db = await getTestDb();
+  const uniqueId = ++generationCounter;
+
+  const prompt = overrides.prompt ?? `Test prompt ${uniqueId}`;
+  const seed = overrides.seed ?? Math.floor(Math.random() * 1000000);
+  const width = overrides.width ?? 1024;
+  const height = overrides.height ?? 1024;
+  const status = overrides.status ?? 'queued';
+
+  const result = await db.execute(sql`
+    INSERT INTO media (user_id, source_type, status, prompt, seed, width, height)
+    VALUES (${userId}, 'generation', ${status}, ${prompt}, ${seed}, ${width}, ${height})
+    RETURNING id, user_id, prompt, seed, width, height, status, created_at
+  `);
+
+  const row = result[0] as any;
+
+  const generation: TestGeneration = {
+    id: row.id,
+    userId: row.user_id,
+    prompt: row.prompt,
+    seed: row.seed,
+    width: row.width,
+    height: row.height,
+    status: row.status,
+    createdAt: row.created_at,
+  };
+
+  if (overrides.documentId) {
+    await db.execute(sql`
+      INSERT INTO document_media (document_id, media_id)
+      VALUES (${overrides.documentId}, ${generation.id})
+    `);
+  }
+
+  return generation;
+}
+
+export async function createQueuedGeneration(
+  userId: string,
+  overrides: Omit<GenerationInsert, 'status'> = {}
+): Promise<TestGeneration> {
+  return createTestGeneration(userId, { ...overrides, status: 'queued' });
+}
+
+export async function createCompletedGeneration(
+  userId: string,
+  overrides: Omit<GenerationInsert, 'status'> = {}
+): Promise<TestGeneration> {
+  return createTestGeneration(userId, { ...overrides, status: 'completed' });
+}
+
+export async function createFailedGeneration(
+  userId: string,
+  overrides: Omit<GenerationInsert, 'status'> = {}
+): Promise<TestGeneration> {
+  return createTestGeneration(userId, { ...overrides, status: 'failed' });
+}
+
+export async function createCancelledGeneration(
+  userId: string,
+  overrides: Omit<GenerationInsert, 'status'> = {}
+): Promise<TestGeneration> {
+  const db = await getTestDb();
+  const generation = await createTestGeneration(userId, { ...overrides, status: 'failed' });
+
+  await db.execute(sql`
+    UPDATE media SET cancelled_at = NOW(), error = 'Cancelled by user'
+    WHERE id = ${generation.id}
+  `);
+
+  return generation;
+}
+
+export async function getGenerationsForUser(userId: string) {
+  const db = await getTestDb();
+  const result = await db.execute(sql`
+    SELECT * FROM media
+    WHERE user_id = ${userId}
+    AND source_type = 'generation'
+    AND deleted_at IS NULL
+    ORDER BY created_at DESC
+  `);
+  return result as any[];
+}
+
+export async function getGenerationById(generationId: string) {
+  const db = await getTestDb();
+  const result = await db.execute(sql`
+    SELECT * FROM media WHERE id = ${generationId}
+  `);
+  return result[0] as any;
+}
+
+export function resetGenerationCounter() {
+  generationCounter = 0;
+}
