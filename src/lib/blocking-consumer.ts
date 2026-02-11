@@ -46,15 +46,16 @@ export abstract class BlockingConsumer {
 
     // Create dedicated Redis client with optimized config
     this.redisClient = new Redis(process.env.REDIS_URL || 'redis://127.0.0.1:6379', {
-      maxRetriesPerRequest: 0,
+      maxRetriesPerRequest: 3,
+      retryStrategy: (times) => Math.min(times * 500, 5000),
       commandTimeout: 15000,
       connectTimeout: 10000,
       enableReadyCheck: true,
       lazyConnect: false,
       enableOfflineQueue: true,
-      keepAlive: 0, // Disable (prevents issues)
-      family: 4, // Force IPv4
-      enableAutoPipelining: false, // Disable (prevents queue buildup)
+      keepAlive: 0,
+      family: 4,
+      enableAutoPipelining: false,
     });
 
     this.redisClient.on('error', (error) => {

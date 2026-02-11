@@ -15,19 +15,21 @@ class RedisService {
     logger.info({ redisUrl }, 'Connecting to Redis');
 
     this.client = new Redis(redisUrl, {
-      maxRetriesPerRequest: 0,
+      maxRetriesPerRequest: 3,
+      retryStrategy: (times) => Math.min(times * 500, 5000),
       commandTimeout: 15000,
       connectTimeout: 10000,
       enableReadyCheck: true,
       lazyConnect: false,
-      enableOfflineQueue: true, // Allow queueing during startup
-      keepAlive: 0, // Disable TCP keepalive (was causing issues)
-      family: 4, // Force IPv4
-      enableAutoPipelining: false, // Disable auto pipelining (was causing queue buildup)
+      enableOfflineQueue: true,
+      keepAlive: 0,
+      family: 4,
+      enableAutoPipelining: false,
     });
 
     this.subscriber = new Redis(redisUrl, {
-      maxRetriesPerRequest: 0,
+      maxRetriesPerRequest: 3,
+      retryStrategy: (times) => Math.min(times * 500, 5000),
       commandTimeout: 15000,
       connectTimeout: 10000,
       enableReadyCheck: true,
