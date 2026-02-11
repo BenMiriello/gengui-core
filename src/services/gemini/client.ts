@@ -29,7 +29,7 @@ export async function analyzeText(content: string): Promise<AnalysisResult> {
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
-        responseSchema: analyzeResponseSchema as any,
+        responseJsonSchema: analyzeResponseSchema,
       },
     });
 
@@ -72,7 +72,7 @@ export async function updateNodes(
         contents: prompt,
         config: {
           responseMimeType: 'application/json',
-          responseSchema: updateNodesResponseSchema as any,
+          responseJsonSchema: updateNodesResponseSchema,
         },
       });
 
