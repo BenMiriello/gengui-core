@@ -31,10 +31,16 @@ export function createApp() {
     })
   );
 
+  const corsOrigins =
+    env.NODE_ENV === 'development'
+      ? ['http://localhost:5173', 'http://localhost:3001']
+      : env.FRONTEND_URL
+        ? [env.FRONTEND_URL]
+        : [];
+
   app.use(
     cors({
-      origin:
-        env.NODE_ENV === 'development' ? ['http://localhost:5173', 'http://localhost:3001'] : [],
+      origin: corsOrigins,
       credentials: true,
     })
   );

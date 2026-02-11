@@ -41,6 +41,8 @@ const envSchema = z
     OPENAI_API_KEY: z.string().optional(),
     RUNPOD_API_KEY: z.string().optional(),
     RUNPOD_ENDPOINT_ID: z.string().optional(),
+
+    FRONTEND_URL: z.string().optional(),
   })
   .refine(
     (data) => {
