@@ -35,7 +35,7 @@ router.post(
       res.cookie('sessionToken', session.token, {
         httpOnly: true,
         secure: env.NODE_ENV === 'production',
-        sameSite: env.NODE_ENV === 'production' ? 'strict' : 'lax',
+        sameSite: env.NODE_ENV === 'production' ? 'none' : 'lax',
         maxAge: ONE_WEEK_MS,
       });
 
@@ -68,7 +68,7 @@ router.post(
       res.cookie('sessionToken', session.token, {
         httpOnly: true,
         secure: env.NODE_ENV === 'production',
-        sameSite: env.NODE_ENV === 'production' ? 'strict' : 'lax',
+        sameSite: env.NODE_ENV === 'production' ? 'none' : 'lax',
         maxAge: ONE_WEEK_MS,
       });
 
