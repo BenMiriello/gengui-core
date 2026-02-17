@@ -2,7 +2,6 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:tes
 import {
   closeDb,
   createExpiredSession,
-  createSession,
   createVerifiedUser,
   getSessionsForUser,
   resetUserCounter,
@@ -172,9 +171,7 @@ describe('Session Lifecycle', () => {
       expect(response.status).toBe(401);
 
       const sessions = await getSessionsForUser(user.id);
-      const validSessions = sessions.filter(
-        (s) => new Date(s.expires_at) > new Date()
-      );
+      const validSessions = sessions.filter((s) => new Date(s.expires_at) > new Date());
       expect(validSessions.length).toBe(0);
     });
 
@@ -338,7 +335,7 @@ describe('Session Lifecycle', () => {
       const maxAgeMatch = setCookie?.match(/max-age=(\d+)/i);
       expect(maxAgeMatch).toBeDefined();
 
-      const maxAge = Number.parseInt(maxAgeMatch![1], 10);
+      const maxAge = Number.parseInt(maxAgeMatch?.[1], 10);
       const sevenDaysSeconds = 7 * 24 * 60 * 60;
       expect(maxAge).toBeCloseTo(sevenDaysSeconds, -2);
     });

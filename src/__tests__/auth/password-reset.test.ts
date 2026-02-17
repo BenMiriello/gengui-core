@@ -2,7 +2,6 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:tes
 import {
   closeDb,
   createExpiredPasswordResetToken,
-  createPasswordResetToken,
   createSession,
   createVerifiedUser,
   getPasswordResetTokensForUser,
@@ -46,10 +45,7 @@ describe('Password Reset', () => {
       const body = await response.json();
       expect(body.success).toBe(true);
       expect(emailMock.sendPasswordResetEmail).toHaveBeenCalled();
-      expect(emailMock.sendPasswordResetEmail).toHaveBeenCalledWith(
-        user.email,
-        expect.any(String)
-      );
+      expect(emailMock.sendPasswordResetEmail).toHaveBeenCalledWith(user.email, expect.any(String));
     });
 
     test('returns success for nonexistent email (no enumeration)', async () => {

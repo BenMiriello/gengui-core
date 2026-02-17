@@ -6,7 +6,12 @@ import {
   resetUserCounter,
   truncateAll,
 } from '../helpers';
-import { clearRedisStore, clearStorageData, startTestServer, stopTestServer } from '../helpers/testApp';
+import {
+  clearRedisStore,
+  clearStorageData,
+  startTestServer,
+  stopTestServer,
+} from '../helpers/testApp';
 
 describe('Admin Limits', () => {
   let baseUrl: string;
@@ -197,11 +202,14 @@ describe('Admin Limits', () => {
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
-      const res = await fetch(`${baseUrl}/api/admin/users/00000000-0000-0000-0000-000000000000/limits`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Cookie: cookie },
-        body: JSON.stringify({ dailyLimit: 50 }),
-      });
+      const res = await fetch(
+        `${baseUrl}/api/admin/users/00000000-0000-0000-0000-000000000000/limits`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', Cookie: cookie },
+          body: JSON.stringify({ dailyLimit: 50 }),
+        }
+      );
 
       expect(res.status).toBe(404);
     });

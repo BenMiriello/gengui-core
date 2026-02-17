@@ -3,13 +3,17 @@ import {
   closeDb,
   createTestMedia,
   createVerifiedUser,
-  getMediaById,
   getMediaForUser,
   resetMediaCounter,
   resetUserCounter,
   truncateAll,
 } from '../helpers';
-import { clearRedisStore, clearStorageData, startTestServer, stopTestServer } from '../helpers/testApp';
+import {
+  clearRedisStore,
+  clearStorageData,
+  startTestServer,
+  stopTestServer,
+} from '../helpers/testApp';
 
 describe('Media Upload', () => {
   let baseUrl: string;
@@ -111,7 +115,9 @@ describe('Media Upload', () => {
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
-      const fileContent = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01, 0x02, 0x03]);
+      const fileContent = new Uint8Array([
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01, 0x02, 0x03,
+      ]);
       const file = new Blob([fileContent], { type: 'image/png' });
 
       const formData1 = new FormData();

@@ -197,7 +197,7 @@ router.post(
   emailVerificationRateLimiter,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const result = await authService.resendVerificationEmail(req.user!.id);
+      const result = await authService.resendVerificationEmail(req.user?.id);
       res.json(result);
     } catch (error) {
       next(error);

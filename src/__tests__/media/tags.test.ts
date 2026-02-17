@@ -11,7 +11,12 @@ import {
   resetUserCounter,
   truncateAll,
 } from '../helpers';
-import { clearRedisStore, clearStorageData, startTestServer, stopTestServer } from '../helpers/testApp';
+import {
+  clearRedisStore,
+  clearStorageData,
+  startTestServer,
+  stopTestServer,
+} from '../helpers/testApp';
 
 describe('Media Tags', () => {
   let baseUrl: string;
@@ -297,10 +302,13 @@ describe('Media Tags', () => {
       const { user } = await createVerifiedUser();
       const tag = await createTestTag(user.id);
 
-      const res = await fetch(`${baseUrl}/api/media/00000000-0000-0000-0000-000000000000/tags/${tag.id}`, {
-        method: 'DELETE',
-        headers: { 'X-User-Id': user.id },
-      });
+      const res = await fetch(
+        `${baseUrl}/api/media/00000000-0000-0000-0000-000000000000/tags/${tag.id}`,
+        {
+          method: 'DELETE',
+          headers: { 'X-User-Id': user.id },
+        }
+      );
 
       expect(res.status).toBe(404);
     });
@@ -309,10 +317,13 @@ describe('Media Tags', () => {
       const { user } = await createVerifiedUser();
       const media = await createTestMedia(user.id);
 
-      const res = await fetch(`${baseUrl}/api/media/${media.id}/tags/00000000-0000-0000-0000-000000000000`, {
-        method: 'DELETE',
-        headers: { 'X-User-Id': user.id },
-      });
+      const res = await fetch(
+        `${baseUrl}/api/media/${media.id}/tags/00000000-0000-0000-0000-000000000000`,
+        {
+          method: 'DELETE',
+          headers: { 'X-User-Id': user.id },
+        }
+      );
 
       expect(res.status).toBe(404);
     });

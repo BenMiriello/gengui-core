@@ -1,11 +1,11 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
+import { closeDb, createVerifiedUser, resetUserCounter, truncateAll } from '../helpers';
 import {
-  closeDb,
-  createVerifiedUser,
-  resetUserCounter,
-  truncateAll,
-} from '../helpers';
-import { clearRedisStore, clearStorageData, startTestServer, stopTestServer } from '../helpers/testApp';
+  clearRedisStore,
+  clearStorageData,
+  startTestServer,
+  stopTestServer,
+} from '../helpers/testApp';
 
 describe('Admin RBAC', () => {
   let baseUrl: string;

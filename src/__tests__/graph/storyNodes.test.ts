@@ -30,13 +30,17 @@ function createNodeInput(
 
   afterAll(async () => {
     // Clean up all test nodes (including test-specific 'other-user' nodes)
-    await graphService.query(`MATCH (n) WHERE n.userId IN ['${testUserId}', 'other-user', 'different-user'] DETACH DELETE n`);
+    await graphService.query(
+      `MATCH (n) WHERE n.userId IN ['${testUserId}', 'other-user', 'different-user'] DETACH DELETE n`
+    );
     await graphService.disconnect();
   });
 
   beforeEach(async () => {
     // Clean up all test nodes before each test
-    await graphService.query(`MATCH (n) WHERE n.userId IN ['${testUserId}', 'other-user', 'different-user'] DETACH DELETE n`);
+    await graphService.query(
+      `MATCH (n) WHERE n.userId IN ['${testUserId}', 'other-user', 'different-user'] DETACH DELETE n`
+    );
   });
 
   describe('createStoryNode', () => {

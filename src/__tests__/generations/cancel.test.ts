@@ -11,7 +11,12 @@ import {
   resetUserCounter,
   truncateAll,
 } from '../helpers';
-import { clearRedisStore, clearStorageData, startTestServer, stopTestServer } from '../helpers/testApp';
+import {
+  clearRedisStore,
+  clearStorageData,
+  startTestServer,
+  stopTestServer,
+} from '../helpers/testApp';
 
 describe('Generations Cancel', () => {
   let baseUrl: string;
@@ -135,10 +140,13 @@ describe('Generations Cancel', () => {
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
-      const res = await fetch(`${baseUrl}/api/generations/00000000-0000-0000-0000-000000000000/cancel`, {
-        method: 'POST',
-        headers: { Cookie: cookie },
-      });
+      const res = await fetch(
+        `${baseUrl}/api/generations/00000000-0000-0000-0000-000000000000/cancel`,
+        {
+          method: 'POST',
+          headers: { Cookie: cookie },
+        }
+      );
 
       expect(res.status).toBe(404);
     });

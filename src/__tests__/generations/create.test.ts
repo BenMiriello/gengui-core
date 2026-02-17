@@ -10,7 +10,12 @@ import {
   resetUserCounter,
   truncateAll,
 } from '../helpers';
-import { clearRedisStore, clearStorageData, startTestServer, stopTestServer } from '../helpers/testApp';
+import {
+  clearRedisStore,
+  clearStorageData,
+  startTestServer,
+  stopTestServer,
+} from '../helpers/testApp';
 
 describe('Generations Create', () => {
   let baseUrl: string;

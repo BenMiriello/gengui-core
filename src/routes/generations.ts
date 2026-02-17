@@ -55,7 +55,7 @@ router.post(
   async (req, res, next) => {
     try {
       const validatedData = createGenerationSchema.parse(req.body);
-      const result = await generationsService.create(req.user!.id, validatedData);
+      const result = await generationsService.create(req.user?.id, validatedData);
 
       res.status(201).json({
         id: result.id,
@@ -81,7 +81,7 @@ router.post(
 router.get('/', requireAuth, async (req, res, next) => {
   try {
     const limit = parseInt(req.query.limit as string, 10) || 50;
-    const results = await generationsService.list(req.user!.id, limit);
+    const results = await generationsService.list(req.user?.id, limit);
 
     res.json({ generations: results, count: results.length });
   } catch (error) {
@@ -91,7 +91,7 @@ router.get('/', requireAuth, async (req, res, next) => {
 
 router.get('/:id', requireAuth, async (req, res, next) => {
   try {
-    const generation = await generationsService.getById(req.params.id, req.user!.id);
+    const generation = await generationsService.getById(req.params.id, req.user?.id);
 
     res.json(generation);
   } catch (error) {
@@ -101,7 +101,7 @@ router.get('/:id', requireAuth, async (req, res, next) => {
 
 router.post('/:id/cancel', requireAuth, async (req, res, next) => {
   try {
-    const result = await generationsService.cancel(req.params.id, req.user!.id);
+    const result = await generationsService.cancel(req.params.id, req.user?.id);
     res.json(result);
   } catch (error) {
     // Job already completed - return 409 Conflict

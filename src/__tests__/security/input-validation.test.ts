@@ -114,7 +114,7 @@ describe('Input Validation & Injection Prevention', () => {
 
   describe('input length limits', () => {
     test('very long password is handled gracefully', async () => {
-      const veryLongPassword = 'A'.repeat(10000) + '!';
+      const veryLongPassword = `${'A'.repeat(10000)}!`;
 
       const response = await fetch(`${baseUrl}/api/auth/signup`, {
         method: 'POST',
@@ -130,7 +130,7 @@ describe('Input Validation & Injection Prevention', () => {
     });
 
     test('very long email is handled without crashing', async () => {
-      const veryLongEmail = 'a'.repeat(1000) + '@example.com';
+      const veryLongEmail = `${'a'.repeat(1000)}@example.com`;
 
       const response = await fetch(`${baseUrl}/api/auth/signup`, {
         method: 'POST',
@@ -195,7 +195,7 @@ describe('Input Validation & Injection Prevention', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          emailOrUsername: "admin\r\nX-Injected: header",
+          emailOrUsername: 'admin\r\nX-Injected: header',
           password: 'anypassword',
         }),
       });

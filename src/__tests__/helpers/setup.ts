@@ -195,4 +195,4 @@ export async function closeDb() {
 
 export { testDb };
 
-export { connectGraph, clearGraphData, closeGraph, graphQuery } from './graphSetup';
+export { clearGraphData, closeGraph, connectGraph, graphQuery } from './graphSetup';

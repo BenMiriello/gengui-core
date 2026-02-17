@@ -146,7 +146,7 @@ export class ProducerStreams {
       infoMap[info[i]] = info[i + 1];
     }
     return {
-      length: infoMap['length'] ?? 0,
+      length: infoMap.length ?? 0,
       firstEntry: infoMap['first-entry'],
       lastEntry: infoMap['last-entry'],
     };
@@ -166,8 +166,8 @@ export class ProducerStreams {
       for (let i = 0; i < consumerArr.length; i += 2) {
         consumerMap[consumerArr[i]] = consumerArr[i + 1];
       }
-      if (consumerMap['name'] === consumerName) {
-        return consumerMap['pending'] ?? 0;
+      if (consumerMap.name === consumerName) {
+        return consumerMap.pending ?? 0;
       }
     }
     return 0;

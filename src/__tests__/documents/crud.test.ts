@@ -457,11 +457,14 @@ describe('Document CRUD', () => {
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
-      const res = await fetch(`${baseUrl}/api/documents/00000000-0000-0000-0000-000000000000/copy`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Cookie: cookie },
-        body: JSON.stringify({ title: 'Copy' }),
-      });
+      const res = await fetch(
+        `${baseUrl}/api/documents/00000000-0000-0000-0000-000000000000/copy`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Cookie: cookie },
+          body: JSON.stringify({ title: 'Copy' }),
+        }
+      );
 
       expect(res.status).toBe(404);
     });

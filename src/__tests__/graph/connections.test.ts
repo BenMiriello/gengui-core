@@ -115,12 +115,7 @@ function createNodeInput(
           })
         );
 
-        const connectionId = await graphService.createStoryConnection(
-          fromId,
-          toId,
-          edgeType,
-          null
-        );
+        const connectionId = await graphService.createStoryConnection(fromId, toId, edgeType, null);
         expect(connectionId).toBeDefined();
       }
     });
@@ -156,12 +151,7 @@ function createNodeInput(
           })
         );
 
-        const connectionId = await graphService.createStoryConnection(
-          fromId,
-          toId,
-          edgeType,
-          null
-        );
+        const connectionId = await graphService.createStoryConnection(fromId, toId, edgeType, null);
         expect(connectionId).toBeDefined();
       }
     });

@@ -23,7 +23,9 @@ describe('EmailService', () => {
       const token = 'change-token-789';
       const verificationUrl = `${frontendUrl}/verify-email-change?token=${token}`;
 
-      expect(verificationUrl).toBe('https://app.example.com/verify-email-change?token=change-token-789');
+      expect(verificationUrl).toBe(
+        'https://app.example.com/verify-email-change?token=change-token-789'
+      );
     });
   });
 

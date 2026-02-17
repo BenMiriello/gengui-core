@@ -14,6 +14,7 @@ process.env.FALKORDB_GRAPH_NAME = 'gengui_test';
 
 // Check if FalkorDB is available - if so, use real graph instead of mock
 import Redis from 'ioredis';
+
 try {
   const testClient = new Redis(process.env.FALKORDB_URL, {
     lazyConnect: true,
@@ -41,4 +42,5 @@ mock.module('../../../src/middleware/rateLimiter', () => ({
 // Ensure database schema is up-to-date ONCE before any tests run.
 // Test files should only call truncateAll(), never runMigrations().
 import { ensureSchema } from './setup';
+
 await ensureSchema();

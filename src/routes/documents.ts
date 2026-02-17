@@ -247,7 +247,6 @@ router.get(
   }
 );
 
-
 router.post(
   '/documents/:id/analyze',
   requireAuth,

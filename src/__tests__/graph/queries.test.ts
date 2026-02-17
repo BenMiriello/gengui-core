@@ -164,15 +164,15 @@ function createNodeInput(
 
   describe('input validation', () => {
     test('rejects invalid internal ID', async () => {
-      await expect(
-        graphService.updateNode('not-a-number', { name: 'test' })
-      ).rejects.toThrow('Invalid internal node/edge ID');
+      await expect(graphService.updateNode('not-a-number', { name: 'test' })).rejects.toThrow(
+        'Invalid internal node/edge ID'
+      );
     });
 
     test('rejects negative internal ID', async () => {
-      await expect(
-        graphService.updateNode('-1', { name: 'test' })
-      ).rejects.toThrow('Invalid internal node/edge ID');
+      await expect(graphService.updateNode('-1', { name: 'test' })).rejects.toThrow(
+        'Invalid internal node/edge ID'
+      );
     });
 
     test('rejects invalid property name', async () => {
@@ -219,7 +219,10 @@ function createNodeInput(
 
       expect(result.nodes).toBe(1);
 
-      const remainingNodes = await graphService.getStoryNodesForDocument(testDocumentId, testUserId);
+      const remainingNodes = await graphService.getStoryNodesForDocument(
+        testDocumentId,
+        testUserId
+      );
       expect(remainingNodes).toHaveLength(1);
       expect(remainingNodes[0].name).toBe('Active');
     });

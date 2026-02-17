@@ -271,60 +271,64 @@ export function setMockStoryNode(nodeId: string, node: any) {
 // Always mock graphService for API tests that use setMockStoryNode helper
 // Graph integration tests (in __tests__/graph/) create their own connection
 {
-mock.module('../../services/graph/graph.service', () => ({
-  graphService: {
-    __isMocked: true,
-    connect: async () => {},
-    disconnect: async () => {},
-    getConnectionStatus: () => true,
-    query: async () => ({ headers: [], data: [], stats: {} }),
-    createStoryNode: async () => 'mock-node-id',
-    getStoryNodeById: async (nodeId: string, userId: string) => {
-      const node = mockStoryNodes.get(nodeId);
-      if (!node || node.userId !== userId) return null;
-      return node;
-    },
-    getStoryNodeByIdInternal: async (nodeId: string) => mockStoryNodes.get(nodeId) || null,
-    getStoryNodesForDocument: async (documentId: string, userId: string) => {
-      const nodes: any[] = [];
-      for (const node of mockStoryNodes.values()) {
-        if (node.documentId === documentId && node.userId === userId) {
-          nodes.push(node);
+  mock.module('../../services/graph/graph.service', () => ({
+    graphService: {
+      __isMocked: true,
+      connect: async () => {},
+      disconnect: async () => {},
+      getConnectionStatus: () => true,
+      query: async () => ({ headers: [], data: [], stats: {} }),
+      createStoryNode: async () => 'mock-node-id',
+      getStoryNodeById: async (nodeId: string, userId: string) => {
+        const node = mockStoryNodes.get(nodeId);
+        if (!node || node.userId !== userId) return null;
+        return node;
+      },
+      getStoryNodeByIdInternal: async (nodeId: string) => mockStoryNodes.get(nodeId) || null,
+      getStoryNodesForDocument: async (documentId: string, userId: string) => {
+        const nodes: any[] = [];
+        for (const node of mockStoryNodes.values()) {
+          if (node.documentId === documentId && node.userId === userId) {
+            nodes.push(node);
+          }
         }
-      }
-      return nodes;
+        return nodes;
+      },
+      updateStoryNode: async () => {},
+      updateStoryNodeStyle: async (
+        nodeId: string,
+        stylePreset: string | null,
+        stylePrompt: string | null
+      ) => {
+        const node = mockStoryNodes.get(nodeId);
+        if (!node) return null;
+        node.stylePreset = stylePreset;
+        node.stylePrompt = stylePrompt;
+        return node;
+      },
+      updateStoryNodePrimaryMedia: async () => {},
+      softDeleteStoryNode: async () => {},
+      deleteAllStoryNodesForDocument: async () => {},
+      getStoryConnectionsForDocument: async () => [],
+      createStoryConnection: async () => 'mock-connection-id',
+      softDeleteStoryConnection: async () => {},
+      setNodeEmbedding: async () => {},
+      findSimilarNodes: async () => [],
+      getNodeSimilaritiesForDocument: async () => [],
+      getNodeEmbeddingsProjection: async () => [],
     },
-    updateStoryNode: async () => {},
-    updateStoryNodeStyle: async (nodeId: string, stylePreset: string | null, stylePrompt: string | null) => {
-      const node = mockStoryNodes.get(nodeId);
-      if (!node) return null;
-      node.stylePreset = stylePreset;
-      node.stylePrompt = stylePrompt;
-      return node;
-    },
-    updateStoryNodePrimaryMedia: async () => {},
-    softDeleteStoryNode: async () => {},
-    deleteAllStoryNodesForDocument: async () => {},
-    getStoryConnectionsForDocument: async () => [],
-    createStoryConnection: async () => 'mock-connection-id',
-    softDeleteStoryConnection: async () => {},
-    setNodeEmbedding: async () => {},
-    findSimilarNodes: async () => [],
-    getNodeSimilaritiesForDocument: async () => [],
-    getNodeEmbeddingsProjection: async () => [],
-  },
-}));
+  }));
 
-mock.module('../../services/graph/graph.threads.js', () => ({
-  graphThreads: {
-    getThreadsForDocument: async () => [],
-    getThreadById: async () => null,
-    getThreadsForEvent: async () => [],
-    getEventsForThread: async () => [],
-    renameThread: async () => {},
-    deleteThread: async () => {},
-  },
-}));
+  mock.module('../../services/graph/graph.threads.js', () => ({
+    graphThreads: {
+      getThreadsForDocument: async () => [],
+      getThreadById: async () => null,
+      getThreadsForEvent: async () => [],
+      getEventsForThread: async () => [],
+      renameThread: async () => {},
+      deleteThread: async () => {},
+    },
+  }));
 } // end skipGraphMock conditional
 
 mock.module('../../config/env', () => ({
