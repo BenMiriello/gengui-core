@@ -39,9 +39,12 @@ export class NotFoundError extends AppError {
 }
 
 export class ConflictError extends AppError {
-  constructor(message: string, code?: string) {
+  public readonly details: Record<string, unknown>;
+
+  constructor(message: string, details: Record<string, unknown> = {}, code?: string) {
     super(409, message, code);
     this.name = 'ConflictError';
+    this.details = details;
   }
 }
 

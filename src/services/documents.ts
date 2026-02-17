@@ -1,7 +1,7 @@
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import { db } from '../config/database';
 import { documents, users } from '../models/schema';
-import { ForbiddenError, NotFoundError } from '../utils/errors';
+import { ConflictError, ForbiddenError, NotFoundError } from '../utils/errors';
 import { logger } from '../utils/logger';
 import { getImageProvider } from './image-generation/factory';
 import { segmentService } from './segments';
@@ -116,9 +116,22 @@ export class DocumentsService {
       defaultImageHeight?: number;
       narrativeModeEnabled?: boolean;
       mediaModeEnabled?: boolean;
+      expectedVersion?: number;
+      forceOverwrite?: boolean;
     }
   ) {
-    await this.get(documentId, userId);
+    const existing = await this.get(documentId, userId);
+
+    if (
+      !updates.forceOverwrite &&
+      updates.expectedVersion !== undefined &&
+      updates.expectedVersion !== existing.currentVersion
+    ) {
+      throw new ConflictError('Document was modified elsewhere', {
+        currentVersion: existing.currentVersion,
+        expectedVersion: updates.expectedVersion,
+      });
+    }
 
     // Validate dimensions if both are being updated
     if (updates.defaultImageWidth !== undefined && updates.defaultImageHeight !== undefined) {

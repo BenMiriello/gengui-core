@@ -13,7 +13,6 @@ import {
 import { graphService } from '../services/graph/graph.service';
 import { graphThreads } from '../services/graph/graph.threads';
 import { mediaService } from '../services/mediaService';
-import { presenceService } from '../services/presence';
 import { redisStreams } from '../services/redis-streams';
 import { s3 } from '../services/s3';
 import { sseService } from '../services/sse';
@@ -96,14 +95,9 @@ router.patch(
         defaultImageHeight,
         narrativeModeEnabled,
         mediaModeEnabled,
+        expectedVersion,
+        forceOverwrite,
       } = req.body;
-
-      const sessionId = (req.headers['x-tab-id'] as string) || req.sessionId!;
-      const isPrimary = await presenceService.isPrimaryEditor(id, sessionId);
-      if (!isPrimary) {
-        res.status(409).json({ error: 'Not primary editor' });
-        return;
-      }
 
       const document = await documentsService.update(id, userId, {
         content,
@@ -115,6 +109,8 @@ router.patch(
         defaultImageHeight,
         narrativeModeEnabled,
         mediaModeEnabled,
+        expectedVersion,
+        forceOverwrite,
       });
       res.json({ document });
     } catch (error) {
@@ -244,90 +240,13 @@ router.get(
       const sessionId = (req.query.sessionId as string) || `${userId}-${Date.now()}`;
       const clientId = `doc-${id}-${sessionId}`;
 
-      sseService.addClient(clientId, `document:${id}`, res, async () => {
-        await presenceService.removeEditor(id, sessionId);
-        const editorCount = await presenceService.getActiveEditorCount(id);
-        const primaryEditor = await presenceService.getPrimaryEditor(id);
-        sseService.broadcastToDocument(id, 'presence-update', {
-          editorCount,
-          primaryEditor,
-          sessionId,
-          timestamp: new Date().toISOString(),
-        });
-      });
+      sseService.addClient(clientId, `document:${id}`, res);
     } catch (error) {
       next(error);
     }
   }
 );
 
-router.put(
-  '/documents/:id/heartbeat',
-  requireAuth,
-  async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const userId = (req as any).user.id;
-      const { id } = req.params;
-      const sessionId = (req.headers['x-tab-id'] as string) || req.sessionId!;
-
-      await documentsService.get(id, userId);
-      await presenceService.recordHeartbeat(id, sessionId);
-
-      const isPrimaryEditor = await presenceService.isPrimaryEditor(id, sessionId);
-      if (isPrimaryEditor) {
-        await presenceService.renewPrimaryLock(id, sessionId);
-      } else {
-        const currentPrimary = await presenceService.getPrimaryEditor(id);
-        if (!currentPrimary) {
-          await presenceService.attemptTakeover(id, sessionId);
-        }
-      }
-
-      const editorCount = await presenceService.getActiveEditorCount(id);
-      const primaryEditor = await presenceService.getPrimaryEditor(id);
-      sseService.broadcastToDocument(id, 'presence-update', {
-        editorCount,
-        primaryEditor,
-        sessionId,
-        timestamp: new Date().toISOString(),
-      });
-
-      res.json({ success: true, editorCount, primaryEditor });
-    } catch (error) {
-      next(error);
-    }
-  }
-);
-
-router.post(
-  '/documents/:id/takeover',
-  requireAuth,
-  async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const userId = (req as any).user.id;
-      const { id } = req.params;
-      // Use x-tab-id header for per-tab identification, fallback to auth sessionId
-      const sessionId = (req.headers['x-tab-id'] as string) || req.sessionId!;
-
-      await documentsService.get(id, userId);
-
-      const success = await presenceService.attemptTakeover(id, sessionId);
-
-      if (success) {
-        res.json({ success: true, isPrimaryEditor: true });
-      } else {
-        res.status(409).json({
-          error: {
-            message: 'Another session just took over. Please try again.',
-            code: 'TAKEOVER_CONFLICT',
-          },
-        });
-      }
-    } catch (error) {
-      next(error);
-    }
-  }
-);
 
 router.post(
   '/documents/:id/analyze',

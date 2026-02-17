@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 import { ZodError } from 'zod';
-import { AppError } from '../utils/errors';
+import { AppError, ConflictError } from '../utils/errors';
 import { logger } from '../utils/logger';
 
 export interface ErrorResponse {
@@ -22,6 +22,18 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
     };
     logger.warn({ err, path: req.path }, 'Validation error');
     return res.status(400).json(response);
+  }
+
+  if (err instanceof ConflictError) {
+    const response: ErrorResponse = {
+      error: {
+        message: err.message,
+        code: 'VERSION_CONFLICT',
+        details: err.details,
+      },
+    };
+    logger.warn({ err, path: req.path }, `ConflictError: ${err.message}`);
+    return res.status(409).json(response);
   }
 
   if (err instanceof AppError) {
