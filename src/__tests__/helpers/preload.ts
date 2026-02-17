@@ -18,7 +18,7 @@ import Redis from 'ioredis';
 try {
   const testClient = new Redis(process.env.FALKORDB_URL, {
     lazyConnect: true,
-    connectTimeout: 1000,
+    connectTimeout: 200,
     maxRetriesPerRequest: 0,
   });
   await testClient.connect();

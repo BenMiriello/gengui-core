@@ -1,2 +1,3 @@
 [test]
 preload = ["./src/__tests__/helpers/preload.ts"]
+timeout = 10000

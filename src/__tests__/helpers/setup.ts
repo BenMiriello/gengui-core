@@ -176,12 +176,12 @@ export async function truncateAll() {
     'users',
   ];
 
-  for (const table of tables) {
-    try {
-      await db.execute(sql.raw(`TRUNCATE TABLE ${table} RESTART IDENTITY CASCADE`));
-    } catch {
-      // Table might not exist, which is fine
-    }
+  try {
+    await db.execute(
+      sql.raw(tables.map((t) => `TRUNCATE TABLE ${t} RESTART IDENTITY CASCADE`).join('; '))
+    );
+  } catch {
+    // Tables might not exist on first run
   }
 }
 
