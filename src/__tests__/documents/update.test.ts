@@ -97,10 +97,11 @@ describe('Document Update', () => {
       expect(body.document.title).toBe('New Title');
     });
 
-    test('rejects update when not primary editor', async () => {
+    test('allows update without primary editor check (presence removed)', async () => {
       const { user, password } = await createVerifiedUser();
-      const doc = await createTestDocument(user.id);
-      setPrimaryEditor(doc.id, 'other-session');
+      const doc = await createTestDocument(user.id, { content: 'Original' });
+      const sessionId = 'test-session';
+      setPrimaryEditor(doc.id, sessionId);
 
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
@@ -114,38 +115,14 @@ describe('Document Update', () => {
         headers: {
           'Content-Type': 'application/json',
           Cookie: cookie,
-          'x-tab-id': 'my-session',
+          'x-tab-id': 'different-session',
         },
-        body: JSON.stringify({ content: 'Should fail' }),
+        body: JSON.stringify({ content: 'Updated by different session' }),
       });
 
-      expect(res.status).toBe(409);
+      expect(res.status).toBe(200);
       const body = await res.json();
-      expect(body.error).toBe('Not primary editor');
-    });
-
-    test('rejects update when no primary editor set', async () => {
-      const { user, password } = await createVerifiedUser();
-      const doc = await createTestDocument(user.id);
-
-      const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: user.email, password }),
-      });
-      const cookie = loginRes.headers.get('set-cookie')!;
-
-      const res = await fetch(`${baseUrl}/api/documents/${doc.id}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Cookie: cookie,
-          'x-tab-id': 'my-session',
-        },
-        body: JSON.stringify({ content: 'Should fail' }),
-      });
-
-      expect(res.status).toBe(409);
+      expect(body.document.content).toBe('Updated by different session');
     });
 
     test('updates mode flags', async () => {
