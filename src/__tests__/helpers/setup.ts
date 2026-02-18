@@ -156,14 +156,14 @@ export async function ensureSchema(): Promise<void> {
 export async function truncateAll() {
   const db = await getTestDb();
 
+  // Tables in dependency order (children before parents)
+  // Excludes dropped legacy tables (story_nodes, story_node_connections)
   const tables = [
     'mentions',
     'document_versions',
     'document_media',
     'documents',
     'node_media',
-    'story_node_connections',
-    'story_nodes',
     'user_style_prompts',
     'model_inputs',
     'models',
@@ -176,12 +176,13 @@ export async function truncateAll() {
     'users',
   ];
 
-  try {
-    await db.execute(
-      sql.raw(tables.map((t) => `TRUNCATE TABLE ${t} RESTART IDENTITY CASCADE`).join('; '))
-    );
-  } catch {
-    // Tables might not exist on first run
+  // Truncate each table individually to handle missing tables gracefully
+  for (const table of tables) {
+    try {
+      await db.execute(sql.raw(`TRUNCATE TABLE ${table} RESTART IDENTITY CASCADE`));
+    } catch {
+      // Table might not exist - skip silently
+    }
   }
 }
 

@@ -8,6 +8,7 @@ const BCRYPT_ROUNDS = 12;
 
 let mediaCounter = 0;
 let tagCounter = 0;
+// Note: processPrefix is defined with userCounter to prevent collision across parallel test files
 
 interface UserInsert {
   email?: string;
@@ -26,9 +27,11 @@ interface TestUser {
 }
 
 let userCounter = 0;
+// Process-unique prefix to prevent collisions when tests run in parallel
+const processPrefix = `${process.pid}_${Date.now().toString(36)}`;
 
 function generateUniqueId() {
-  return ++userCounter;
+  return `${processPrefix}_${++userCounter}`;
 }
 
 export async function createTestUser(
