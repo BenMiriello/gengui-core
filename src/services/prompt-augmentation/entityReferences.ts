@@ -27,7 +27,9 @@ export async function fetchEntityReferenceData(
   selectedText: string
 ): Promise<EntityReferenceData> {
   const allNodes = await graphService.getStoryNodesForDocument(documentId, userId);
-  const allEntityNodes = allNodes.filter((n) => ENTITY_TYPES.includes(n.type as typeof ENTITY_TYPES[number]));
+  const allEntityNodes = allNodes.filter((n) =>
+    ENTITY_TYPES.includes(n.type as (typeof ENTITY_TYPES)[number])
+  );
 
   if (allEntityNodes.length === 0) {
     logger.info({ documentId }, 'No entity nodes found for document');
@@ -39,19 +41,11 @@ export async function fetchEntityReferenceData(
   if (entityRefs.mode === 'manual' && entityRefs.selectedNodeIds) {
     targetNodeIds = entityRefs.selectedNodeIds;
   } else {
-    targetNodeIds = await detectEntitiesInText(
-      selectedText,
-      allEntityNodes,
-      documentId,
-      userId
-    );
+    targetNodeIds = await detectEntitiesInText(selectedText, allEntityNodes, documentId, userId);
   }
 
   if (targetNodeIds.length === 0) {
-    logger.info(
-      { documentId, mode: entityRefs.mode },
-      'No entity nodes selected for references'
-    );
+    logger.info({ documentId, mode: entityRefs.mode }, 'No entity nodes selected for references');
     return { images: [], descriptions: [] };
   }
 
@@ -134,15 +128,9 @@ function extractEntityDescriptions(
 }
 
 function mapNodeTypeToEntityType(nodeType: string): 'character' | 'location' | 'object' {
-  switch (nodeType) {
-    case 'character':
-      return 'character';
-    case 'location':
-      return 'location';
-    case 'other':
-    default:
-      return 'object';
-  }
+  if (nodeType === 'character') return 'character';
+  if (nodeType === 'location') return 'location';
+  return 'object';
 }
 
 export async function detectEntitiesInText(

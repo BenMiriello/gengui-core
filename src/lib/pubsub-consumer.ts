@@ -301,7 +301,10 @@ export abstract class MultiStreamPubSubConsumer {
       if (err) {
         logger.error({ error: err, channels, service: this.serviceName }, 'Subscribe failed');
       } else {
-        logger.debug({ channels, service: this.serviceName }, 'Subscribed to notification channels');
+        logger.debug(
+          { channels, service: this.serviceName },
+          'Subscribed to notification channels'
+        );
       }
     });
 

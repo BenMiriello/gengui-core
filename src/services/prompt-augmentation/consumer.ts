@@ -13,7 +13,11 @@ import type { StreamMessage } from '../redis-streams';
 import { sseService } from '../sse';
 import { buildContext } from './contextBuilder';
 import { fetchEntityReferenceData } from './entityReferences';
-import type { EntityDescription, EntityReferences, PromptEnhancementSettings } from './promptBuilder';
+import type {
+  EntityDescription,
+  EntityReferences,
+  PromptEnhancementSettings,
+} from './promptBuilder';
 import { buildGeminiPrompt } from './promptBuilder';
 
 interface AugmentationJobData {
