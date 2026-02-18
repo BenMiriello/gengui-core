@@ -83,7 +83,20 @@ class GraphService {
   private connectionPromise: Promise<void> | null = null;
 
   private getConnectionUrl(): string {
-    return process.env.FALKORDB_URL || 'redis://localhost:6381';
+    if (process.env.FALKORDB_URL) {
+      return process.env.FALKORDB_URL;
+    }
+
+    const host = process.env.FALKORDB_HOST;
+    const port = process.env.FALKORDB_PORT;
+    const password = process.env.FALKORDB_PASSWORD;
+
+    if (host && port) {
+      const auth = password ? `default:${password}@` : '';
+      return `redis://${auth}${host}:${port}`;
+    }
+
+    return 'redis://localhost:6381';
   }
 
   async connect(): Promise<void> {
