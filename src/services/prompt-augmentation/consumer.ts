@@ -4,16 +4,16 @@
 
 import { and, eq } from 'drizzle-orm';
 import { db } from '../../config/database';
-import { BlockingConsumer } from '../../lib/blocking-consumer';
+import { PubSubConsumer } from '../../lib/pubsub-consumer';
 import { documents, media } from '../../models/schema';
 import { logger } from '../../utils/logger';
 import { getGeminiClient } from '../gemini';
 import type { ReferenceImage } from '../image-generation/types';
 import type { StreamMessage } from '../redis-streams';
 import { sseService } from '../sse';
-import { fetchCharacterReferenceImages } from './characterReferences';
 import { buildContext } from './contextBuilder';
-import type { PromptEnhancementSettings } from './promptBuilder';
+import { fetchEntityReferenceData } from './entityReferences';
+import type { EntityDescription, EntityReferences, PromptEnhancementSettings } from './promptBuilder';
 import { buildGeminiPrompt } from './promptBuilder';
 
 interface AugmentationJobData {
@@ -30,69 +30,16 @@ interface AugmentationJobData {
   height: string;
 }
 
-class PromptAugmentationConsumer extends BlockingConsumer {
+class PromptAugmentationConsumer extends PubSubConsumer {
+  protected streamName = 'prompt-augmentation:stream';
+  protected groupName = 'prompt-augmentation-processors';
+  protected consumerName = `prompt-augmentation-processor-${process.pid}`;
+
   constructor() {
     super('prompt-augmentation-service');
   }
 
-  protected async onStart() {
-    await this.streams.ensureGroupOnce(
-      'prompt-augmentation:stream',
-      'prompt-augmentation-processors'
-    );
-  }
-
-  protected async consumeLoop(): Promise<void> {
-    const consumerName = `prompt-augmentation-processor-${process.pid}`;
-
-    while (this.isRunning) {
-      try {
-        const result = await this.streams.consume(
-          'prompt-augmentation:stream',
-          'prompt-augmentation-processors',
-          consumerName,
-          {
-            block: 2000,
-            count: 1,
-          }
-        );
-
-        if (result) {
-          try {
-            await this.handleAugmentationRequest(
-              'prompt-augmentation:stream',
-              'prompt-augmentation-processors',
-              result
-            );
-          } catch (error) {
-            logger.error({ error, messageId: result.id }, 'Error processing augmentation request');
-            await this.streams.ack(
-              'prompt-augmentation:stream',
-              'prompt-augmentation-processors',
-              result.id
-            );
-          }
-        }
-      } catch (error: any) {
-        // Shutdown in progress - exit gracefully
-        if (!this.isRunning) break;
-
-        // Redis disconnected during shutdown
-        if (error?.message?.includes('Connection') || error?.code === 'ERR_CONNECTION_CLOSED') {
-          break;
-        }
-
-        logger.error({ error }, 'Error in prompt augmentation consumer loop');
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-      }
-    }
-  }
-
-  private async handleAugmentationRequest(
-    streamName: string,
-    groupName: string,
-    message: StreamMessage
-  ) {
+  protected async handleMessage(message: StreamMessage) {
     const jobData = message.data as unknown as AugmentationJobData;
     const {
       mediaId,
@@ -112,7 +59,6 @@ class PromptAugmentationConsumer extends BlockingConsumer {
 
     if (!mediaId || !userId || !documentId) {
       logger.error({ data: message.data }, 'Augmentation request missing required fields');
-      await this.streams.ack(streamName, groupName, message.id);
       return;
     }
 
@@ -129,11 +75,54 @@ class PromptAugmentationConsumer extends BlockingConsumer {
       if (!document) {
         logger.error({ documentId, userId }, 'Document not found');
         await this.failAugmentation(mediaId, documentId, 'Document not found');
-        await this.streams.ack(streamName, groupName, message.id);
         return;
       }
 
-      // Build context
+      // Normalize entity references (backward compatibility with characterReferences)
+      const entityRefs = this.normalizeEntityReferences(settings);
+
+      // Fetch entity reference data BEFORE building context (for Gemini to incorporate)
+      let entityDescriptions: EntityDescription[] = [];
+      let referenceImages: ReferenceImage[] | undefined;
+
+      if (entityRefs) {
+        const { getImageProviderName } = await import('../image-generation/factory.js');
+        const providerName = await getImageProviderName();
+        const providerSupportsImages = providerName === 'gemini-pro-image';
+
+        const entityData = await fetchEntityReferenceData(
+          documentId,
+          userId,
+          entityRefs,
+          selectedText
+        );
+
+        if (entityRefs.useImages && providerSupportsImages && entityData.images.length > 0) {
+          referenceImages = entityData.images;
+          logger.info(
+            {
+              mediaId,
+              referenceCount: referenceImages.length,
+              entityNames: referenceImages.map((r) => r.nodeName),
+            },
+            'Entity reference images prepared'
+          );
+        }
+
+        if (entityRefs.useDescriptions && entityData.descriptions.length > 0) {
+          entityDescriptions = entityData.descriptions;
+          logger.info(
+            {
+              mediaId,
+              descriptionCount: entityDescriptions.length,
+              entityNames: entityDescriptions.map((d) => d.name),
+            },
+            'Entity descriptions prepared for Gemini augmentation'
+          );
+        }
+      }
+
+      // Build context with entity descriptions for Gemini to incorporate
       const context = await buildContext(
         document.content,
         documentId,
@@ -143,8 +132,9 @@ class PromptAugmentationConsumer extends BlockingConsumer {
         endChar,
         settings
       );
+      context.entityDescriptions = entityDescriptions;
 
-      // Build Gemini prompt
+      // Build Gemini prompt (now includes entity descriptions)
       const geminiPrompt = buildGeminiPrompt(context, settings);
 
       // Call Gemini API
@@ -158,28 +148,6 @@ class PromptAugmentationConsumer extends BlockingConsumer {
         { mediaId, originalLength: selectedText.length, augmentedLength: finalPrompt.length },
         'Prompt augmented successfully'
       );
-
-      // Handle character references if enabled
-      let referenceImages: ReferenceImage[] | undefined;
-      if (settings.characterReferences) {
-        referenceImages = await fetchCharacterReferenceImages(
-          documentId,
-          userId,
-          settings.characterReferences,
-          selectedText
-        );
-
-        if (referenceImages.length > 0) {
-          logger.info(
-            {
-              mediaId,
-              referenceCount: referenceImages.length,
-              characterNames: referenceImages.map((r) => r.nodeName),
-            },
-            'Character reference images prepared'
-          );
-        }
-      }
 
       // Update media status to queued
       await db
@@ -215,14 +183,11 @@ class PromptAugmentationConsumer extends BlockingConsumer {
         { mediaId, provider: provider.name },
         'Generation submitted to provider after successful augmentation'
       );
-
-      await this.streams.ack(streamName, groupName, message.id);
     } catch (error: any) {
       const errorMessage = error?.message || 'Augmentation failed. Please try again.';
       logger.error({ error, mediaId, documentId, errorMessage }, 'Prompt augmentation failed');
 
       await this.failAugmentation(mediaId, documentId, errorMessage);
-      await this.streams.ack(streamName, groupName, message.id);
     }
   }
 
@@ -294,6 +259,24 @@ class PromptAugmentationConsumer extends BlockingConsumer {
         `Augmentation failed: ${error?.message || 'Unknown error'}. Please try again.`
       );
     }
+  }
+
+  private normalizeEntityReferences(settings: PromptEnhancementSettings): EntityReferences | null {
+    if (settings.entityReferences) {
+      return settings.entityReferences;
+    }
+
+    // Backward compatibility: map legacy characterReferences to entityReferences
+    if (settings.characterReferences) {
+      return {
+        mode: settings.characterReferences.mode,
+        selectedNodeIds: settings.characterReferences.selectedNodeIds,
+        useImages: true,
+        useDescriptions: false,
+      };
+    }
+
+    return null;
   }
 
   private async failAugmentation(mediaId: string, documentId: string, errorMessage: string) {

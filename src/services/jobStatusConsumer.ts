@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { db } from '../config/database';
-import { BlockingConsumer } from '../lib/blocking-consumer';
+import { MultiStreamPubSubConsumer } from '../lib/pubsub-consumer';
 import { documentMedia, media, nodeMedia } from '../models/schema';
 import { logger } from '../utils/logger';
 import { graphService } from './graph/graph.service';
@@ -8,96 +8,42 @@ import { type StreamMessage, redisStreams as sharedRedisStreams } from './redis-
 import { sseService } from './sse';
 import { thumbnailProcessor } from './thumbnailProcessor';
 
-class JobStatusConsumer extends BlockingConsumer {
+class JobStatusConsumer extends MultiStreamPubSubConsumer {
+  protected streamConfigs = [
+    {
+      streamName: 'job:status:stream',
+      groupName: 'core-status-processors',
+      consumerName: `status-processor-${process.pid}`,
+    },
+    {
+      streamName: 'thumbnail:stream',
+      groupName: 'thumbnail-processors',
+      consumerName: `thumbnail-processor-${process.pid}`,
+    },
+  ];
+
   constructor() {
     super('job-status-consumer');
   }
 
-  protected async onStart() {
-    await this.streams.ensureGroupOnce('job:status:stream', 'core-status-processors');
-    await this.streams.ensureGroupOnce('thumbnail:stream', 'thumbnail-processors');
-  }
-
-  protected async consumeLoop(): Promise<void> {
-    const consumerName = `status-processor-${process.pid}`;
-
-    while (this.isRunning) {
-      try {
-        // Read from streams sequentially with short block times for faster shutdown
-        const statusResult = await this.streams.consume(
-          'job:status:stream',
-          'core-status-processors',
-          consumerName,
-          {
-            block: 1000,
-            count: 1,
-          }
-        );
-
-        if (!this.isRunning) break;
-
-        const thumbnailResult = await this.streams.consume(
-          'thumbnail:stream',
-          'thumbnail-processors',
-          consumerName,
-          {
-            block: 1000,
-            count: 1,
-          }
-        );
-
-        // Process status updates
-        if (statusResult) {
-          try {
-            await this.handleStatusUpdate(
-              'job:status:stream',
-              'core-status-processors',
-              statusResult
-            );
-          } catch (error) {
-            logger.error({ error, messageId: statusResult.id }, 'Error processing status update');
-            // Still ACK to avoid reprocessing bad messages
-            await this.streams.ack('job:status:stream', 'core-status-processors', statusResult.id);
-          }
-        }
-
-        // Process thumbnail requests
-        if (thumbnailResult) {
-          try {
-            await this.handleThumbnail('thumbnail:stream', 'thumbnail-processors', thumbnailResult);
-          } catch (error) {
-            logger.error({ error, messageId: thumbnailResult.id }, 'Error processing thumbnail');
-            // Still ACK to avoid reprocessing bad messages
-            await this.streams.ack('thumbnail:stream', 'thumbnail-processors', thumbnailResult.id);
-          }
-        }
-      } catch (error: any) {
-        // Shutdown in progress - exit gracefully
-        if (!this.isRunning) break;
-
-        // Redis disconnected during shutdown
-        if (error?.message?.includes('Connection') || error?.code === 'ERR_CONNECTION_CLOSED') {
-          break;
-        }
-
-        logger.error({ error }, 'Error in job status consumer loop');
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-      }
+  protected async handleMessage(streamName: string, _groupName: string, message: StreamMessage) {
+    if (streamName === 'job:status:stream') {
+      await this.handleStatusUpdate(message);
+    } else if (streamName === 'thumbnail:stream') {
+      await this.handleThumbnail(message);
     }
   }
 
-  private async handleStatusUpdate(streamName: string, groupName: string, message: StreamMessage) {
+  private async handleStatusUpdate(message: StreamMessage) {
     const { status, mediaId, s3Key, error } = message.data;
 
     if (!mediaId) {
       logger.error({ data: message.data }, 'Status update missing mediaId');
-      await this.streams.ack(streamName, groupName, message.id);
       return;
     }
 
     if (!status) {
       logger.error({ data: message.data }, 'Status update missing status field');
-      await this.streams.ack(streamName, groupName, message.id);
       return;
     }
 
@@ -114,7 +60,6 @@ class JobStatusConsumer extends BlockingConsumer {
     } else if (status === 'completed') {
       if (!s3Key) {
         logger.error({ mediaId }, 'Completed status missing s3Key');
-        await this.streams.ack(streamName, groupName, message.id);
         return;
       }
 
@@ -127,7 +72,6 @@ class JobStatusConsumer extends BlockingConsumer {
 
       if (job?.cancelledAt) {
         logger.info({ mediaId }, 'Ignoring completed message for cancelled job');
-        await this.streams.ack(streamName, groupName, message.id);
         return;
       }
 
@@ -153,7 +97,6 @@ class JobStatusConsumer extends BlockingConsumer {
 
       if (job?.cancelledAt) {
         logger.info({ mediaId }, 'Ignoring failed message for cancelled job');
-        await this.streams.ack(streamName, groupName, message.id);
         return;
       }
 
@@ -167,27 +110,23 @@ class JobStatusConsumer extends BlockingConsumer {
 
     // Broadcast SSE update
     await this.broadcastMediaUpdate(mediaId);
-
-    // ACK message
-    await this.streams.ack(streamName, groupName, message.id);
   }
 
-  private async handleThumbnail(streamName: string, groupName: string, message: StreamMessage) {
+  private async handleThumbnail(message: StreamMessage) {
     const { mediaId } = message.data;
 
     if (!mediaId) {
       logger.error({ data: message.data }, 'Thumbnail message missing mediaId');
-      await this.streams.ack(streamName, groupName, message.id);
       return;
     }
 
     logger.info({ mediaId }, 'Processing thumbnail generation');
     try {
       await thumbnailProcessor.processThumbnail(mediaId);
-      await this.streams.ack(streamName, groupName, message.id);
-      logger.info({ mediaId }, 'Thumbnail completed and ACKed');
+      logger.info({ mediaId }, 'Thumbnail completed');
     } catch (error) {
-      logger.error({ error, mediaId }, 'Thumbnail failed, will retry');
+      logger.error({ error, mediaId }, 'Thumbnail failed');
+      throw error; // Re-throw to prevent ACK, allowing retry
     }
   }
 

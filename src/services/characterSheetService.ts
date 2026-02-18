@@ -105,6 +105,7 @@ export const characterSheetService = {
 
   /**
    * Build generation prompt from node description, settings, and style.
+   * Style prompt goes FIRST for maximum weight with Imagen.
    */
   buildPrompt(
     node: { type: string; name: string; description: string | null },
@@ -112,6 +113,11 @@ export const characterSheetService = {
     stylePrompt?: string | null
   ): string {
     const parts: string[] = [];
+
+    // STYLE FIRST - Imagen weights the beginning of prompts more heavily
+    if (stylePrompt) {
+      parts.push(stylePrompt);
+    }
 
     // Use custom description if manual edit, otherwise use node description
     const baseDescription =
@@ -152,13 +158,12 @@ export const characterSheetService = {
       parts.push(`Background: ${settings.backgroundCustom}`);
     }
 
-    // Add style prompt if provided
+    // Quality hints - only add generic ones if no style prompt provided
     if (stylePrompt) {
-      parts.push(stylePrompt);
+      parts.push('Clear lighting, detailed, high quality.');
+    } else {
+      parts.push('Reference sheet style, clear lighting, detailed, high quality.');
     }
-
-    // Add character sheet style hints
-    parts.push('Reference sheet style, clear lighting, detailed, high quality.');
 
     return parts.join(' ');
   },

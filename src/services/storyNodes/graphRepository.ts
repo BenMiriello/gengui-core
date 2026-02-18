@@ -169,18 +169,30 @@ export const graphStoryNodesRepository = {
       const toId = nodeNameToId.get(connData.toName);
 
       if (fromId && toId) {
-        await graphService.createStoryConnection(
-          fromId,
-          toId,
-          connData.edgeType || 'RELATED_TO',
-          connData.description,
-          { strength: connData.strength }
-        );
-        created++;
-        logger.info(
-          { from: connData.fromName, to: connData.toName, edgeType: connData.edgeType },
-          'Story node connection created'
-        );
+        try {
+          await graphService.createStoryConnection(
+            fromId,
+            toId,
+            connData.edgeType || 'RELATED_TO',
+            connData.description,
+            { strength: connData.strength }
+          );
+          created++;
+          logger.info(
+            { from: connData.fromName, to: connData.toName, edgeType: connData.edgeType },
+            'Story node connection created'
+          );
+        } catch (error: any) {
+          // Skip connections that would create cycles (Gemini sometimes suggests these)
+          if (error?.message?.includes('would create a cycle')) {
+            logger.warn(
+              { from: connData.fromName, to: connData.toName, edgeType: connData.edgeType },
+              'Skipping connection that would create cycle'
+            );
+          } else {
+            throw error;
+          }
+        }
       } else {
         logger.warn(
           { from: connData.fromName, to: connData.toName },

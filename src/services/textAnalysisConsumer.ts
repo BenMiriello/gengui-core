@@ -5,7 +5,7 @@
 
 import { and, eq } from 'drizzle-orm';
 import { db } from '../config/database';
-import { BlockingConsumer } from '../lib/blocking-consumer';
+import { PubSubConsumer } from '../lib/pubsub-consumer';
 import { documents } from '../models/schema';
 import type { ExistingNode } from '../types/storyNodes';
 import { logger } from '../utils/logger';
@@ -19,51 +19,20 @@ import { graphStoryNodesRepository } from './storyNodes';
 const MIN_CONTENT_LENGTH = 50;
 const MAX_CONTENT_LENGTH = 50000;
 
-class TextAnalysisConsumer extends BlockingConsumer {
+class TextAnalysisConsumer extends PubSubConsumer {
+  protected streamName = 'text-analysis:stream';
+  protected groupName = 'text-analysis-processors';
+  protected consumerName = `text-analysis-processor-${process.pid}`;
+
   constructor() {
     super('text-analysis-service');
   }
 
-  protected async onStart() {
-    await this.streams.ensureGroupOnce('text-analysis:stream', 'text-analysis-processors');
-  }
-
-  protected async consumeLoop(): Promise<void> {
-    const consumerName = `text-analysis-processor-${process.pid}`;
-
-    while (this.isRunning) {
-      try {
-        const result = await this.streams.consume(
-          'text-analysis:stream',
-          'text-analysis-processors',
-          consumerName,
-          { block: 2000, count: 1 }
-        );
-
-        if (result) {
-          await this.handleMessage(result);
-        }
-      } catch (error: any) {
-        // Shutdown in progress - exit gracefully
-        if (!this.isRunning) break;
-
-        // Redis disconnected during shutdown
-        if (error?.message?.includes('Connection') || error?.code === 'ERR_CONNECTION_CLOSED') {
-          break;
-        }
-
-        logger.error({ error }, 'Error in text analysis consumer loop');
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-      }
-    }
-  }
-
-  private async handleMessage(message: StreamMessage) {
+  protected async handleMessage(message: StreamMessage) {
     const { documentId, userId, reanalyze, updateMode } = message.data;
 
     if (!documentId || !userId) {
       logger.error({ data: message.data }, 'Request missing documentId or userId');
-      await this.ack(message.id);
       return;
     }
 
@@ -80,8 +49,6 @@ class TextAnalysisConsumer extends BlockingConsumer {
       const eventType = updateMode === 'true' ? 'update-failed' : 'analysis-failed';
       this.broadcast(documentId, eventType, { error: errorMessage });
     }
-
-    await this.ack(message.id);
   }
 
   private async handleAnalyze(documentId: string, userId: string, reanalyze: boolean) {
@@ -236,10 +203,6 @@ class TextAnalysisConsumer extends BlockingConsumer {
       ...data,
       timestamp: new Date().toISOString(),
     });
-  }
-
-  private async ack(messageId: string) {
-    await this.streams.ack('text-analysis:stream', 'text-analysis-processors', messageId);
   }
 
   /**

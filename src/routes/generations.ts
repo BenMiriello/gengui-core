@@ -14,9 +14,17 @@ import { generationsService } from '../services/generationsService';
 
 const router = Router();
 
+/** @deprecated Use entityReferencesSchema instead */
 const characterReferencesSchema = z.object({
   mode: z.enum(['auto', 'manual']),
   selectedNodeIds: z.array(z.string().uuid()).optional(),
+});
+
+const entityReferencesSchema = z.object({
+  mode: z.enum(['auto', 'manual']),
+  selectedNodeIds: z.array(z.string().uuid()).optional(),
+  useImages: z.boolean(),
+  useDescriptions: z.boolean(),
 });
 
 const promptEnhancementSchema = z.object({
@@ -27,7 +35,9 @@ const promptEnhancementSchema = z.object({
   sceneTreatment: z.enum(['comprehensive', 'focused', 'selective-detail']),
   selectiveDetailFocus: z.string().max(200).optional(),
   strength: z.enum(['low', 'medium', 'high']),
+  /** @deprecated Use entityReferences instead */
   characterReferences: characterReferencesSchema.optional(),
+  entityReferences: entityReferencesSchema.optional(),
 });
 
 const createGenerationSchema = z.object({
@@ -77,6 +87,20 @@ router.post(
     }
   }
 );
+
+router.get('/provider-capabilities', requireAuth, async (_req, res, next) => {
+  try {
+    const { getImageProviderName } = await import('../services/image-generation/factory.js');
+    const providerName = await getImageProviderName();
+
+    res.json({
+      providerName,
+      supportsReferenceImages: providerName === 'gemini-pro-image',
+    });
+  } catch (error) {
+    next(error);
+  }
+});
 
 router.get('/', requireAuth, async (req, res, next) => {
   try {

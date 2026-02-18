@@ -17,18 +17,16 @@ export const analyzeTextPrompt: PromptDefinition<AnalyzeInput> = {
 
 CRITICAL RULES - FOLLOW EXACTLY:
 
-1. **Character descriptions**: MUST focus on physical appearance, personality traits, role, and motivations. DO NOT include plot events or actions they take. Keep relationships separate.
+1. **Descriptions are for IMAGE GENERATION**: Every description must describe the entity IN ISOLATION - what it looks like, its intrinsic characteristics and features. DO NOT describe relationships to other entities, actions taken, or narrative role. The description will be used to generate an image of JUST that entity.
 
-2. **Location descriptions**: MUST describe physical features, atmosphere, and appearance. DO NOT describe events that happen there.
-
-3. **Connections**: Every node MUST have at least one connection. No isolated nodes. No isolated node groups (all nodes must connect into a single graph).
+2. **Connections**: Every node MUST have at least one connection. No isolated nodes. No isolated node groups (all nodes must connect into a single graph). Relationships between entities go in connections, NOT in descriptions.
 
 Extract these element types:
-- **Characters**: People or sentient beings. Describe their physical appearance first including specific details, then personality, role, and motivations (but not plot events or actions they take).
-- **Locations**: Places where events occur. Describe their appearance, key features, atmosphere, significance.
+- **Characters**: People or sentient beings. Describe ONLY: physical appearance (face, body, clothing, distinguishing features), personality traits, demeanor, and expression. DO NOT mention other characters, actions, plot events, or narrative role.
+- **Locations**: Places where events occur. Describe ONLY: physical features, architecture, environment, atmosphere, lighting, and visual details. DO NOT mention events that happen there or characters associated with it.
 - **Events**: Significant plot actions. Only create for major narrative moments that involve multiple characters/locations or have lasting story impact. Include documentOrder (order of first appearance in the text, starting from 1).
-- **Concepts**: Themes, motifs, ideologies, or abstract forces that drive the narrative.
-- **Other**: Important story elements (objects, artifacts) that exist independently and contribute meaningfully to the narrative.
+- **Concepts**: Themes, motifs, ideologies, or abstract forces. Describe how this concept would be visually represented or symbolized.
+- **Other**: Important story elements (objects, artifacts). Describe ONLY physical appearance, materials, size, and visual details.
 
 For each element provide:
 - Concise name

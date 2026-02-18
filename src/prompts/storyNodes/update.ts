@@ -34,6 +34,13 @@ CRITICAL: This is an UPDATE operation, not a fresh analysis. You MUST:
 2. Only return CHANGES - do not recreate existing nodes that haven't changed
 3. Return empty arrays if there are no changes of that type
 
+DESCRIPTION RULES (for image generation):
+- Descriptions must describe the entity IN ISOLATION - what it looks like, its intrinsic characteristics
+- DO NOT describe relationships to other entities, actions taken, narrative role, or plot events
+- Characters: physical appearance, clothing, expression, demeanor only
+- Locations: physical features, architecture, atmosphere, visual details only
+- Objects: physical appearance, materials, size, visual details only
+
 WHEN TO MAKE CHANGES:
 - ADD: Only if the text describes a NEW character, location, event, concept, or important element not already tracked
 - UPDATE: Only if existing node information CONTRADICTS the current text, has SIGNIFICANT NEW INFORMATION, or the element's role/description has meaningfully changed

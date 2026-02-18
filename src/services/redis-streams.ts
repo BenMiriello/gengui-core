@@ -60,13 +60,15 @@ export class ProducerStreams {
   }
 
   /**
-   * Add a message to a stream
+   * Add a message to a stream and notify subscribers
    * @returns Message ID
    */
   async add(streamName: string, data: Record<string, string>): Promise<string> {
     const start = Date.now();
     const args = Object.entries(data).flat();
     const result = await this.client.xadd(streamName, '*', ...args);
+    // Notify subscribers that work is available (Pub/Sub pattern)
+    await this.client.publish(`streams:notify:${streamName}`, '1');
     const elapsed = Date.now() - start;
     if (elapsed > 100) {
       logger.warn(
@@ -185,12 +187,12 @@ export class ProducerStreams {
  */
 export class ConsumerStreams extends ProducerStreams {
   /**
-   * BLOCKING OPERATION - Consume messages from a stream using consumer groups
+   * Consume messages from a stream using consumer groups.
    *
-   * CRITICAL: This uses XREADGROUP with BLOCK, which is a blocking operation.
-   * Must ONLY be called on a dedicated Redis client, never the shared client.
+   * @param options.block - Block time in ms. If undefined/null, returns immediately (non-blocking).
+   *                        Note: block=0 in Redis means "block forever", so we treat undefined as non-blocking.
    *
-   * The BlockingConsumer base class automatically provides a dedicated client.
+   * CRITICAL for blocking reads: Must use a dedicated Redis client, never the shared client.
    */
   async consume(
     streamName: string,
@@ -198,24 +200,41 @@ export class ConsumerStreams extends ProducerStreams {
     consumerName: string,
     options: {
       count?: number;
-      block?: number; // milliseconds
+      block?: number; // milliseconds, undefined = non-blocking
     } = {}
   ): Promise<StreamMessage | null> {
-    const { count = 1, block = 2000 } = options;
+    const { count = 1, block } = options;
 
     try {
-      const result = (await this.client.xreadgroup(
-        'GROUP',
-        groupName,
-        consumerName,
-        'COUNT',
-        count,
-        'BLOCK',
-        block,
-        'STREAMS',
-        streamName,
-        '>'
-      )) as [string, [string, string[]][]][] | null;
+      let result: [string, [string, string[]][]][] | null;
+
+      if (block !== undefined && block !== null) {
+        // Blocking read
+        result = (await this.client.xreadgroup(
+          'GROUP',
+          groupName,
+          consumerName,
+          'COUNT',
+          count,
+          'BLOCK',
+          block,
+          'STREAMS',
+          streamName,
+          '>'
+        )) as [string, [string, string[]][]][] | null;
+      } else {
+        // Non-blocking read (no BLOCK clause = return immediately)
+        result = (await this.client.xreadgroup(
+          'GROUP',
+          groupName,
+          consumerName,
+          'COUNT',
+          count,
+          'STREAMS',
+          streamName,
+          '>'
+        )) as [string, [string, string[]][]][] | null;
+      }
 
       if (!result || result.length === 0) {
         return null;

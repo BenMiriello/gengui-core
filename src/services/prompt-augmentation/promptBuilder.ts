@@ -2,9 +2,23 @@
  * Pure prompt construction functions - no I/O
  */
 
+/** @deprecated Use EntityReferences instead */
 export interface CharacterReferences {
   mode: 'auto' | 'manual';
   selectedNodeIds?: string[];
+}
+
+export interface EntityReferences {
+  mode: 'auto' | 'manual';
+  selectedNodeIds?: string[];
+  useImages: boolean;
+  useDescriptions: boolean;
+}
+
+export interface EntityDescription {
+  type: 'character' | 'location' | 'object';
+  name: string;
+  description: string;
 }
 
 export interface PromptEnhancementSettings {
@@ -15,7 +29,9 @@ export interface PromptEnhancementSettings {
   sceneTreatment: 'comprehensive' | 'focused' | 'selective-detail';
   selectiveDetailFocus?: string;
   strength: 'low' | 'medium' | 'high';
+  /** @deprecated Use entityReferences instead */
   characterReferences?: CharacterReferences;
+  entityReferences?: EntityReferences;
 }
 
 export interface PromptContext {
@@ -23,6 +39,7 @@ export interface PromptContext {
   textBefore?: string;
   selectedText: string;
   textAfter?: string;
+  entityDescriptions?: EntityDescription[];
 }
 
 export function buildGeminiPrompt(
@@ -34,6 +51,16 @@ export function buildGeminiPrompt(
   // Add story context if available
   if (context.storyContext) {
     sections.push(context.storyContext);
+    sections.push('');
+  }
+
+  // Add reference entity descriptions (for Gemini to incorporate naturally)
+  if (context.entityDescriptions?.length) {
+    sections.push('REFERENCE ENTITIES (incorporate their visual details into the prompt):');
+    for (const entity of context.entityDescriptions) {
+      const label = entity.type.charAt(0).toUpperCase() + entity.type.slice(1);
+      sections.push(`- [${label}] ${entity.name}: ${entity.description}`);
+    }
     sections.push('');
   }
 
@@ -70,6 +97,9 @@ export function buildGeminiPrompt(
   sections.push('4. Capture the mood and feel of this moment in the story.');
   sections.push(
     '5. Do NOT specify art style (e.g., painting, anime, realistic). Focus on subject, scene, mood only.'
+  );
+  sections.push(
+    '6. When reference entities are provided, incorporate their visual descriptions naturally into the prompt. Weave appearance details into the scene - do not list them separately.'
   );
   sections.push('');
 
