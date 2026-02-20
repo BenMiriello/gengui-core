@@ -8,11 +8,11 @@
  */
 
 import type {
-  ResolutionResult,
-  ScoredCandidate,
-  ResolutionThresholds,
-  EntityCluster,
   ClusterResolutionResult,
+  EntityCluster,
+  ResolutionResult,
+  ResolutionThresholds,
+  ScoredCandidate,
   SignalBreakdown,
 } from './types';
 import { DEFAULT_THRESHOLDS } from './types';
@@ -29,7 +29,7 @@ const VETO_THRESHOLD = 0.3;
  */
 function checkSignalVeto(
   signals: SignalBreakdown,
-  score: number
+  score: number,
 ): string | null {
   if (score < 0.7) return null;
 
@@ -49,7 +49,7 @@ function checkSignalVeto(
  */
 export function makeDecision(
   scoredCandidate: ScoredCandidate | null,
-  thresholds: ResolutionThresholds = DEFAULT_THRESHOLDS
+  thresholds: ResolutionThresholds = DEFAULT_THRESHOLDS,
 ): ResolutionResult {
   if (!scoredCandidate || scoredCandidate.score < thresholds.review) {
     return {
@@ -115,7 +115,7 @@ export function makeDecision(
  */
 export function resolveFromScores(
   scoredCandidates: ScoredCandidate[],
-  thresholds: ResolutionThresholds = DEFAULT_THRESHOLDS
+  thresholds: ResolutionThresholds = DEFAULT_THRESHOLDS,
 ): ResolutionResult {
   if (scoredCandidates.length === 0) {
     return {
@@ -137,7 +137,7 @@ export function resolveFromScores(
 export function resolveCluster(
   cluster: EntityCluster,
   scoredCandidates: ScoredCandidate[],
-  thresholds: ResolutionThresholds = DEFAULT_THRESHOLDS
+  thresholds: ResolutionThresholds = DEFAULT_THRESHOLDS,
 ): ClusterResolutionResult {
   const result = resolveFromScores(scoredCandidates, thresholds);
 
@@ -157,10 +157,10 @@ export function resolveCluster(
 export function batchResolve(
   clusters: EntityCluster[],
   scoredCandidatesPerCluster: ScoredCandidate[][],
-  thresholds: ResolutionThresholds = DEFAULT_THRESHOLDS
+  thresholds: ResolutionThresholds = DEFAULT_THRESHOLDS,
 ): ClusterResolutionResult[] {
   return clusters.map((cluster, i) =>
-    resolveCluster(cluster, scoredCandidatesPerCluster[i] || [], thresholds)
+    resolveCluster(cluster, scoredCandidatesPerCluster[i] || [], thresholds),
   );
 }
 
@@ -169,7 +169,7 @@ export function batchResolve(
  */
 export function needsLLMRefinement(
   result: ResolutionResult,
-  llmScoreRange: { min: number; max: number } = { min: 0.5, max: 0.85 }
+  llmScoreRange: { min: number; max: number } = { min: 0.5, max: 0.85 },
 ): boolean {
   if (result.decision !== 'REVIEW') return false;
 

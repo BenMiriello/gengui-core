@@ -18,7 +18,12 @@ export class MinIOStorageProvider implements StorageProvider {
     this.bucket = env.MINIO_BUCKET;
   }
 
-  async upload(userId: string, mediaId: string, buffer: Buffer, mimeType: string): Promise<string> {
+  async upload(
+    userId: string,
+    mediaId: string,
+    buffer: Buffer,
+    mimeType: string,
+  ): Promise<string> {
     const ext = this.getExtensionFromMimeType(mimeType);
     const key = `users/${userId}/media/${mediaId}${ext}`;
 
@@ -35,7 +40,7 @@ export class MinIOStorageProvider implements StorageProvider {
 
   async getSignedUrl(
     key: string,
-    expiresIn: number = PRESIGNED_S3_URL_EXPIRATION
+    expiresIn: number = PRESIGNED_S3_URL_EXPIRATION,
   ): Promise<string> {
     return await this.client.presignedGetObject(this.bucket, key, expiresIn);
   }

@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from 'bun:test';
 import {
   closeDb,
   createExpiredPasswordResetToken,
@@ -9,7 +16,12 @@ import {
   resetUserCounter,
   truncateAll,
 } from '../helpers';
-import { clearRedisStore, emailMock, startTestServer, stopTestServer } from '../helpers/testApp';
+import {
+  clearRedisStore,
+  emailMock,
+  startTestServer,
+  stopTestServer,
+} from '../helpers/testApp';
 
 describe('Password Reset', () => {
   let baseUrl: string;
@@ -35,25 +47,34 @@ describe('Password Reset', () => {
     test('sends reset email for existing user', async () => {
       const { user } = await createVerifiedUser();
 
-      const response = await fetch(`${baseUrl}/api/auth/password-reset/request`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: user.email }),
-      });
+      const response = await fetch(
+        `${baseUrl}/api/auth/password-reset/request`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: user.email }),
+        },
+      );
 
       expect(response.status).toBe(200);
       const body = await response.json();
       expect(body.success).toBe(true);
       expect(emailMock.sendPasswordResetEmail).toHaveBeenCalled();
-      expect(emailMock.sendPasswordResetEmail).toHaveBeenCalledWith(user.email, expect.any(String));
+      expect(emailMock.sendPasswordResetEmail).toHaveBeenCalledWith(
+        user.email,
+        expect.any(String),
+      );
     });
 
     test('returns success for nonexistent email (no enumeration)', async () => {
-      const response = await fetch(`${baseUrl}/api/auth/password-reset/request`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'nonexistent@example.com' }),
-      });
+      const response = await fetch(
+        `${baseUrl}/api/auth/password-reset/request`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: 'nonexistent@example.com' }),
+        },
+      );
 
       expect(response.status).toBe(200);
       const body = await response.json();
@@ -119,11 +140,14 @@ describe('Password Reset', () => {
     });
 
     test('rejects missing email with 400', async () => {
-      const response = await fetch(`${baseUrl}/api/auth/password-reset/request`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
+      const response = await fetch(
+        `${baseUrl}/api/auth/password-reset/request`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        },
+      );
 
       expect(response.status).toBe(400);
     });
@@ -141,14 +165,17 @@ describe('Password Reset', () => {
 
       const token = emailMock.getLastPasswordResetToken();
 
-      const response = await fetch(`${baseUrl}/api/auth/password-reset/confirm`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          token,
-          password: 'NewSecurePassword123!',
-        }),
-      });
+      const response = await fetch(
+        `${baseUrl}/api/auth/password-reset/confirm`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            token,
+            password: 'NewSecurePassword123!',
+          }),
+        },
+      );
 
       expect(response.status).toBe(200);
       const body = await response.json();
@@ -176,7 +203,10 @@ describe('Password Reset', () => {
       const loginResponse = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: user.email, password: newPassword }),
+        body: JSON.stringify({
+          emailOrUsername: user.email,
+          password: newPassword,
+        }),
       });
 
       expect(loginResponse.status).toBe(200);
@@ -260,14 +290,17 @@ describe('Password Reset', () => {
     });
 
     test('rejects invalid token with 401', async () => {
-      const response = await fetch(`${baseUrl}/api/auth/password-reset/confirm`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          token: 'invalid-garbage-token',
-          password: 'NewSecurePassword123!',
-        }),
-      });
+      const response = await fetch(
+        `${baseUrl}/api/auth/password-reset/confirm`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            token: 'invalid-garbage-token',
+            password: 'NewSecurePassword123!',
+          }),
+        },
+      );
 
       expect(response.status).toBe(401);
     });
@@ -276,14 +309,17 @@ describe('Password Reset', () => {
       const { user } = await createVerifiedUser();
       const expiredToken = await createExpiredPasswordResetToken(user.id);
 
-      const response = await fetch(`${baseUrl}/api/auth/password-reset/confirm`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          token: expiredToken,
-          password: 'NewSecurePassword123!',
-        }),
-      });
+      const response = await fetch(
+        `${baseUrl}/api/auth/password-reset/confirm`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            token: expiredToken,
+            password: 'NewSecurePassword123!',
+          }),
+        },
+      );
 
       expect(response.status).toBe(401);
       const body = await response.json();
@@ -301,18 +337,24 @@ describe('Password Reset', () => {
 
       const token = emailMock.getLastPasswordResetToken();
 
-      const firstResponse = await fetch(`${baseUrl}/api/auth/password-reset/confirm`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, password: 'NewSecurePassword123!' }),
-      });
+      const firstResponse = await fetch(
+        `${baseUrl}/api/auth/password-reset/confirm`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token, password: 'NewSecurePassword123!' }),
+        },
+      );
       expect(firstResponse.status).toBe(200);
 
-      const secondResponse = await fetch(`${baseUrl}/api/auth/password-reset/confirm`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, password: 'AnotherPassword456!' }),
-      });
+      const secondResponse = await fetch(
+        `${baseUrl}/api/auth/password-reset/confirm`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token, password: 'AnotherPassword456!' }),
+        },
+      );
       expect(secondResponse.status).toBe(401);
     });
 
@@ -327,41 +369,53 @@ describe('Password Reset', () => {
 
       const token = emailMock.getLastPasswordResetToken();
 
-      const response = await fetch(`${baseUrl}/api/auth/password-reset/confirm`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, password: 'weak' }),
-      });
+      const response = await fetch(
+        `${baseUrl}/api/auth/password-reset/confirm`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token, password: 'weak' }),
+        },
+      );
 
       expect(response.status).toBe(409);
     });
 
     test('rejects missing token with 400', async () => {
-      const response = await fetch(`${baseUrl}/api/auth/password-reset/confirm`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: 'NewSecurePassword123!' }),
-      });
+      const response = await fetch(
+        `${baseUrl}/api/auth/password-reset/confirm`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: 'NewSecurePassword123!' }),
+        },
+      );
 
       expect(response.status).toBe(400);
     });
 
     test('rejects missing password with 400', async () => {
-      const response = await fetch(`${baseUrl}/api/auth/password-reset/confirm`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: 'some-token' }),
-      });
+      const response = await fetch(
+        `${baseUrl}/api/auth/password-reset/confirm`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: 'some-token' }),
+        },
+      );
 
       expect(response.status).toBe(400);
     });
 
     test('rejects empty body with 400', async () => {
-      const response = await fetch(`${baseUrl}/api/auth/password-reset/confirm`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
+      const response = await fetch(
+        `${baseUrl}/api/auth/password-reset/confirm`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        },
+      );
 
       expect(response.status).toBe(400);
     });

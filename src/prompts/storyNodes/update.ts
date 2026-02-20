@@ -24,7 +24,7 @@ export const updateNodesPrompt: PromptDefinition<UpdateInput> = {
         mentions: n.mentions,
       })),
       null,
-      2
+      2,
     );
 
     return `You are analyzing a document for INCREMENTAL CHANGES to story elements.

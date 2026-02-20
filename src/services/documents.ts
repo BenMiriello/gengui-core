@@ -98,7 +98,10 @@ export class DocumentsService {
       })
       .returning();
 
-    logger.info({ userId, documentId: document.id, sourceDocumentId }, 'Document copied');
+    logger.info(
+      { userId, documentId: document.id, sourceDocumentId },
+      'Document copied',
+    );
 
     return document;
   }
@@ -118,7 +121,7 @@ export class DocumentsService {
       mediaModeEnabled?: boolean;
       expectedVersion?: number;
       forceOverwrite?: boolean;
-    }
+    },
   ) {
     const existing = await this.get(documentId, userId);
 
@@ -134,33 +137,47 @@ export class DocumentsService {
     }
 
     // Validate dimensions if both are being updated
-    if (updates.defaultImageWidth !== undefined && updates.defaultImageHeight !== undefined) {
+    if (
+      updates.defaultImageWidth !== undefined &&
+      updates.defaultImageHeight !== undefined
+    ) {
       const provider = await getImageProvider();
-      if (!provider.validateDimensions(updates.defaultImageWidth, updates.defaultImageHeight)) {
+      if (
+        !provider.validateDimensions(
+          updates.defaultImageWidth,
+          updates.defaultImageHeight,
+        )
+      ) {
         const supportedDimensions = provider.getSupportedDimensions();
         let dimensionsStr: string;
         if (Array.isArray(supportedDimensions)) {
-          dimensionsStr = supportedDimensions.map((d) => `${d.width}x${d.height}`).join(', ');
+          dimensionsStr = supportedDimensions
+            .map((d) => `${d.width}x${d.height}`)
+            .join(', ');
         } else {
           const { min, max, step } = supportedDimensions;
           dimensionsStr = `${min}-${max}px (step: ${step})`;
         }
         throw new Error(
-          `Dimensions ${updates.defaultImageWidth}x${updates.defaultImageHeight} not supported by ${provider.name} provider. Supported sizes: ${dimensionsStr}`
+          `Dimensions ${updates.defaultImageWidth}x${updates.defaultImageHeight} not supported by ${provider.name} provider. Supported sizes: ${dimensionsStr}`,
         );
       }
     }
 
     // Snapshot the current DB state before overwriting
-    let existingSegments: { id: string; start: number; end: number }[] | undefined;
+    let existingSegments:
+      | { id: string; start: number; end: number }[]
+      | undefined;
     if (updates.content !== undefined) {
       const current = await this.get(documentId, userId);
-      existingSegments = Array.isArray(current.segmentSequence) ? current.segmentSequence : [];
+      existingSegments = Array.isArray(current.segmentSequence)
+        ? current.segmentSequence
+        : [];
       if (current.content || current.yjsState) {
         await versioningService.createVersion(
           documentId,
           current.yjsState ?? '',
-          current.content ?? ''
+          current.content ?? '',
         );
       }
     }
@@ -214,7 +231,10 @@ export class DocumentsService {
   async delete(documentId: string, userId: string) {
     await this.get(documentId, userId);
 
-    await db.update(documents).set({ deletedAt: new Date() }).where(eq(documents.id, documentId));
+    await db
+      .update(documents)
+      .set({ deletedAt: new Date() })
+      .where(eq(documents.id, documentId));
 
     logger.info({ userId, documentId }, 'Document deleted');
   }

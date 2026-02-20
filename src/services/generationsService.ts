@@ -86,7 +86,9 @@ export class GenerationsService {
     }
 
     // Determine initial status based on whether augmentation is enabled
-    const initialStatus = request.promptEnhancement?.enabled ? 'augmenting' : 'queued';
+    const initialStatus = request.promptEnhancement?.enabled
+      ? 'augmenting'
+      : 'queued';
 
     const [newMedia] = await db
       .insert(media)
@@ -123,10 +125,19 @@ export class GenerationsService {
           const CONTEXT_LENGTH = 50;
           const content = document.content;
 
-          const contextBeforeStart = Math.max(0, request.startChar - CONTEXT_LENGTH);
-          contextBefore = content.substring(contextBeforeStart, request.startChar);
+          const contextBeforeStart = Math.max(
+            0,
+            request.startChar - CONTEXT_LENGTH,
+          );
+          contextBefore = content.substring(
+            contextBeforeStart,
+            request.startChar,
+          );
 
-          const contextAfterEnd = Math.min(content.length, request.endChar + CONTEXT_LENGTH);
+          const contextAfterEnd = Math.min(
+            content.length,
+            request.endChar + CONTEXT_LENGTH,
+          );
           contextAfter = content.substring(request.endChar, contextAfterEnd);
         }
       }
@@ -155,7 +166,7 @@ export class GenerationsService {
           request.endChar === undefined
         ) {
           throw new Error(
-            'Document ID, startChar, and endChar are required for prompt augmentation'
+            'Document ID, startChar, and endChar are required for prompt augmentation',
           );
         }
 
@@ -176,7 +187,7 @@ export class GenerationsService {
         // Track augmentation for rate limiting
         const now = new Date();
         const todayUTC = new Date(
-          Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+          Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
         );
         const dateStr = todayUTC.toISOString().split('T')[0];
         const augmentationKey = `user:${userId}:augmentations:${dateStr}`;
@@ -199,7 +210,7 @@ export class GenerationsService {
         // Track generation for rate limiting
         const now = new Date();
         const todayUTC = new Date(
-          Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+          Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
         );
         const dateStr = todayUTC.toISOString().split('T')[0];
         const rateLimitKey = `user:${userId}:generations:${dateStr}`;
@@ -209,7 +220,7 @@ export class GenerationsService {
     } catch (error) {
       logger.error(
         { error, mediaId: newMedia.id },
-        'Failed to queue generation, marking as failed'
+        'Failed to queue generation, marking as failed',
       );
       await db
         .update(media)
@@ -220,7 +231,7 @@ export class GenerationsService {
 
     logger.info(
       { userId, mediaId: newMedia.id, totalElapsed: Date.now() - startTime },
-      '[TIMING] generationsService.create COMPLETE'
+      '[TIMING] generationsService.create COMPLETE',
     );
     return newMedia;
   }
@@ -234,8 +245,8 @@ export class GenerationsService {
           eq(media.id, id),
           eq(media.userId, userId),
           eq(media.sourceType, 'generation'),
-          notDeleted(media.deletedAt)
-        )
+          notDeleted(media.deletedAt),
+        ),
       )
       .limit(1);
 
@@ -254,8 +265,8 @@ export class GenerationsService {
         and(
           eq(media.userId, userId),
           eq(media.sourceType, 'generation'),
-          notDeleted(media.deletedAt)
-        )
+          notDeleted(media.deletedAt),
+        ),
       )
       .orderBy(media.createdAt)
       .limit(limit);
@@ -280,7 +291,10 @@ export class GenerationsService {
 
     // Already completed/failed - can't cancel
     if (job.status === 'completed' || job.status === 'failed') {
-      logger.info({ mediaId: id, status: job.status }, 'Job already finished, cannot cancel');
+      logger.info(
+        { mediaId: id, status: job.status },
+        'Job already finished, cannot cancel',
+      );
       throw new Error(`Job already ${job.status}`);
     }
 
@@ -291,10 +305,17 @@ export class GenerationsService {
       if (!runpodJobId) {
         // No RunPod job ID - maybe never submitted or Redis expired
         // Just mark as cancelled in DB
-        logger.warn({ mediaId: id }, 'No RunPod job ID found, marking as cancelled in DB');
+        logger.warn(
+          { mediaId: id },
+          'No RunPod job ID found, marking as cancelled in DB',
+        );
         await db
           .update(media)
-          .set({ cancelledAt: new Date(), status: 'failed', error: 'Cancelled by user' })
+          .set({
+            cancelledAt: new Date(),
+            status: 'failed',
+            error: 'Cancelled by user',
+          })
           .where(eq(media.id, id));
         return { cancelled: true };
       }
@@ -305,7 +326,10 @@ export class GenerationsService {
 
         // Already completed - show result instead of cancelling
         if (status.status === 'COMPLETED') {
-          logger.info({ mediaId: id, runpodJobId }, 'Job completed before cancellation');
+          logger.info(
+            { mediaId: id, runpodJobId },
+            'Job completed before cancellation',
+          );
           throw new Error('Job already completed');
         }
 
@@ -313,12 +337,15 @@ export class GenerationsService {
         if (status.status === 'IN_QUEUE' || status.status === 'IN_PROGRESS') {
           try {
             await runpodClient.cancelJob(runpodJobId);
-            logger.info({ mediaId: id, runpodJobId }, 'Job cancelled on RunPod');
+            logger.info(
+              { mediaId: id, runpodJobId },
+              'Job cancelled on RunPod',
+            );
           } catch (cancelError) {
             // Cancel failed - maybe just completed
             logger.warn(
               { error: cancelError, mediaId: id },
-              'RunPod cancel failed, checking status again'
+              'RunPod cancel failed, checking status again',
             );
             const newStatus = await runpodClient.getJobStatus(runpodJobId);
             if (newStatus.status === 'COMPLETED') {
@@ -327,17 +354,23 @@ export class GenerationsService {
             // Cancel failed for other reason, but we'll mark as cancelled in DB anyway
             logger.error(
               { error: cancelError, mediaId: id },
-              'RunPod cancel failed, marking as cancelled in DB'
+              'RunPod cancel failed, marking as cancelled in DB',
             );
           }
         }
       } catch (error) {
         // If error is "already completed", propagate it
-        if (error instanceof Error && error.message.includes('already completed')) {
+        if (
+          error instanceof Error &&
+          error.message.includes('already completed')
+        ) {
           throw error;
         }
         // Other errors - log and continue with DB cancellation
-        logger.error({ error, mediaId: id }, 'Error checking/cancelling RunPod job');
+        logger.error(
+          { error, mediaId: id },
+          'Error checking/cancelling RunPod job',
+        );
       }
     }
 

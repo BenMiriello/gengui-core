@@ -39,7 +39,9 @@ class GeminiImagenProvider implements ImageGenerationProvider {
   readonly name = 'gemini' as const;
 
   isEnabled(): boolean {
-    return env.IMAGE_INFERENCE_PROVIDER === 'gemini' && !!process.env.GEMINI_API_KEY;
+    return (
+      env.IMAGE_INFERENCE_PROVIDER === 'gemini' && !!process.env.GEMINI_API_KEY
+    );
   }
 
   async submitJob(input: GenerationInput): Promise<void> {
@@ -49,7 +51,10 @@ class GeminiImagenProvider implements ImageGenerationProvider {
 
     // Fire and forget - process asynchronously
     this.processGeneration(input).catch((error) => {
-      logger.error({ error, mediaId: input.mediaId }, 'Gemini Imagen generation failed');
+      logger.error(
+        { error, mediaId: input.mediaId },
+        'Gemini Imagen generation failed',
+      );
     });
   }
 
@@ -68,7 +73,10 @@ class GeminiImagenProvider implements ImageGenerationProvider {
       });
 
       // Map dimensions to nearest supported aspect ratio
-      const [width, height] = this.mapToNearestDimensions(input.width, input.height);
+      const [width, height] = this.mapToNearestDimensions(
+        input.width,
+        input.height,
+      );
 
       logger.info(
         {
@@ -77,7 +85,7 @@ class GeminiImagenProvider implements ImageGenerationProvider {
           requestedDimensions: `${input.width}x${input.height}`,
           mappedDimensions: `${width}x${height}`,
         },
-        'Generating image with Gemini Imagen'
+        'Generating image with Gemini Imagen',
       );
 
       // Generate image via Gemini Imagen API
@@ -132,9 +140,15 @@ class GeminiImagenProvider implements ImageGenerationProvider {
         s3Key,
       });
 
-      logger.info({ mediaId: input.mediaId, s3Key }, 'Gemini Imagen generation completed');
+      logger.info(
+        { mediaId: input.mediaId, s3Key },
+        'Gemini Imagen generation completed',
+      );
     } catch (error: any) {
-      logger.error({ error, mediaId: input.mediaId }, 'Gemini Imagen generation failed');
+      logger.error(
+        { error, mediaId: input.mediaId },
+        'Gemini Imagen generation failed',
+      );
 
       const errorMessage = error?.message || 'Unknown error';
 
@@ -178,9 +192,14 @@ class GeminiImagenProvider implements ImageGenerationProvider {
   /**
    * Map requested dimensions to nearest supported Gemini Imagen dimensions
    */
-  private mapToNearestDimensions(width: number, height: number): [number, number] {
+  private mapToNearestDimensions(
+    width: number,
+    height: number,
+  ): [number, number] {
     // Check if exact match exists
-    const exactMatch = SUPPORTED_DIMENSIONS.find(([w, h]) => w === width && h === height);
+    const exactMatch = SUPPORTED_DIMENSIONS.find(
+      ([w, h]) => w === width && h === height,
+    );
     if (exactMatch) {
       return exactMatch;
     }
@@ -204,7 +223,7 @@ class GeminiImagenProvider implements ImageGenerationProvider {
         requested: `${width}x${height}`,
         mapped: `${nearest[0]}x${nearest[1]}`,
       },
-      'Mapped to nearest supported Gemini Imagen dimensions'
+      'Mapped to nearest supported Gemini Imagen dimensions',
     );
 
     return nearest;
@@ -223,7 +242,10 @@ class GeminiImagenProvider implements ImageGenerationProvider {
     if (Math.abs(ratio - 0.7) < 0.01) return '3:4';
 
     // Default to 1:1
-    logger.warn({ width, height, ratio }, 'Unknown aspect ratio, defaulting to 1:1');
+    logger.warn(
+      { width, height, ratio },
+      'Unknown aspect ratio, defaulting to 1:1',
+    );
     return '1:1';
   }
 }

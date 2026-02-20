@@ -47,7 +47,10 @@ class GeminiProImageProvider implements ImageGenerationProvider {
 
     // Fire and forget - process asynchronously
     this.processGeneration(input).catch((error) => {
-      logger.error({ error, mediaId: input.mediaId }, 'Gemini Pro Image generation failed');
+      logger.error(
+        { error, mediaId: input.mediaId },
+        'Gemini Pro Image generation failed',
+      );
     });
   }
 
@@ -66,7 +69,10 @@ class GeminiProImageProvider implements ImageGenerationProvider {
       });
 
       // Map dimensions to nearest supported
-      const [width, height] = this.mapToNearestDimensions(input.width, input.height);
+      const [width, height] = this.mapToNearestDimensions(
+        input.width,
+        input.height,
+      );
 
       logger.info(
         {
@@ -76,7 +82,7 @@ class GeminiProImageProvider implements ImageGenerationProvider {
           mappedDimensions: `${width}x${height}`,
           referenceImageCount: input.referenceImages?.length || 0,
         },
-        'Generating image with Gemini Pro Image'
+        'Generating image with Gemini Pro Image',
       );
 
       const client = await ensureGenAI();
@@ -94,7 +100,7 @@ class GeminiProImageProvider implements ImageGenerationProvider {
             referenceCount: input.referenceImages.length,
             characterNames: input.referenceImages.map((r) => r.nodeName),
           },
-          'Including character reference images'
+          'Including character reference images',
         );
 
         for (const refImage of input.referenceImages) {
@@ -169,9 +175,15 @@ class GeminiProImageProvider implements ImageGenerationProvider {
         s3Key,
       });
 
-      logger.info({ mediaId: input.mediaId, s3Key }, 'Gemini Pro Image generation completed');
+      logger.info(
+        { mediaId: input.mediaId, s3Key },
+        'Gemini Pro Image generation completed',
+      );
     } catch (error: any) {
-      logger.error({ error, mediaId: input.mediaId }, 'Gemini Pro Image generation failed');
+      logger.error(
+        { error, mediaId: input.mediaId },
+        'Gemini Pro Image generation failed',
+      );
 
       const errorMessage = error?.message || 'Unknown error';
 
@@ -213,8 +225,13 @@ class GeminiProImageProvider implements ImageGenerationProvider {
   /**
    * Map requested dimensions to nearest supported dimensions
    */
-  private mapToNearestDimensions(width: number, height: number): [number, number] {
-    const exactMatch = SUPPORTED_DIMENSIONS.find(([w, h]) => w === width && h === height);
+  private mapToNearestDimensions(
+    width: number,
+    height: number,
+  ): [number, number] {
+    const exactMatch = SUPPORTED_DIMENSIONS.find(
+      ([w, h]) => w === width && h === height,
+    );
     if (exactMatch) {
       return exactMatch;
     }
@@ -237,7 +254,7 @@ class GeminiProImageProvider implements ImageGenerationProvider {
         requested: `${width}x${height}`,
         mapped: `${nearest[0]}x${nearest[1]}`,
       },
-      'Mapped to nearest supported Gemini Pro Image dimensions'
+      'Mapped to nearest supported Gemini Pro Image dimensions',
     );
 
     return nearest;

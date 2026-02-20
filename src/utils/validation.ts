@@ -3,7 +3,7 @@ import { ForbiddenError } from './errors';
 export function validateOwnership(
   resource: { userId: string } | null | undefined,
   currentUserId: string,
-  resourceName: string = 'Resource'
+  resourceName: string = 'Resource',
 ): asserts resource is { userId: string } {
   if (!resource) {
     throw new ForbiddenError(`${resourceName} not found`);
@@ -11,7 +11,9 @@ export function validateOwnership(
 
   if (resource.userId !== currentUserId) {
     const lower = resourceName.toLowerCase();
-    throw new ForbiddenError(`You do not have permission to access this ${lower}`);
+    throw new ForbiddenError(
+      `You do not have permission to access this ${lower}`,
+    );
   }
 }
 
@@ -31,11 +33,18 @@ export function validatePassword(password: string): PasswordValidationResult {
   if (password.length < 16) {
     const hasSpecialChar = /[!@#$%^&*()_+\-=[\]{}|;:,.<>?]/.test(password);
     if (!hasSpecialChar) {
-      errors.push('Password under 16 characters must contain a special character');
+      errors.push(
+        'Password under 16 characters must contain a special character',
+      );
     }
   }
 
-  const strength = password.length >= 16 ? 'strong' : password.length >= 12 ? 'medium' : 'weak';
+  const strength =
+    password.length >= 16
+      ? 'strong'
+      : password.length >= 12
+        ? 'medium'
+        : 'weak';
 
   return {
     valid: errors.length === 0,
@@ -60,7 +69,10 @@ export function validateUsername(username: string): UsernameValidationResult {
 
   const validUsernamePattern = /^[a-zA-Z0-9_]+$/;
   if (!validUsernamePattern.test(username)) {
-    return { valid: false, error: 'Username can only contain letters, numbers, and underscores' };
+    return {
+      valid: false,
+      error: 'Username can only contain letters, numbers, and underscores',
+    };
   }
 
   return { valid: true };

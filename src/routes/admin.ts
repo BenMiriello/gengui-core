@@ -1,4 +1,9 @@
-import { type NextFunction, type Request, type Response, Router } from 'express';
+import {
+  type NextFunction,
+  type Request,
+  type Response,
+  Router,
+} from 'express';
 import { requireAdmin } from '../middleware/auth';
 import { adminService } from '../services/adminService';
 
@@ -13,7 +18,8 @@ router.get(
   requireAdmin,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { search, role, emailVerified, limit, offset, includeStats } = req.query;
+      const { search, role, emailVerified, limit, offset, includeStats } =
+        req.query;
 
       // Parse and validate query parameters
       const filters: any = {};
@@ -57,7 +63,7 @@ router.get(
     } catch (error) {
       return next(error);
     }
-  }
+  },
 );
 
 /**
@@ -83,7 +89,7 @@ router.get(
     } catch (error) {
       return next(error);
     }
-  }
+  },
 );
 
 /**
@@ -107,7 +113,10 @@ router.patch(
 
       if (dailyLimit === undefined || typeof dailyLimit !== 'number') {
         res.status(400).json({
-          error: { message: 'Daily limit must be a number', code: 'INVALID_INPUT' },
+          error: {
+            message: 'Daily limit must be a number',
+            code: 'INVALID_INPUT',
+          },
         });
         return;
       }
@@ -117,7 +126,7 @@ router.patch(
     } catch (error) {
       return next(error);
     }
-  }
+  },
 );
 
 /**
@@ -143,7 +152,7 @@ router.get(
     } catch (error) {
       return next(error);
     }
-  }
+  },
 );
 
 /**
@@ -160,7 +169,7 @@ router.get(
     } catch (error) {
       return next(error);
     }
-  }
+  },
 );
 
 /**
@@ -178,7 +187,7 @@ router.get(
     } catch (error) {
       return next(error);
     }
-  }
+  },
 );
 
 /**
@@ -196,7 +205,7 @@ router.post(
     } catch (error) {
       return next(error);
     }
-  }
+  },
 );
 
 /**
@@ -214,7 +223,7 @@ router.post(
     } catch (error) {
       return next(error);
     }
-  }
+  },
 );
 
 export default router;

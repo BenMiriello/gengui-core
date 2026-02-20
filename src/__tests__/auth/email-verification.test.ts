@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from 'bun:test';
 import {
   closeDb,
   createEmailVerificationToken,
@@ -10,7 +17,12 @@ import {
   resetUserCounter,
   truncateAll,
 } from '../helpers';
-import { clearRedisStore, emailMock, startTestServer, stopTestServer } from '../helpers/testApp';
+import {
+  clearRedisStore,
+  emailMock,
+  startTestServer,
+  stopTestServer,
+} from '../helpers/testApp';
 
 describe('Email Verification', () => {
   let baseUrl: string;
@@ -97,7 +109,10 @@ describe('Email Verification', () => {
 
     test('rejects expired token with 401', async () => {
       const { user } = await createTestUser();
-      const expiredToken = await createExpiredEmailVerificationToken(user.id, user.email);
+      const expiredToken = await createExpiredEmailVerificationToken(
+        user.id,
+        user.email,
+      );
 
       const response = await fetch(`${baseUrl}/api/auth/verify-email`, {
         method: 'POST',

@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from 'bun:test';
 import {
   closeDb,
   createTestUser,
@@ -7,7 +14,11 @@ import {
   resetUserCounter,
   truncateAll,
 } from '../helpers';
-import { clearRedisStore, startTestServer, stopTestServer } from '../helpers/testApp';
+import {
+  clearRedisStore,
+  startTestServer,
+  stopTestServer,
+} from '../helpers/testApp';
 
 describe('POST /api/auth/login', () => {
   let baseUrl: string;
@@ -326,8 +337,12 @@ describe('POST /api/auth/login', () => {
       const wrongPasswordBody = await wrongPasswordResponse.json();
       const nonexistentBody = await nonexistentResponse.json();
 
-      expect(wrongPasswordBody.error.message).toBe(nonexistentBody.error.message);
-      expect(Object.keys(wrongPasswordBody)).toEqual(Object.keys(nonexistentBody));
+      expect(wrongPasswordBody.error.message).toBe(
+        nonexistentBody.error.message,
+      );
+      expect(Object.keys(wrongPasswordBody)).toEqual(
+        Object.keys(nonexistentBody),
+      );
     });
   });
 });

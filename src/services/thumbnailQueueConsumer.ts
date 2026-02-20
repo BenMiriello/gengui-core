@@ -8,7 +8,10 @@ class ThumbnailQueueConsumer extends BlockingConsumer {
   }
 
   protected async onStart() {
-    await this.streams.ensureGroupOnce('thumbnail:stream', 'thumbnail-processors');
+    await this.streams.ensureGroupOnce(
+      'thumbnail:stream',
+      'thumbnail-processors',
+    );
   }
 
   protected async consumeLoop() {
@@ -18,9 +21,14 @@ class ThumbnailQueueConsumer extends BlockingConsumer {
 
     while (this.isRunning) {
       try {
-        const result = await this.streams.consume(streamName, groupName, consumerName, {
-          block: 2000,
-        });
+        const result = await this.streams.consume(
+          streamName,
+          groupName,
+          consumerName,
+          {
+            block: 2000,
+          },
+        );
 
         if (!result) continue;
 

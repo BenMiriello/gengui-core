@@ -1,4 +1,9 @@
-import type { FacetType, StoryEdgeType, StoryNodeType, ArcType } from '../../types/storyNodes';
+import type {
+  ArcType,
+  FacetType,
+  StoryEdgeType,
+  StoryNodeType,
+} from '../../types/storyNodes';
 
 export interface NodeProperties {
   [key: string]: string | number | boolean | null;

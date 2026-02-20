@@ -6,20 +6,23 @@
  * multiple ways (e.g., "Harry Potter", "Harry", "Potter", "The Boy Who Lived").
  */
 
+import type { FacetInput } from '../../types/storyNodes';
+import { cosineSimilarity, scoreNameSimilarity } from './scoring';
 import type {
   EntityCandidate,
   EntityCluster,
   ResolutionThresholds,
 } from './types';
 import { DEFAULT_THRESHOLDS } from './types';
-import type { FacetInput } from '../../types/storyNodes';
-import { cosineSimilarity, scoreNameSimilarity } from './scoring';
 
 /**
  * Compute similarity between two entity candidates.
  * Uses embedding similarity and name similarity.
  */
-function computeCandidateSimilarity(a: EntityCandidate, b: EntityCandidate): number {
+function computeCandidateSimilarity(
+  a: EntityCandidate,
+  b: EntityCandidate,
+): number {
   // Type must match for clustering
   if (a.type !== b.type) return 0;
 
@@ -38,11 +41,13 @@ function computeCandidateSimilarity(a: EntityCandidate, b: EntityCandidate): num
  */
 function computeClusterSimilarity(
   candidate: EntityCandidate,
-  cluster: EntityCluster
+  cluster: EntityCluster,
 ): number {
   if (cluster.members.length === 0) return 0;
 
-  const scores = cluster.members.map((m) => computeCandidateSimilarity(candidate, m));
+  const scores = cluster.members.map((m) =>
+    computeCandidateSimilarity(candidate, m),
+  );
   return scores.reduce((a, b) => a + b, 0) / scores.length;
 }
 
@@ -52,7 +57,7 @@ function computeClusterSimilarity(
  */
 function selectPrimaryName(members: EntityCandidate[]): string {
   return members.reduce((longest, m) =>
-    m.name.length > longest.name.length ? m : longest
+    m.name.length > longest.name.length ? m : longest,
   ).name;
 }
 
@@ -104,7 +109,7 @@ function mergeFacets(members: EntityCandidate[]): FacetInput[] {
  */
 export function clusterWithinSegment(
   entities: EntityCandidate[],
-  thresholds: ResolutionThresholds = DEFAULT_THRESHOLDS
+  thresholds: ResolutionThresholds = DEFAULT_THRESHOLDS,
 ): EntityCluster[] {
   if (entities.length === 0) return [];
 
@@ -125,7 +130,10 @@ export function clusterWithinSegment(
         cluster.members.push(entity);
         cluster.aliases.push(entity.name);
         cluster.mentions.push(...entity.mentions);
-        if (entity.segmentId && !cluster.segmentIds.includes(entity.segmentId)) {
+        if (
+          entity.segmentId &&
+          !cluster.segmentIds.includes(entity.segmentId)
+        ) {
           cluster.segmentIds.push(entity.segmentId);
         }
         merged = true;
@@ -163,7 +171,7 @@ export function clusterWithinSegment(
  */
 export function clusterBySegment(
   entities: EntityCandidate[],
-  thresholds: ResolutionThresholds = DEFAULT_THRESHOLDS
+  thresholds: ResolutionThresholds = DEFAULT_THRESHOLDS,
 ): Map<string, EntityCluster[]> {
   // Group by segment
   const bySegment = new Map<string, EntityCandidate[]>();
@@ -191,7 +199,7 @@ export function clusterBySegment(
  */
 export function clusterAcrossSegments(
   entities: EntityCandidate[],
-  thresholds: ResolutionThresholds = DEFAULT_THRESHOLDS
+  thresholds: ResolutionThresholds = DEFAULT_THRESHOLDS,
 ): EntityCluster[] {
   // First, cluster within each segment
   const bySegment = clusterBySegment(entities, thresholds);
@@ -215,8 +223,15 @@ export function clusterAcrossSegments(
       if (existing.type !== cluster.type) continue;
 
       // Check similarity between clusters using representative members
-      const sim = cosineSimilarity(cluster.mergedEmbedding, existing.mergedEmbedding);
-      const nameSim = scoreNameSimilarity(cluster.primaryName, existing.primaryName, existing.aliases);
+      const sim = cosineSimilarity(
+        cluster.mergedEmbedding,
+        existing.mergedEmbedding,
+      );
+      const nameSim = scoreNameSimilarity(
+        cluster.primaryName,
+        existing.primaryName,
+        existing.aliases,
+      );
       const combinedSim = sim * 0.4 + nameSim * 0.6;
 
       if (combinedSim > crossSegmentThreshold) {
@@ -225,7 +240,7 @@ export function clusterAcrossSegments(
         existing.aliases.push(...cluster.aliases);
         existing.mentions.push(...cluster.mentions);
         existing.segmentIds.push(
-          ...cluster.segmentIds.filter((s) => !existing.segmentIds.includes(s))
+          ...cluster.segmentIds.filter((s) => !existing.segmentIds.includes(s)),
         );
         merged = true;
         break;

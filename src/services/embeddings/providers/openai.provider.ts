@@ -52,6 +52,8 @@ export const openaiEmbeddingProvider: EmbeddingProvider = {
       dimensions: DIMENSIONS,
     });
 
-    return response.data.sort((a: any, b: any) => a.index - b.index).map((d: any) => d.embedding);
+    return response.data
+      .sort((a: any, b: any) => a.index - b.index)
+      .map((d: any) => d.embedding);
   },
 };

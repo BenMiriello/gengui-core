@@ -18,7 +18,7 @@ export async function buildContext(
   selectedText: string,
   startChar: number,
   endChar: number,
-  settings: PromptEnhancementSettings
+  settings: PromptEnhancementSettings,
 ): Promise<PromptContext> {
   const context: PromptContext = {
     selectedText,
@@ -28,14 +28,23 @@ export async function buildContext(
     let nodes: StoredStoryNode[] = [];
     try {
       const queryEmbedding = await generateEmbedding(selectedText);
-      nodes = await graphService.findSimilarNodes(queryEmbedding, documentId, userId, 10);
+      nodes = await graphService.findSimilarNodes(
+        queryEmbedding,
+        documentId,
+        userId,
+        10,
+      );
     } catch (err) {
-      logger.warn({ error: err }, 'Semantic retrieval failed, falling back to full node list');
+      logger.warn(
+        { error: err },
+        'Semantic retrieval failed, falling back to full node list',
+      );
       nodes = await graphService.getStoryNodesForDocument(documentId, userId);
     }
 
     if (nodes.length > 0) {
-      const connections = await graphService.getStoryConnectionsForDocument(documentId);
+      const connections =
+        await graphService.getStoryConnectionsForDocument(documentId);
       context.storyContext = convertNodeTreeToText(nodes, connections);
     }
   }
@@ -46,7 +55,10 @@ export async function buildContext(
   }
 
   if (settings.charsAfter > 0) {
-    const afterEnd = Math.min(documentContent.length, endChar + settings.charsAfter);
+    const afterEnd = Math.min(
+      documentContent.length,
+      endChar + settings.charsAfter,
+    );
     context.textAfter = documentContent.substring(endChar, afterEnd);
   }
 
@@ -55,7 +67,7 @@ export async function buildContext(
 
 function convertNodeTreeToText(
   nodes: StoredStoryNode[],
-  connections: StoredStoryConnection[]
+  connections: StoredStoryConnection[],
 ): string {
   const sections: string[] = ['STORY CONTEXT:\n'];
 
@@ -114,7 +126,9 @@ function convertNodeTreeToText(
       const toName = nodeMap.get(conn.toNodeId);
       if (fromName && toName) {
         const edgeLabel = conn.edgeType || 'RELATED_TO';
-        sections.push(`- ${fromName} --[${edgeLabel}]--> ${toName}: ${conn.description}`);
+        sections.push(
+          `- ${fromName} --[${edgeLabel}]--> ${toName}: ${conn.description}`,
+        );
       }
     }
   }

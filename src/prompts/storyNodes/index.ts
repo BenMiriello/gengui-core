@@ -1,7 +1,16 @@
-export { updateNodesPrompt } from './update';
+export {
+  analyzeHigherOrderPrompt,
+  refineThreadsPrompt,
+} from './analyzeHigherOrder';
 
 // Multi-stage pipeline prompts
 export { extractEntitiesPrompt } from './extractEntities';
-export { resolveEntityPrompt, batchResolveEntitiesPrompt } from './resolveEntities';
-export { extractRelationshipsPrompt, extractCrossSegmentRelationshipsPrompt } from './extractRelationships';
-export { analyzeHigherOrderPrompt, refineThreadsPrompt } from './analyzeHigherOrder';
+export {
+  extractCrossSegmentRelationshipsPrompt,
+  extractRelationshipsPrompt,
+} from './extractRelationships';
+export {
+  batchResolveEntitiesPrompt,
+  resolveEntityPrompt,
+} from './resolveEntities';
+export { updateNodesPrompt } from './update';

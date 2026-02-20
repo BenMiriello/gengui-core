@@ -1,6 +1,18 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from 'bun:test';
 import { closeDb, resetUserCounter, truncateAll } from '../helpers';
-import { clearRedisStore, emailMock, startTestServer, stopTestServer } from '../helpers/testApp';
+import {
+  clearRedisStore,
+  emailMock,
+  startTestServer,
+  stopTestServer,
+} from '../helpers/testApp';
 
 describe('Security Headers', () => {
   let baseUrl: string;
@@ -47,7 +59,9 @@ describe('Security Headers', () => {
 
     test('sets X-Content-Type-Options: nosniff', async () => {
       const response = await fetch(`${baseUrl}/health`);
-      const xContentTypeOptions = response.headers.get('x-content-type-options');
+      const xContentTypeOptions = response.headers.get(
+        'x-content-type-options',
+      );
 
       expect(xContentTypeOptions).toBe('nosniff');
     });

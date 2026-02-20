@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import {
   closeDb,
@@ -79,7 +86,8 @@ describe('Node Ownership', () => {
 
     test('user cannot access nodes on other users documents', async () => {
       const { user: owner } = await createVerifiedUser();
-      const { user: attacker, password: attackerPassword } = await createVerifiedUser();
+      const { user: attacker, password: attackerPassword } =
+        await createVerifiedUser();
       const doc = await createTestDocument(owner.id);
 
       const nodeId = randomUUID();
@@ -102,7 +110,10 @@ describe('Node Ownership', () => {
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: attacker.email, password: attackerPassword }),
+        body: JSON.stringify({
+          emailOrUsername: attacker.email,
+          password: attackerPassword,
+        }),
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
@@ -115,7 +126,8 @@ describe('Node Ownership', () => {
 
     test('user cannot update nodes on other users documents', async () => {
       const { user: owner } = await createVerifiedUser();
-      const { user: attacker, password: attackerPassword } = await createVerifiedUser();
+      const { user: attacker, password: attackerPassword } =
+        await createVerifiedUser();
       const doc = await createTestDocument(owner.id);
 
       const nodeId = randomUUID();
@@ -138,7 +150,10 @@ describe('Node Ownership', () => {
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: attacker.email, password: attackerPassword }),
+        body: JSON.stringify({
+          emailOrUsername: attacker.email,
+          password: attackerPassword,
+        }),
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
@@ -153,7 +168,8 @@ describe('Node Ownership', () => {
 
     test('user cannot update style on other users nodes', async () => {
       const { user: owner } = await createVerifiedUser();
-      const { user: attacker, password: attackerPassword } = await createVerifiedUser();
+      const { user: attacker, password: attackerPassword } =
+        await createVerifiedUser();
       const doc = await createTestDocument(owner.id);
 
       const nodeId = randomUUID();
@@ -176,7 +192,10 @@ describe('Node Ownership', () => {
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: attacker.email, password: attackerPassword }),
+        body: JSON.stringify({
+          emailOrUsername: attacker.email,
+          password: attackerPassword,
+        }),
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
@@ -235,14 +254,20 @@ describe('Node Ownership', () => {
       const loginRes1 = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: user1.email, password: password1 }),
+        body: JSON.stringify({
+          emailOrUsername: user1.email,
+          password: password1,
+        }),
       });
       const cookie1 = loginRes1.headers.get('set-cookie')!;
 
       const loginRes2 = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: user2.email, password: password2 }),
+        body: JSON.stringify({
+          emailOrUsername: user2.email,
+          password: password2,
+        }),
       });
       const cookie2 = loginRes2.headers.get('set-cookie')!;
 

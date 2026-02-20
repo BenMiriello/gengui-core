@@ -2,7 +2,10 @@ import { graphService } from './graph.service';
 import type { NarrativeThread, ThreadMembership } from './graph.types';
 
 export const graphThreads = {
-  async getThreadsForDocument(documentId: string, userId: string): Promise<NarrativeThread[]> {
+  async getThreadsForDocument(
+    documentId: string,
+    userId: string,
+  ): Promise<NarrativeThread[]> {
     const result = await graphService.query(
       `
       MATCH (nt:NarrativeThread)
@@ -10,7 +13,7 @@ export const graphThreads = {
       RETURN nt.id, nt.documentId, nt.userId, nt.name, nt.isPrimary, nt.color, nt.createdAt
       ORDER BY nt.createdAt
       `,
-      { documentId, userId }
+      { documentId, userId },
     );
 
     return result.data.map((row) => ({
@@ -31,7 +34,7 @@ export const graphThreads = {
       WHERE nt.id = $threadId
       RETURN nt.id, nt.documentId, nt.userId, nt.name, nt.isPrimary, nt.color, nt.createdAt
       `,
-      { threadId }
+      { threadId },
     );
 
     if (result.data.length === 0) return null;
@@ -54,7 +57,7 @@ export const graphThreads = {
       WHERE nt.id = $threadId
       SET nt.name = $name
       `,
-      { threadId, name }
+      { threadId, name },
     );
   },
 
@@ -65,7 +68,7 @@ export const graphThreads = {
       WHERE nt.id = $threadId
       DETACH DELETE nt
       `,
-      { threadId }
+      { threadId },
     );
   },
 
@@ -77,7 +80,7 @@ export const graphThreads = {
       RETURN e.id, nt.id, r.order
       ORDER BY r.order
       `,
-      { threadId }
+      { threadId },
     );
 
     return result.data.map((row) => ({
@@ -87,7 +90,9 @@ export const graphThreads = {
     }));
   },
 
-  async getThreadsForEvent(eventId: string): Promise<{ threadId: string; order: number }[]> {
+  async getThreadsForEvent(
+    eventId: string,
+  ): Promise<{ threadId: string; order: number }[]> {
     const result = await graphService.query(
       `
       MATCH (e:StoryNode)-[r:BELONGS_TO_THREAD]->(nt:NarrativeThread)
@@ -95,7 +100,7 @@ export const graphThreads = {
       RETURN nt.id, r.order
       ORDER BY r.order
       `,
-      { eventId }
+      { eventId },
     );
 
     return result.data.map((row) => ({
@@ -104,29 +109,40 @@ export const graphThreads = {
     }));
   },
 
-  async addEventToThread(eventId: string, threadId: string, order: number): Promise<void> {
+  async addEventToThread(
+    eventId: string,
+    threadId: string,
+    order: number,
+  ): Promise<void> {
     await graphService.linkEventToThread(eventId, threadId, order);
   },
 
-  async removeEventFromThread(eventId: string, threadId: string): Promise<void> {
+  async removeEventFromThread(
+    eventId: string,
+    threadId: string,
+  ): Promise<void> {
     await graphService.query(
       `
       MATCH (e:StoryNode)-[r:BELONGS_TO_THREAD]->(nt:NarrativeThread)
       WHERE e.id = $eventId AND nt.id = $threadId
       DELETE r
       `,
-      { eventId, threadId }
+      { eventId, threadId },
     );
   },
 
-  async reorderEventInThread(eventId: string, threadId: string, newOrder: number): Promise<void> {
+  async reorderEventInThread(
+    eventId: string,
+    threadId: string,
+    newOrder: number,
+  ): Promise<void> {
     await graphService.query(
       `
       MATCH (e:StoryNode)-[r:BELONGS_TO_THREAD]->(nt:NarrativeThread)
       WHERE e.id = $eventId AND nt.id = $threadId AND e.deletedAt IS NULL
       SET r.order = $newOrder
       `,
-      { eventId, threadId, newOrder }
+      { eventId, threadId, newOrder },
     );
   },
 };

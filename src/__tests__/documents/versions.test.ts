@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from 'bun:test';
 import {
   closeDb,
   createTestDocument,
@@ -41,7 +48,9 @@ describe('Document Versioning', () => {
   describe('Version Creation', () => {
     test('creates version when content is updated', async () => {
       const { user, password } = await createVerifiedUser();
-      const doc = await createTestDocument(user.id, { content: 'Original content' });
+      const doc = await createTestDocument(user.id, {
+        content: 'Original content',
+      });
       const sessionId = 'test-session';
       setPrimaryEditor(doc.id, sessionId);
 
@@ -112,7 +121,9 @@ describe('Document Versioning', () => {
 
     test('does not create version when content unchanged', async () => {
       const { user, password } = await createVerifiedUser();
-      const doc = await createTestDocument(user.id, { content: 'Same content' });
+      const doc = await createTestDocument(user.id, {
+        content: 'Same content',
+      });
       const sessionId = 'test-session';
       setPrimaryEditor(doc.id, sessionId);
 
@@ -265,9 +276,12 @@ describe('Document Versioning', () => {
         });
       }
 
-      const res = await fetch(`${baseUrl}/api/documents/${doc.id}/versions?limit=2`, {
-        headers: { Cookie: cookie },
-      });
+      const res = await fetch(
+        `${baseUrl}/api/documents/${doc.id}/versions?limit=2`,
+        {
+          headers: { Cookie: cookie },
+        },
+      );
 
       const body = await res.json();
       expect(body.versions.length).toBe(2);
@@ -287,7 +301,7 @@ describe('Document Versioning', () => {
         `${baseUrl}/api/documents/00000000-0000-0000-0000-000000000000/versions`,
         {
           headers: { Cookie: cookie },
-        }
+        },
       );
 
       expect(res.status).toBe(404);
@@ -344,9 +358,12 @@ describe('Document Versioning', () => {
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
-      const res = await fetch(`${baseUrl}/api/documents/${doc.id}/versions/999`, {
-        headers: { Cookie: cookie },
-      });
+      const res = await fetch(
+        `${baseUrl}/api/documents/${doc.id}/versions/999`,
+        {
+          headers: { Cookie: cookie },
+        },
+      );
 
       expect(res.status).toBe(404);
     });
@@ -365,7 +382,7 @@ describe('Document Versioning', () => {
         `${baseUrl}/api/documents/00000000-0000-0000-0000-000000000000/versions/1`,
         {
           headers: { Cookie: cookie },
-        }
+        },
       );
 
       expect(res.status).toBe(404);

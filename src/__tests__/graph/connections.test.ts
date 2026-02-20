@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from 'bun:test';
 import { GraphService } from '../../services/graph/graph.service';
 import type { StoryNodeResult } from '../../types/storyNodes';
 
@@ -9,7 +16,10 @@ const isFalkorDBAvailable = process.env.FALKORDB_AVAILABLE === 'true';
 const graphService = new GraphService();
 
 function createNodeInput(
-  overrides: Partial<StoryNodeResult> & { type: StoryNodeResult['type']; name: string }
+  overrides: Partial<StoryNodeResult> & {
+    type: StoryNodeResult['type'];
+    name: string;
+  },
 ): StoryNodeResult {
   return {
     description: '',
@@ -30,13 +40,17 @@ function createNodeInput(
 
   afterAll(async () => {
     // Clean up this test file's data before disconnecting
-    await graphService.query(`MATCH (n {userId: '${testUserId}'}) DETACH DELETE n`);
+    await graphService.query(
+      `MATCH (n {userId: '${testUserId}'}) DETACH DELETE n`,
+    );
     await graphService.disconnect();
   });
 
   beforeEach(async () => {
     // Only clear this test file's nodes - allows parallel execution
-    await graphService.query(`MATCH (n {userId: '${testUserId}'}) DETACH DELETE n`);
+    await graphService.query(
+      `MATCH (n {userId: '${testUserId}'}) DETACH DELETE n`,
+    );
   });
 
   describe('createStoryConnection', () => {
@@ -47,7 +61,7 @@ function createNodeInput(
         createNodeInput({
           type: 'character',
           name: 'Alice',
-        })
+        }),
       );
       const toId = await graphService.createStoryNode(
         testDocumentId,
@@ -55,14 +69,14 @@ function createNodeInput(
         createNodeInput({
           type: 'location',
           name: 'Castle',
-        })
+        }),
       );
 
       const connectionId = await graphService.createStoryConnection(
         fromId,
         toId,
         'LOCATED_AT',
-        'Alice lives in the castle'
+        'Alice lives in the castle',
       );
 
       expect(connectionId).toBeDefined();
@@ -76,7 +90,7 @@ function createNodeInput(
         createNodeInput({
           type: 'event',
           name: 'Cause Event',
-        })
+        }),
       );
       const toId = await graphService.createStoryNode(
         testDocumentId,
@@ -84,18 +98,29 @@ function createNodeInput(
         createNodeInput({
           type: 'event',
           name: 'Effect Event',
-        })
+        }),
       );
 
-      const connectionId = await graphService.createStoryConnection(fromId, toId, 'CAUSES', null, {
-        strength: 0.8,
-      });
+      const connectionId = await graphService.createStoryConnection(
+        fromId,
+        toId,
+        'CAUSES',
+        null,
+        {
+          strength: 0.8,
+        },
+      );
 
       expect(connectionId).toBeDefined();
     });
 
     test('supports all causal edge types', async () => {
-      const causalTypes = ['CAUSES', 'ENABLES', 'PREVENTS', 'HAPPENS_BEFORE'] as const;
+      const causalTypes = [
+        'CAUSES',
+        'ENABLES',
+        'PREVENTS',
+        'HAPPENS_BEFORE',
+      ] as const;
 
       for (const edgeType of causalTypes) {
         const fromId = await graphService.createStoryNode(
@@ -104,7 +129,7 @@ function createNodeInput(
           createNodeInput({
             type: 'event',
             name: `From ${edgeType}`,
-          })
+          }),
         );
         const toId = await graphService.createStoryNode(
           testDocumentId,
@@ -112,10 +137,15 @@ function createNodeInput(
           createNodeInput({
             type: 'event',
             name: `To ${edgeType}`,
-          })
+          }),
         );
 
-        const connectionId = await graphService.createStoryConnection(fromId, toId, edgeType, null);
+        const connectionId = await graphService.createStoryConnection(
+          fromId,
+          toId,
+          edgeType,
+          null,
+        );
         expect(connectionId).toBeDefined();
       }
     });
@@ -140,7 +170,7 @@ function createNodeInput(
           createNodeInput({
             type: 'character',
             name: `From ${edgeType}`,
-          })
+          }),
         );
         const toId = await graphService.createStoryNode(
           testDocumentId,
@@ -148,10 +178,15 @@ function createNodeInput(
           createNodeInput({
             type: 'concept',
             name: `To ${edgeType}`,
-          })
+          }),
         );
 
-        const connectionId = await graphService.createStoryConnection(fromId, toId, edgeType, null);
+        const connectionId = await graphService.createStoryConnection(
+          fromId,
+          toId,
+          edgeType,
+          null,
+        );
         expect(connectionId).toBeDefined();
       }
     });
@@ -163,7 +198,7 @@ function createNodeInput(
         createNodeInput({
           type: 'character',
           name: 'From',
-        })
+        }),
       );
       const toId = await graphService.createStoryNode(
         testDocumentId,
@@ -171,11 +206,16 @@ function createNodeInput(
         createNodeInput({
           type: 'character',
           name: 'To',
-        })
+        }),
       );
 
       await expect(
-        graphService.createStoryConnection(fromId, toId, 'INVALID_TYPE' as any, null)
+        graphService.createStoryConnection(
+          fromId,
+          toId,
+          'INVALID_TYPE' as any,
+          null,
+        ),
       ).rejects.toThrow('Invalid edge type');
     });
   });
@@ -188,10 +228,11 @@ function createNodeInput(
         createNodeInput({
           type: 'character',
           name: 'Lonely Node',
-        })
+        }),
       );
 
-      const connections = await graphService.getStoryConnectionsForDocument(testDocumentId);
+      const connections =
+        await graphService.getStoryConnectionsForDocument(testDocumentId);
       expect(connections).toEqual([]);
     });
 
@@ -202,7 +243,7 @@ function createNodeInput(
         createNodeInput({
           type: 'character',
           name: 'Alice',
-        })
+        }),
       );
       const node2 = await graphService.createStoryNode(
         testDocumentId,
@@ -210,7 +251,7 @@ function createNodeInput(
         createNodeInput({
           type: 'location',
           name: 'Castle',
-        })
+        }),
       );
       const node3 = await graphService.createStoryNode(
         testDocumentId,
@@ -218,13 +259,24 @@ function createNodeInput(
         createNodeInput({
           type: 'event',
           name: 'Battle',
-        })
+        }),
       );
 
-      await graphService.createStoryConnection(node1, node2, 'LOCATED_AT', null);
-      await graphService.createStoryConnection(node1, node3, 'PARTICIPATES_IN', null);
+      await graphService.createStoryConnection(
+        node1,
+        node2,
+        'LOCATED_AT',
+        null,
+      );
+      await graphService.createStoryConnection(
+        node1,
+        node3,
+        'PARTICIPATES_IN',
+        null,
+      );
 
-      const connections = await graphService.getStoryConnectionsForDocument(testDocumentId);
+      const connections =
+        await graphService.getStoryConnectionsForDocument(testDocumentId);
       expect(connections).toHaveLength(2);
     });
 
@@ -235,7 +287,7 @@ function createNodeInput(
         createNodeInput({
           type: 'event',
           name: 'Cause',
-        })
+        }),
       );
       const node2 = await graphService.createStoryNode(
         testDocumentId,
@@ -243,14 +295,21 @@ function createNodeInput(
         createNodeInput({
           type: 'event',
           name: 'Effect',
-        })
+        }),
       );
 
-      await graphService.createStoryConnection(node1, node2, 'CAUSES', 'A leads to B', {
-        strength: 0.9,
-      });
+      await graphService.createStoryConnection(
+        node1,
+        node2,
+        'CAUSES',
+        'A leads to B',
+        {
+          strength: 0.9,
+        },
+      );
 
-      const connections = await graphService.getStoryConnectionsForDocument(testDocumentId);
+      const connections =
+        await graphService.getStoryConnectionsForDocument(testDocumentId);
       expect(connections).toHaveLength(1);
 
       const conn = connections[0];
@@ -269,7 +328,7 @@ function createNodeInput(
         createNodeInput({
           type: 'character',
           name: 'Node 1',
-        })
+        }),
       );
       const node2 = await graphService.createStoryNode(
         testDocumentId,
@@ -277,7 +336,7 @@ function createNodeInput(
         createNodeInput({
           type: 'character',
           name: 'Node 2',
-        })
+        }),
       );
       const node3 = await graphService.createStoryNode(
         testDocumentId,
@@ -285,15 +344,26 @@ function createNodeInput(
         createNodeInput({
           type: 'character',
           name: 'Node 3',
-        })
+        }),
       );
 
-      await graphService.createStoryConnection(node1, node2, 'CONNECTED_TO', null);
-      await graphService.createStoryConnection(node2, node3, 'CONNECTED_TO', null);
+      await graphService.createStoryConnection(
+        node1,
+        node2,
+        'CONNECTED_TO',
+        null,
+      );
+      await graphService.createStoryConnection(
+        node2,
+        node3,
+        'CONNECTED_TO',
+        null,
+      );
 
       await graphService.softDeleteStoryConnection(node1, node2);
 
-      const connections = await graphService.getStoryConnectionsForDocument(testDocumentId);
+      const connections =
+        await graphService.getStoryConnectionsForDocument(testDocumentId);
       expect(connections).toHaveLength(1);
       expect(connections[0].fromNodeId).toBe(node2);
       expect(connections[0].toNodeId).toBe(node3);
@@ -306,7 +376,7 @@ function createNodeInput(
         createNodeInput({
           type: 'character',
           name: 'Active Node',
-        })
+        }),
       );
       const node2 = await graphService.createStoryNode(
         testDocumentId,
@@ -314,13 +384,19 @@ function createNodeInput(
         createNodeInput({
           type: 'character',
           name: 'Deleted Node',
-        })
+        }),
       );
 
-      await graphService.createStoryConnection(node1, node2, 'CONNECTED_TO', null);
+      await graphService.createStoryConnection(
+        node1,
+        node2,
+        'CONNECTED_TO',
+        null,
+      );
       await graphService.softDeleteStoryNode(node2);
 
-      const connections = await graphService.getStoryConnectionsForDocument(testDocumentId);
+      const connections =
+        await graphService.getStoryConnectionsForDocument(testDocumentId);
       expect(connections).toEqual([]);
     });
   });
@@ -333,7 +409,7 @@ function createNodeInput(
         createNodeInput({
           type: 'character',
           name: 'Node 1',
-        })
+        }),
       );
       const node2 = await graphService.createStoryNode(
         testDocumentId,
@@ -341,17 +417,24 @@ function createNodeInput(
         createNodeInput({
           type: 'character',
           name: 'Node 2',
-        })
+        }),
       );
 
-      await graphService.createStoryConnection(node1, node2, 'CONNECTED_TO', null);
+      await graphService.createStoryConnection(
+        node1,
+        node2,
+        'CONNECTED_TO',
+        null,
+      );
 
-      let connections = await graphService.getStoryConnectionsForDocument(testDocumentId);
+      let connections =
+        await graphService.getStoryConnectionsForDocument(testDocumentId);
       expect(connections).toHaveLength(1);
 
       await graphService.softDeleteStoryConnection(node1, node2);
 
-      connections = await graphService.getStoryConnectionsForDocument(testDocumentId);
+      connections =
+        await graphService.getStoryConnectionsForDocument(testDocumentId);
       expect(connections).toEqual([]);
     });
   });
@@ -364,7 +447,7 @@ function createNodeInput(
         createNodeInput({
           type: 'event',
           name: 'Event 1',
-        })
+        }),
       );
       const node2 = await graphService.createStoryNode(
         testDocumentId,
@@ -372,7 +455,7 @@ function createNodeInput(
         createNodeInput({
           type: 'event',
           name: 'Event 2',
-        })
+        }),
       );
 
       const wouldCycle = await graphService.wouldCreateCycle(node1, node2);
@@ -386,7 +469,7 @@ function createNodeInput(
         createNodeInput({
           type: 'event',
           name: 'Event 1',
-        })
+        }),
       );
       const node2 = await graphService.createStoryNode(
         testDocumentId,
@@ -394,7 +477,7 @@ function createNodeInput(
         createNodeInput({
           type: 'event',
           name: 'Event 2',
-        })
+        }),
       );
 
       await graphService.createStoryConnection(node1, node2, 'CAUSES', null);
@@ -410,7 +493,7 @@ function createNodeInput(
         createNodeInput({
           type: 'event',
           name: 'Event 1',
-        })
+        }),
       );
       const node2 = await graphService.createStoryNode(
         testDocumentId,
@@ -418,7 +501,7 @@ function createNodeInput(
         createNodeInput({
           type: 'event',
           name: 'Event 2',
-        })
+        }),
       );
       const node3 = await graphService.createStoryNode(
         testDocumentId,
@@ -426,7 +509,7 @@ function createNodeInput(
         createNodeInput({
           type: 'event',
           name: 'Event 3',
-        })
+        }),
       );
 
       await graphService.createStoryConnection(node1, node2, 'CAUSES', null);
@@ -443,7 +526,7 @@ function createNodeInput(
         createNodeInput({
           type: 'event',
           name: 'Event 1',
-        })
+        }),
       );
       const node2 = await graphService.createStoryNode(
         testDocumentId,
@@ -451,13 +534,13 @@ function createNodeInput(
         createNodeInput({
           type: 'event',
           name: 'Event 2',
-        })
+        }),
       );
 
       await graphService.createStoryConnection(node1, node2, 'CAUSES', null);
 
       await expect(
-        graphService.createStoryConnection(node2, node1, 'ENABLES', null)
+        graphService.createStoryConnection(node2, node1, 'ENABLES', null),
       ).rejects.toThrow('would create a cycle');
     });
   });

@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from 'bun:test';
 import {
   closeDb,
   createTestDocument,
@@ -39,13 +46,17 @@ describe('Document Ownership', () => {
   describe('GET /documents/:id', () => {
     test('returns 403 for document owned by another user', async () => {
       const { user: owner } = await createVerifiedUser();
-      const { user: other, password: otherPassword } = await createVerifiedUser();
+      const { user: other, password: otherPassword } =
+        await createVerifiedUser();
       const doc = await createTestDocument(owner.id);
 
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: other.email, password: otherPassword }),
+        body: JSON.stringify({
+          emailOrUsername: other.email,
+          password: otherPassword,
+        }),
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
@@ -62,14 +73,18 @@ describe('Document Ownership', () => {
   describe('PATCH /documents/:id', () => {
     test('returns 403 for document owned by another user', async () => {
       const { user: owner } = await createVerifiedUser();
-      const { user: other, password: otherPassword } = await createVerifiedUser();
+      const { user: other, password: otherPassword } =
+        await createVerifiedUser();
       const doc = await createTestDocument(owner.id);
       setPrimaryEditor(doc.id, 'test-session');
 
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: other.email, password: otherPassword }),
+        body: JSON.stringify({
+          emailOrUsername: other.email,
+          password: otherPassword,
+        }),
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
@@ -90,13 +105,17 @@ describe('Document Ownership', () => {
   describe('DELETE /documents/:id', () => {
     test('returns 403 for document owned by another user', async () => {
       const { user: owner } = await createVerifiedUser();
-      const { user: other, password: otherPassword } = await createVerifiedUser();
+      const { user: other, password: otherPassword } =
+        await createVerifiedUser();
       const doc = await createTestDocument(owner.id);
 
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: other.email, password: otherPassword }),
+        body: JSON.stringify({
+          emailOrUsername: other.email,
+          password: otherPassword,
+        }),
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
@@ -112,13 +131,17 @@ describe('Document Ownership', () => {
   describe('POST /documents/:id/copy', () => {
     test('returns 403 for document owned by another user', async () => {
       const { user: owner } = await createVerifiedUser();
-      const { user: other, password: otherPassword } = await createVerifiedUser();
+      const { user: other, password: otherPassword } =
+        await createVerifiedUser();
       const doc = await createTestDocument(owner.id);
 
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: other.email, password: otherPassword }),
+        body: JSON.stringify({
+          emailOrUsername: other.email,
+          password: otherPassword,
+        }),
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
@@ -135,13 +158,17 @@ describe('Document Ownership', () => {
   describe('PATCH /documents/:id/modes', () => {
     test('returns 403 for document owned by another user', async () => {
       const { user: owner } = await createVerifiedUser();
-      const { user: other, password: otherPassword } = await createVerifiedUser();
+      const { user: other, password: otherPassword } =
+        await createVerifiedUser();
       const doc = await createTestDocument(owner.id);
 
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: other.email, password: otherPassword }),
+        body: JSON.stringify({
+          emailOrUsername: other.email,
+          password: otherPassword,
+        }),
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
@@ -158,13 +185,17 @@ describe('Document Ownership', () => {
   describe('GET /documents/:id/versions', () => {
     test('returns 403 for document owned by another user', async () => {
       const { user: owner } = await createVerifiedUser();
-      const { user: other, password: otherPassword } = await createVerifiedUser();
+      const { user: other, password: otherPassword } =
+        await createVerifiedUser();
       const doc = await createTestDocument(owner.id);
 
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: other.email, password: otherPassword }),
+        body: JSON.stringify({
+          emailOrUsername: other.email,
+          password: otherPassword,
+        }),
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
@@ -179,13 +210,17 @@ describe('Document Ownership', () => {
   describe('GET /documents/:id/versions/:versionNumber', () => {
     test('returns 403 for document owned by another user', async () => {
       const { user: owner } = await createVerifiedUser();
-      const { user: other, password: otherPassword } = await createVerifiedUser();
+      const { user: other, password: otherPassword } =
+        await createVerifiedUser();
       const doc = await createTestDocument(owner.id);
 
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: other.email, password: otherPassword }),
+        body: JSON.stringify({
+          emailOrUsername: other.email,
+          password: otherPassword,
+        }),
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
@@ -208,7 +243,10 @@ describe('Document Ownership', () => {
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: userA.email, password: passwordA }),
+        body: JSON.stringify({
+          emailOrUsername: userA.email,
+          password: passwordA,
+        }),
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 

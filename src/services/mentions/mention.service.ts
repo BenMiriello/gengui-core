@@ -9,7 +9,11 @@ import { db } from '../../config/database';
 import { mentions } from '../../models/schema';
 import type { Segment } from '../segments';
 import { segmentService } from '../segments';
-import type { CreateMentionInput, Mention, MentionWithAbsolutePosition } from './mention.types';
+import type {
+  CreateMentionInput,
+  Mention,
+  MentionWithAbsolutePosition,
+} from './mention.types';
 import { findNameOccurrences, nameMatchesToMentionInputs } from './nameMatch';
 
 export const mentionService = {
@@ -27,9 +31,13 @@ export const mentionService = {
     segments: Segment[],
     source: CreateMentionInput['source'] = 'extraction',
     confidence = 100,
-    facetId?: string | null
+    facetId?: string | null,
   ): Promise<Mention | null> {
-    const relative = segmentService.toRelativePosition(segments, absoluteStart, absoluteEnd);
+    const relative = segmentService.toRelativePosition(
+      segments,
+      absoluteStart,
+      absoluteEnd,
+    );
     if (!relative) {
       return null;
     }
@@ -105,7 +113,10 @@ export const mentionService = {
    * Get all mentions for a node.
    */
   async getByNodeId(nodeId: string): Promise<Mention[]> {
-    const rows = await db.select().from(mentions).where(eq(mentions.nodeId, nodeId));
+    const rows = await db
+      .select()
+      .from(mentions)
+      .where(eq(mentions.nodeId, nodeId));
 
     return rows.map(rowToMention);
   },
@@ -115,7 +126,7 @@ export const mentionService = {
    */
   async getByNodeIdAndSource(
     nodeId: string,
-    source: 'extraction' | 'name_match' | 'reference' | 'semantic'
+    source: 'extraction' | 'name_match' | 'reference' | 'semantic',
   ): Promise<Mention[]> {
     const rows = await db
       .select()
@@ -129,7 +140,10 @@ export const mentionService = {
    * Get all mentions for a document.
    */
   async getByDocumentId(documentId: string): Promise<Mention[]> {
-    const rows = await db.select().from(mentions).where(eq(mentions.documentId, documentId));
+    const rows = await db
+      .select()
+      .from(mentions)
+      .where(eq(mentions.documentId, documentId));
 
     return rows.map(rowToMention);
   },
@@ -138,7 +152,7 @@ export const mentionService = {
    * Get all mentions for a document with absolute positions.
    */
   async getByDocumentIdWithAbsolutePositions(
-    documentId: string
+    documentId: string,
   ): Promise<MentionWithAbsolutePosition[]> {
     const { documents } = await import('../../models/schema.js');
 
@@ -159,7 +173,7 @@ export const mentionService = {
           segments,
           mention.segmentId,
           mention.relativeStart,
-          mention.relativeEnd
+          mention.relativeEnd,
         );
         if (!absolute) return null;
 
@@ -175,8 +189,14 @@ export const mentionService = {
   /**
    * Get a single mention by ID with absolute positions.
    */
-  async getMentionById(id: string): Promise<MentionWithAbsolutePosition | null> {
-    const [row] = await db.select().from(mentions).where(eq(mentions.id, id)).limit(1);
+  async getMentionById(
+    id: string,
+  ): Promise<MentionWithAbsolutePosition | null> {
+    const [row] = await db
+      .select()
+      .from(mentions)
+      .where(eq(mentions.id, id))
+      .limit(1);
 
     if (!row) return null;
 
@@ -195,7 +215,7 @@ export const mentionService = {
       segments,
       row.segmentId,
       row.relativeStart,
-      row.relativeEnd
+      row.relativeEnd,
     );
 
     if (!absolute) return null;
@@ -212,7 +232,7 @@ export const mentionService = {
    */
   async getByNodeIdWithAbsolutePositions(
     nodeId: string,
-    segments: Segment[]
+    segments: Segment[],
   ): Promise<MentionWithAbsolutePosition[]> {
     const mentionRows = await this.getByNodeId(nodeId);
 
@@ -222,7 +242,7 @@ export const mentionService = {
           segments,
           mention.segmentId,
           mention.relativeStart,
-          mention.relativeEnd
+          mention.relativeEnd,
         );
         if (!absolute) return null;
 
@@ -262,8 +282,14 @@ export const mentionService = {
    * Get the minimum absolute position across all mentions for a node.
    * Used to compute documentOrder.
    */
-  async getFirstPosition(nodeId: string, segments: Segment[]): Promise<number | null> {
-    const mentionsWithPos = await this.getByNodeIdWithAbsolutePositions(nodeId, segments);
+  async getFirstPosition(
+    nodeId: string,
+    segments: Segment[],
+  ): Promise<number | null> {
+    const mentionsWithPos = await this.getByNodeIdWithAbsolutePositions(
+      nodeId,
+      segments,
+    );
 
     if (mentionsWithPos.length === 0) return null;
 
@@ -274,17 +300,24 @@ export const mentionService = {
    * Validate a mention's text hash against current document content.
    * Returns true if the text at the stored position matches the hash.
    */
-  validateMention(mention: Mention, documentContent: string, segments: Segment[]): boolean {
+  validateMention(
+    mention: Mention,
+    documentContent: string,
+    segments: Segment[],
+  ): boolean {
     const absolute = segmentService.toAbsolutePosition(
       segments,
       mention.segmentId,
       mention.relativeStart,
-      mention.relativeEnd
+      mention.relativeEnd,
     );
 
     if (!absolute) return false;
 
-    const currentText = documentContent.slice(absolute.absoluteStart, absolute.absoluteEnd);
+    const currentText = documentContent.slice(
+      absolute.absoluteStart,
+      absolute.absoluteEnd,
+    );
     const currentHash = computeTextHash(currentText);
 
     return currentHash === mention.textHash;
@@ -293,8 +326,14 @@ export const mentionService = {
   /**
    * Update the isKeyPassage flag for a mention.
    */
-  async updateKeyPassage(mentionId: string, isKeyPassage: boolean): Promise<void> {
-    await db.update(mentions).set({ isKeyPassage }).where(eq(mentions.id, mentionId));
+  async updateKeyPassage(
+    mentionId: string,
+    isKeyPassage: boolean,
+  ): Promise<void> {
+    await db
+      .update(mentions)
+      .set({ isKeyPassage })
+      .where(eq(mentions.id, mentionId));
   },
 
   /**
@@ -323,11 +362,19 @@ export const mentionService = {
   /**
    * Get mentions by segment ID.
    */
-  async getBySegmentId(documentId: string, segmentId: string): Promise<Mention[]> {
+  async getBySegmentId(
+    documentId: string,
+    segmentId: string,
+  ): Promise<Mention[]> {
     const rows = await db
       .select()
       .from(mentions)
-      .where(and(eq(mentions.documentId, documentId), eq(mentions.segmentId, segmentId)));
+      .where(
+        and(
+          eq(mentions.documentId, documentId),
+          eq(mentions.segmentId, segmentId),
+        ),
+      );
 
     return rows.map(rowToMention);
   },
@@ -348,7 +395,9 @@ export const mentionService = {
    * Get mention counts for multiple nodes.
    * Returns map of nodeId -> count.
    */
-  async getMentionCountsByNodes(nodeIds: string[]): Promise<Map<string, number>> {
+  async getMentionCountsByNodes(
+    nodeIds: string[],
+  ): Promise<Map<string, number>> {
     if (nodeIds.length === 0) return new Map();
 
     const rows = await db
@@ -378,10 +427,13 @@ export const mentionService = {
     segments: Segment[],
     versionNumber: number,
     name: string,
-    aliases: string[] = []
+    aliases: string[] = [],
   ): Promise<number> {
     // Get existing mentions to exclude their spans
-    const existingMentions = await this.getByNodeIdWithAbsolutePositions(nodeId, segments);
+    const existingMentions = await this.getByNodeIdWithAbsolutePositions(
+      nodeId,
+      segments,
+    );
     const excludeSpans = existingMentions.map((m) => ({
       start: m.absoluteStart,
       end: m.absoluteEnd,
@@ -396,7 +448,13 @@ export const mentionService = {
     if (matches.length === 0) return 0;
 
     // Convert to mention inputs and create
-    const inputs = nameMatchesToMentionInputs(nodeId, documentId, matches, segments, versionNumber);
+    const inputs = nameMatchesToMentionInputs(
+      nodeId,
+      documentId,
+      matches,
+      segments,
+      versionNumber,
+    );
 
     await this.createBatch(inputs);
     return inputs.length;

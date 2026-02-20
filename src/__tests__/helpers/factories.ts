@@ -35,7 +35,7 @@ function generateUniqueId() {
 }
 
 export async function createTestUser(
-  overrides: UserInsert = {}
+  overrides: UserInsert = {},
 ): Promise<{ user: TestUser; password: string }> {
   const db = await getTestDb();
   const uniqueId = generateUniqueId();
@@ -69,18 +69,20 @@ export async function createTestUser(
 }
 
 export async function createVerifiedUser(
-  overrides: UserInsert = {}
+  overrides: UserInsert = {},
 ): Promise<{ user: TestUser; password: string }> {
   return createTestUser({ ...overrides, emailVerified: true });
 }
 
 export async function createAdminUser(
-  overrides: UserInsert = {}
+  overrides: UserInsert = {},
 ): Promise<{ user: TestUser; password: string }> {
   return createTestUser({ ...overrides, role: 'admin', emailVerified: true });
 }
 
-export async function createSession(userId: string): Promise<{ token: string; expiresAt: Date }> {
+export async function createSession(
+  userId: string,
+): Promise<{ token: string; expiresAt: Date }> {
   const db = await getTestDb();
   const token = crypto.randomBytes(32).toString('hex');
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
@@ -96,7 +98,7 @@ export async function createSession(userId: string): Promise<{ token: string; ex
 export async function loginAs(
   app: Express,
   emailOrUsername: string,
-  password: string
+  password: string,
 ): Promise<string> {
   const response = await fetch(
     `http://127.0.0.1:${(app as any).address?.()?.port || 0}/api/auth/login`,
@@ -104,7 +106,7 @@ export async function loginAs(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ emailOrUsername, password }),
-    }
+    },
   );
 
   const setCookie = response.headers.get('set-cookie');
@@ -118,7 +120,7 @@ export async function loginAs(
 export async function getAuthCookie(
   app: Express,
   user: TestUser,
-  password: string
+  password: string,
 ): Promise<string> {
   return loginAs(app, user.email, password);
 }
@@ -127,7 +129,10 @@ export function resetUserCounter() {
   userCounter = 0;
 }
 
-export async function createEmailVerificationToken(userId: string, email: string): Promise<string> {
+export async function createEmailVerificationToken(
+  userId: string,
+  email: string,
+): Promise<string> {
   const db = await getTestDb();
   const token = crypto.randomBytes(32).toString('hex');
   const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
@@ -142,7 +147,7 @@ export async function createEmailVerificationToken(userId: string, email: string
 
 export async function createExpiredEmailVerificationToken(
   userId: string,
-  email: string
+  email: string,
 ): Promise<string> {
   const db = await getTestDb();
   const token = crypto.randomBytes(32).toString('hex');
@@ -156,7 +161,9 @@ export async function createExpiredEmailVerificationToken(
   return token;
 }
 
-export async function createPasswordResetToken(userId: string): Promise<string> {
+export async function createPasswordResetToken(
+  userId: string,
+): Promise<string> {
   const db = await getTestDb();
   const token = crypto.randomBytes(32).toString('hex');
   const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
@@ -169,7 +176,9 @@ export async function createPasswordResetToken(userId: string): Promise<string> 
   return token;
 }
 
-export async function createExpiredPasswordResetToken(userId: string): Promise<string> {
+export async function createExpiredPasswordResetToken(
+  userId: string,
+): Promise<string> {
   const db = await getTestDb();
   const token = crypto.randomBytes(32).toString('hex');
   const expiresAt = new Date(Date.now() - 1000);
@@ -183,7 +192,7 @@ export async function createExpiredPasswordResetToken(userId: string): Promise<s
 }
 
 export async function createExpiredSession(
-  userId: string
+  userId: string,
 ): Promise<{ token: string; expiresAt: Date }> {
   const db = await getTestDb();
   const token = crypto.randomBytes(32).toString('hex');
@@ -252,13 +261,14 @@ let documentCounter = 0;
 
 export async function createTestDocument(
   userId: string,
-  overrides: DocumentInsert = {}
+  overrides: DocumentInsert = {},
 ): Promise<TestDocument> {
   const db = await getTestDb();
   const uniqueId = ++documentCounter;
 
   const title = overrides.title ?? `Test Document ${uniqueId}`;
-  const content = overrides.content ?? `This is test content for document ${uniqueId}.`;
+  const content =
+    overrides.content ?? `This is test content for document ${uniqueId}.`;
   const narrativeModeEnabled = overrides.narrativeModeEnabled ?? false;
   const mediaModeEnabled = overrides.mediaModeEnabled ?? false;
 
@@ -341,7 +351,7 @@ interface TestMedia {
 
 export async function createTestMedia(
   userId: string,
-  overrides: MediaInsert = {}
+  overrides: MediaInsert = {},
 ): Promise<TestMedia> {
   const db = await getTestDb();
   const uniqueId = ++mediaCounter;
@@ -407,7 +417,10 @@ interface TestTag {
   createdAt: Date;
 }
 
-export async function createTestTag(userId: string, name?: string): Promise<TestTag> {
+export async function createTestTag(
+  userId: string,
+  name?: string,
+): Promise<TestTag> {
   const db = await getTestDb();
   const uniqueId = ++tagCounter;
   const tagName = name ?? `tag-${uniqueId}`;
@@ -485,7 +498,7 @@ interface TestGeneration {
 
 export async function createTestGeneration(
   userId: string,
-  overrides: GenerationInsert = {}
+  overrides: GenerationInsert = {},
 ): Promise<TestGeneration> {
   const db = await getTestDb();
   const uniqueId = ++generationCounter;
@@ -527,31 +540,34 @@ export async function createTestGeneration(
 
 export async function createQueuedGeneration(
   userId: string,
-  overrides: Omit<GenerationInsert, 'status'> = {}
+  overrides: Omit<GenerationInsert, 'status'> = {},
 ): Promise<TestGeneration> {
   return createTestGeneration(userId, { ...overrides, status: 'queued' });
 }
 
 export async function createCompletedGeneration(
   userId: string,
-  overrides: Omit<GenerationInsert, 'status'> = {}
+  overrides: Omit<GenerationInsert, 'status'> = {},
 ): Promise<TestGeneration> {
   return createTestGeneration(userId, { ...overrides, status: 'completed' });
 }
 
 export async function createFailedGeneration(
   userId: string,
-  overrides: Omit<GenerationInsert, 'status'> = {}
+  overrides: Omit<GenerationInsert, 'status'> = {},
 ): Promise<TestGeneration> {
   return createTestGeneration(userId, { ...overrides, status: 'failed' });
 }
 
 export async function createCancelledGeneration(
   userId: string,
-  overrides: Omit<GenerationInsert, 'status'> = {}
+  overrides: Omit<GenerationInsert, 'status'> = {},
 ): Promise<TestGeneration> {
   const db = await getTestDb();
-  const generation = await createTestGeneration(userId, { ...overrides, status: 'failed' });
+  const generation = await createTestGeneration(userId, {
+    ...overrides,
+    status: 'failed',
+  });
 
   await db.execute(sql`
     UPDATE media SET cancelled_at = NOW(), error = 'Cancelled by user'

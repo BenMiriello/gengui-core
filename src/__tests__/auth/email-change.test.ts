@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from 'bun:test';
 import {
   closeDb,
   createTestUser,
@@ -9,7 +16,12 @@ import {
   resetUserCounter,
   truncateAll,
 } from '../helpers';
-import { clearRedisStore, emailMock, startTestServer, stopTestServer } from '../helpers/testApp';
+import {
+  clearRedisStore,
+  emailMock,
+  startTestServer,
+  stopTestServer,
+} from '../helpers/testApp';
 
 describe('Email Change', () => {
   let baseUrl: string;
@@ -43,14 +55,17 @@ describe('Email Change', () => {
       });
       const cookie = loginResponse.headers.get('set-cookie') ?? '';
 
-      const response = await fetch(`${baseUrl}/api/auth/email/initiate-change`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Cookie: cookie,
+      const response = await fetch(
+        `${baseUrl}/api/auth/email/initiate-change`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Cookie: cookie,
+          },
+          body: JSON.stringify({ email: newEmail, password }),
         },
-        body: JSON.stringify({ email: newEmail, password }),
-      });
+      );
 
       expect(response.status).toBe(200);
       const body = await response.json();
@@ -104,7 +119,7 @@ describe('Email Change', () => {
       expect(emailMock.sendEmailChangeVerification).toHaveBeenCalled();
       expect(emailMock.sendEmailChangeVerification).toHaveBeenCalledWith(
         newEmail,
-        expect.any(String)
+        expect.any(String),
       );
     });
 
@@ -118,17 +133,20 @@ describe('Email Change', () => {
       });
       const cookie = loginResponse.headers.get('set-cookie') ?? '';
 
-      const response = await fetch(`${baseUrl}/api/auth/email/initiate-change`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Cookie: cookie,
+      const response = await fetch(
+        `${baseUrl}/api/auth/email/initiate-change`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Cookie: cookie,
+          },
+          body: JSON.stringify({
+            email: 'newemail@example.com',
+            password: 'WrongPassword123!',
+          }),
         },
-        body: JSON.stringify({
-          email: 'newemail@example.com',
-          password: 'WrongPassword123!',
-        }),
-      });
+      );
 
       expect(response.status).toBe(401);
       const body = await response.json();
@@ -145,17 +163,20 @@ describe('Email Change', () => {
       });
       const cookie = loginResponse.headers.get('set-cookie') ?? '';
 
-      const response = await fetch(`${baseUrl}/api/auth/email/initiate-change`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Cookie: cookie,
+      const response = await fetch(
+        `${baseUrl}/api/auth/email/initiate-change`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Cookie: cookie,
+          },
+          body: JSON.stringify({
+            email: 'not-an-email',
+            password,
+          }),
         },
-        body: JSON.stringify({
-          email: 'not-an-email',
-          password,
-        }),
-      });
+      );
 
       expect(response.status).toBe(409);
     });
@@ -171,17 +192,20 @@ describe('Email Change', () => {
       });
       const cookie = loginResponse.headers.get('set-cookie') ?? '';
 
-      const response = await fetch(`${baseUrl}/api/auth/email/initiate-change`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Cookie: cookie,
+      const response = await fetch(
+        `${baseUrl}/api/auth/email/initiate-change`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Cookie: cookie,
+          },
+          body: JSON.stringify({
+            email: otherUser.email,
+            password,
+          }),
         },
-        body: JSON.stringify({
-          email: otherUser.email,
-          password,
-        }),
-      });
+      );
 
       expect(response.status).toBe(409);
       const body = await response.json();
@@ -189,14 +213,17 @@ describe('Email Change', () => {
     });
 
     test('requires authentication (returns 401 without cookie)', async () => {
-      const response = await fetch(`${baseUrl}/api/auth/email/initiate-change`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: 'newemail@example.com',
-          password: 'SomePassword123!',
-        }),
-      });
+      const response = await fetch(
+        `${baseUrl}/api/auth/email/initiate-change`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: 'newemail@example.com',
+            password: 'SomePassword123!',
+          }),
+        },
+      );
 
       expect(response.status).toBe(401);
     });
@@ -211,14 +238,17 @@ describe('Email Change', () => {
       });
       const cookie = loginResponse.headers.get('set-cookie') ?? '';
 
-      const response = await fetch(`${baseUrl}/api/auth/email/initiate-change`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Cookie: cookie,
+      const response = await fetch(
+        `${baseUrl}/api/auth/email/initiate-change`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Cookie: cookie,
+          },
+          body: JSON.stringify({ password }),
         },
-        body: JSON.stringify({ password }),
-      });
+      );
 
       expect(response.status).toBe(400);
     });
@@ -233,14 +263,17 @@ describe('Email Change', () => {
       });
       const cookie = loginResponse.headers.get('set-cookie') ?? '';
 
-      const response = await fetch(`${baseUrl}/api/auth/email/initiate-change`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Cookie: cookie,
+      const response = await fetch(
+        `${baseUrl}/api/auth/email/initiate-change`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Cookie: cookie,
+          },
+          body: JSON.stringify({ email: 'newemail@example.com' }),
         },
-        body: JSON.stringify({ email: 'newemail@example.com' }),
-      });
+      );
 
       expect(response.status).toBe(400);
     });

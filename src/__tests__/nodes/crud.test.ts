@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import {
   closeDb,
@@ -121,7 +128,10 @@ describe('Node CRUD', () => {
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: user1.email, password: password1 }),
+        body: JSON.stringify({
+          emailOrUsername: user1.email,
+          password: password1,
+        }),
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
@@ -350,7 +360,10 @@ describe('Node CRUD', () => {
       const res = await fetch(`${baseUrl}/api/nodes/${nodeId}/style`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Cookie: cookie },
-        body: JSON.stringify({ stylePreset: 'anime', stylePrompt: 'vibrant colors' }),
+        body: JSON.stringify({
+          stylePreset: 'anime',
+          stylePrompt: 'vibrant colors',
+        }),
       });
 
       expect(res.status).toBe(200);

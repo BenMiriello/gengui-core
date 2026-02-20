@@ -7,7 +7,11 @@ import { requireAuth } from './auth';
  * Middleware to require admin role for route access.
  * Logs all admin access attempts for audit purposes.
  */
-export async function requireAdmin(req: Request, res: Response, next: NextFunction) {
+export async function requireAdmin(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
   try {
     // First ensure user is authenticated
     await requireAuth(req, res, (err) => {
@@ -32,7 +36,7 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
             sessionId: req.sessionId,
             accessGranted: false,
           },
-          'Admin access denied - insufficient privileges'
+          'Admin access denied - insufficient privileges',
         );
         throw new ForbiddenError('Admin access required');
       }
@@ -49,7 +53,7 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
           sessionId: req.sessionId,
           accessGranted: true,
         },
-        'Admin access granted'
+        'Admin access granted',
       );
 
       next();

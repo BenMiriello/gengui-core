@@ -4,7 +4,10 @@ import { MultiStreamPubSubConsumer } from '../lib/pubsub-consumer';
 import { documentMedia, media, nodeMedia } from '../models/schema';
 import { logger } from '../utils/logger';
 import { graphService } from './graph/graph.service';
-import { type StreamMessage, redisStreams as sharedRedisStreams } from './redis-streams';
+import {
+  type StreamMessage,
+  redisStreams as sharedRedisStreams,
+} from './redis-streams';
 import { sseService } from './sse';
 import { thumbnailProcessor } from './thumbnailProcessor';
 
@@ -26,7 +29,11 @@ class JobStatusConsumer extends MultiStreamPubSubConsumer {
     super('job-status-consumer');
   }
 
-  protected async handleMessage(streamName: string, _groupName: string, message: StreamMessage) {
+  protected async handleMessage(
+    streamName: string,
+    _groupName: string,
+    message: StreamMessage,
+  ) {
     if (streamName === 'job:status:stream') {
       await this.handleStatusUpdate(message);
     } else if (streamName === 'thumbnail:stream') {
@@ -43,7 +50,10 @@ class JobStatusConsumer extends MultiStreamPubSubConsumer {
     }
 
     if (!status) {
-      logger.error({ data: message.data }, 'Status update missing status field');
+      logger.error(
+        { data: message.data },
+        'Status update missing status field',
+      );
       return;
     }
 
@@ -71,7 +81,10 @@ class JobStatusConsumer extends MultiStreamPubSubConsumer {
         .limit(1);
 
       if (job?.cancelledAt) {
-        logger.info({ mediaId }, 'Ignoring completed message for cancelled job');
+        logger.info(
+          { mediaId },
+          'Ignoring completed message for cancelled job',
+        );
         return;
       }
 
@@ -102,7 +115,11 @@ class JobStatusConsumer extends MultiStreamPubSubConsumer {
 
       await db
         .update(media)
-        .set({ status: 'failed', error: error || 'Unknown error', updatedAt: new Date() })
+        .set({
+          status: 'failed',
+          error: error || 'Unknown error',
+          updatedAt: new Date(),
+        })
         .where(eq(media.id, mediaId));
 
       logger.error({ mediaId, error }, 'Updated media status to failed');
@@ -142,7 +159,10 @@ class JobStatusConsumer extends MultiStreamPubSubConsumer {
       if (docMedia.length > 0) {
         const documentId = docMedia[0].documentId;
         sseService.broadcastToDocument(documentId, 'media-update', { mediaId });
-        logger.debug({ mediaId, documentId }, 'Broadcasted media update via SSE');
+        logger.debug(
+          { mediaId, documentId },
+          'Broadcasted media update via SSE',
+        );
       }
 
       // Broadcast to node if this media belongs to a node (character sheet)
@@ -155,7 +175,10 @@ class JobStatusConsumer extends MultiStreamPubSubConsumer {
       if (nodeMed.length > 0) {
         const nodeId = nodeMed[0].nodeId;
         sseService.broadcastToNode(nodeId, 'node-media-update', { mediaId });
-        logger.debug({ mediaId, nodeId }, 'Broadcasted node media update via SSE');
+        logger.debug(
+          { mediaId, nodeId },
+          'Broadcasted node media update via SSE',
+        );
       }
     } catch (error) {
       logger.error({ error, mediaId }, 'Failed to broadcast media update');
@@ -201,10 +224,13 @@ class JobStatusConsumer extends MultiStreamPubSubConsumer {
 
       logger.info(
         { nodeId: nodeMed.nodeId, mediaId },
-        'Auto-set first completed character sheet as primary'
+        'Auto-set first completed character sheet as primary',
       );
     } catch (error) {
-      logger.error({ error, mediaId }, 'Failed to auto-set primary for character sheet');
+      logger.error(
+        { error, mediaId },
+        'Failed to auto-set primary for character sheet',
+      );
     }
   }
 }

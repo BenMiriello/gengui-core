@@ -1,5 +1,10 @@
 import { eq, inArray } from 'drizzle-orm';
-import { type NextFunction, type Request, type Response, Router } from 'express';
+import {
+  type NextFunction,
+  type Request,
+  type Response,
+  Router,
+} from 'express';
 import { db } from '../config/database';
 import { requireAuth } from '../middleware/auth';
 import { documents, media } from '../models/schema';
@@ -21,15 +26,19 @@ import { versioningService } from '../services/versioning';
 
 const router = Router();
 
-router.get('/documents', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const userId = (req as any).user.id;
-    const documents = await documentsService.list(userId);
-    res.json({ documents });
-  } catch (error) {
-    next(error);
-  }
-});
+router.get(
+  '/documents',
+  requireAuth,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = (req as any).user.id;
+      const documents = await documentsService.list(userId);
+      res.json({ documents });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
 router.get(
   '/documents/:id',
@@ -43,25 +52,35 @@ router.get(
     } catch (error) {
       next(error);
     }
-  }
+  },
 );
 
-router.post('/documents', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const userId = (req as any).user.id;
-    const { title, content } = req.body;
+router.post(
+  '/documents',
+  requireAuth,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = (req as any).user.id;
+      const { title, content } = req.body;
 
-    if (content === undefined) {
-      res.status(400).json({ error: { message: 'Content is required', code: 'INVALID_INPUT' } });
-      return;
+      if (content === undefined) {
+        res.status(400).json({
+          error: { message: 'Content is required', code: 'INVALID_INPUT' },
+        });
+        return;
+      }
+
+      const document = await documentsService.create(
+        userId,
+        title,
+        content || '',
+      );
+      res.status(201).json({ document });
+    } catch (error) {
+      next(error);
     }
-
-    const document = await documentsService.create(userId, title, content || '');
-    res.status(201).json({ document });
-  } catch (error) {
-    next(error);
-  }
-});
+  },
+);
 
 router.post(
   '/documents/:id/copy',
@@ -70,12 +89,16 @@ router.post(
     try {
       const userId = (req as any).user.id;
       const { title } = req.body;
-      const document = await documentsService.copy(req.params.id, userId, title || 'Untitled');
+      const document = await documentsService.copy(
+        req.params.id,
+        userId,
+        title || 'Untitled',
+      );
       res.status(201).json({ document });
     } catch (error) {
       next(error);
     }
-  }
+  },
 );
 
 router.patch(
@@ -116,7 +139,7 @@ router.patch(
     } catch (error) {
       next(error);
     }
-  }
+  },
 );
 
 router.get(
@@ -134,7 +157,7 @@ router.get(
     } catch (error) {
       next(error);
     }
-  }
+  },
 );
 
 router.get(
@@ -146,10 +169,15 @@ router.get(
       const { id, versionNumber } = req.params;
 
       await documentsService.get(id, userId);
-      const version = await versioningService.getVersion(id, parseInt(versionNumber, 10));
+      const version = await versioningService.getVersion(
+        id,
+        parseInt(versionNumber, 10),
+      );
 
       if (!version) {
-        res.status(404).json({ error: { message: 'Version not found', code: 'NOT_FOUND' } });
+        res
+          .status(404)
+          .json({ error: { message: 'Version not found', code: 'NOT_FOUND' } });
         return;
       }
 
@@ -157,7 +185,7 @@ router.get(
     } catch (error) {
       next(error);
     }
-  }
+  },
 );
 
 router.patch(
@@ -177,7 +205,7 @@ router.patch(
     } catch (error) {
       next(error);
     }
-  }
+  },
 );
 
 router.delete(
@@ -192,7 +220,7 @@ router.delete(
     } catch (error) {
       next(error);
     }
-  }
+  },
 );
 
 router.get(
@@ -208,7 +236,7 @@ router.get(
     } catch (error) {
       next(error);
     }
-  }
+  },
 );
 
 router.get(
@@ -225,7 +253,7 @@ router.get(
     } catch (error) {
       next(error);
     }
-  }
+  },
 );
 
 router.get(
@@ -237,14 +265,15 @@ router.get(
       const { id } = req.params;
       await documentsService.get(id, userId);
 
-      const sessionId = (req.query.sessionId as string) || `${userId}-${Date.now()}`;
+      const sessionId =
+        (req.query.sessionId as string) || `${userId}-${Date.now()}`;
       const clientId = `doc-${id}-${sessionId}`;
 
       sseService.addClient(clientId, `document:${id}`, res);
     } catch (error) {
       next(error);
     }
-  }
+  },
 );
 
 router.get(
@@ -261,7 +290,8 @@ router.get(
       const hasAnalysis = nodes.length > 0;
       const lastAnalyzedVersion = document.lastAnalyzedVersion ?? null;
       const currentVersion = document.currentVersion;
-      const hasChanges = lastAnalyzedVersion !== null && lastAnalyzedVersion < currentVersion;
+      const hasChanges =
+        lastAnalyzedVersion !== null && lastAnalyzedVersion < currentVersion;
 
       // Detect stale analysis (started > 10 min ago, likely crashed)
       let analysisStatus = document.analysisStatus;
@@ -287,7 +317,7 @@ router.get(
     } catch (error) {
       next(error);
     }
-  }
+  },
 );
 
 router.post(
@@ -313,7 +343,7 @@ router.post(
     } catch (error) {
       next(error);
     }
-  }
+  },
 );
 
 router.post(
@@ -327,7 +357,12 @@ router.post(
       const document = await documentsService.get(id, userId);
 
       if (document.analysisStatus !== 'analyzing') {
-        res.status(400).json({ error: { message: 'No active analysis to pause', code: 'INVALID_STATE' } });
+        res.status(400).json({
+          error: {
+            message: 'No active analysis to pause',
+            code: 'INVALID_STATE',
+          },
+        });
         return;
       }
 
@@ -340,7 +375,7 @@ router.post(
     } catch (error) {
       next(error);
     }
-  }
+  },
 );
 
 router.post(
@@ -354,7 +389,12 @@ router.post(
       const document = await documentsService.get(id, userId);
 
       if (!['analyzing', 'paused'].includes(document.analysisStatus || '')) {
-        res.status(400).json({ error: { message: 'No active analysis to cancel', code: 'INVALID_STATE' } });
+        res.status(400).json({
+          error: {
+            message: 'No active analysis to cancel',
+            code: 'INVALID_STATE',
+          },
+        });
         return;
       }
 
@@ -367,7 +407,7 @@ router.post(
     } catch (error) {
       next(error);
     }
-  }
+  },
 );
 
 router.post(
@@ -381,7 +421,12 @@ router.post(
       const document = await documentsService.get(id, userId);
 
       if (document.analysisStatus !== 'paused') {
-        res.status(400).json({ error: { message: 'No paused analysis to resume', code: 'INVALID_STATE' } });
+        res.status(400).json({
+          error: {
+            message: 'No paused analysis to resume',
+            code: 'INVALID_STATE',
+          },
+        });
         return;
       }
 
@@ -401,7 +446,7 @@ router.post(
     } catch (error) {
       next(error);
     }
-  }
+  },
 );
 
 router.get(
@@ -417,7 +462,9 @@ router.get(
 
       // Fetch active connections from FalkorDB
       const connections =
-        nodes.length > 0 ? await graphStoryNodesRepository.getConnectionsForDocument(id) : [];
+        nodes.length > 0
+          ? await graphStoryNodesRepository.getConnectionsForDocument(id)
+          : [];
 
       const nodesWithPrimaryMedia = nodes.filter((n) => n.primaryMediaId);
       const primaryMediaUrls: Record<string, string> = {};
@@ -425,7 +472,11 @@ router.get(
       if (nodesWithPrimaryMedia.length > 0) {
         const mediaIds = nodesWithPrimaryMedia.map((n) => n.primaryMediaId!);
         const mediaRecords = await db
-          .select({ id: media.id, s3KeyThumb: media.s3KeyThumb, s3Key: media.s3Key })
+          .select({
+            id: media.id,
+            s3KeyThumb: media.s3KeyThumb,
+            s3Key: media.s3Key,
+          })
           .from(media)
           .where(inArray(media.id, mediaIds));
 
@@ -443,14 +494,16 @@ router.get(
 
       const nodesWithUrls = nodes.map((n) => ({
         ...n,
-        primaryMediaUrl: n.primaryMediaId ? primaryMediaUrls[n.primaryMediaId] : null,
+        primaryMediaUrl: n.primaryMediaId
+          ? primaryMediaUrls[n.primaryMediaId]
+          : null,
       }));
 
       res.json({ nodes: nodesWithUrls, connections });
     } catch (error) {
       next(error);
     }
-  }
+  },
 );
 
 router.patch(
@@ -474,7 +527,7 @@ router.patch(
     } catch (error) {
       next(error);
     }
-  }
+  },
 );
 
 router.delete(
@@ -492,7 +545,7 @@ router.delete(
     } catch (error) {
       next(error);
     }
-  }
+  },
 );
 
 router.get(
@@ -507,13 +560,18 @@ router.get(
 
       await documentsService.get(id, userId);
 
-      const similarities = await graphService.getNodeSimilaritiesForDocument(id, userId, k, cutoff);
+      const similarities = await graphService.getNodeSimilaritiesForDocument(
+        id,
+        userId,
+        k,
+        cutoff,
+      );
 
       res.json({ similarities });
     } catch (error) {
       next(error);
     }
-  }
+  },
 );
 
 router.get(
@@ -526,14 +584,18 @@ router.get(
 
       await documentsService.get(id, userId);
 
-      const [causalOrder, threads, pivotalNodes, causalGaps] = await Promise.all([
-        computeCausalOrder(id, userId),
-        detectThreads(id, userId),
-        findPivotalNodes(id, userId),
-        findCausalGaps(id, userId),
-      ]);
+      const [causalOrder, threads, pivotalNodes, causalGaps] =
+        await Promise.all([
+          computeCausalOrder(id, userId),
+          detectThreads(id, userId),
+          findPivotalNodes(id, userId),
+          findCausalGaps(id, userId),
+        ]);
 
-      const existingThreads = await graphThreads.getThreadsForDocument(id, userId);
+      const existingThreads = await graphThreads.getThreadsForDocument(
+        id,
+        userId,
+      );
 
       const existingThreadsWithMembers = await Promise.all(
         existingThreads.map(async (thread) => {
@@ -542,7 +604,7 @@ router.get(
             ...thread,
             memberNodeIds: memberships.map((m) => m.eventId),
           };
-        })
+        }),
       );
 
       res.json({
@@ -555,7 +617,7 @@ router.get(
     } catch (error) {
       next(error);
     }
-  }
+  },
 );
 
 router.get(
@@ -568,13 +630,16 @@ router.get(
 
       await documentsService.get(id, userId);
 
-      const projection = await graphService.getNodeEmbeddingsProjection(id, userId);
+      const projection = await graphService.getNodeEmbeddingsProjection(
+        id,
+        userId,
+      );
 
       res.json({ projection });
     } catch (error) {
       next(error);
     }
-  }
+  },
 );
 
 // Thread management endpoints
@@ -600,7 +665,7 @@ router.post(
     } catch (error) {
       next(error);
     }
-  }
+  },
 );
 
 router.patch(
@@ -613,7 +678,9 @@ router.patch(
 
       const thread = await graphThreads.getThreadById(id);
       if (!thread) {
-        res.status(404).json({ error: { message: 'Thread not found', code: 'NOT_FOUND' } });
+        res
+          .status(404)
+          .json({ error: { message: 'Thread not found', code: 'NOT_FOUND' } });
         return;
       }
 
@@ -622,7 +689,7 @@ router.patch(
     } catch (error) {
       next(error);
     }
-  }
+  },
 );
 
 router.delete(
@@ -634,7 +701,9 @@ router.delete(
 
       const thread = await graphThreads.getThreadById(id);
       if (!thread) {
-        res.status(404).json({ error: { message: 'Thread not found', code: 'NOT_FOUND' } });
+        res
+          .status(404)
+          .json({ error: { message: 'Thread not found', code: 'NOT_FOUND' } });
         return;
       }
 
@@ -643,7 +712,7 @@ router.delete(
     } catch (error) {
       next(error);
     }
-  }
+  },
 );
 
 router.post(
@@ -659,7 +728,7 @@ router.post(
     } catch (error) {
       next(error);
     }
-  }
+  },
 );
 
 router.delete(
@@ -674,7 +743,7 @@ router.delete(
     } catch (error) {
       next(error);
     }
-  }
+  },
 );
 
 router.post(
@@ -692,7 +761,7 @@ router.post(
     } catch (error) {
       next(error);
     }
-  }
+  },
 );
 
 export default router;

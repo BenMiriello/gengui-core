@@ -45,7 +45,10 @@ class RedisService {
     });
 
     this.client.on('ready', () => {
-      logger.info({ status: this.client.status, mode: this.client.mode }, 'Redis client ready');
+      logger.info(
+        { status: this.client.status, mode: this.client.mode },
+        'Redis client ready',
+      );
     });
 
     this.client.on('error', (error) => {
@@ -65,12 +68,15 @@ class RedisService {
       const commandQueue = (this.client as any).commandQueue;
       const offlineQueue = (this.client as any).offlineQueue;
       if (commandQueue && commandQueue.length > 0) {
-        logger.warn({ queueLength: commandQueue.length }, '[REDIS] Commands in queue');
+        logger.warn(
+          { queueLength: commandQueue.length },
+          '[REDIS] Commands in queue',
+        );
       }
       if (offlineQueue && offlineQueue.length > 0) {
         logger.warn(
           { offlineQueueLength: offlineQueue.length },
-          '[REDIS] Commands in offline queue'
+          '[REDIS] Commands in offline queue',
         );
       }
     }, 1000);
@@ -98,13 +104,16 @@ class RedisService {
     return Object.keys(data).length > 0 ? data : null;
   }
 
-  async updateJob(jobId: string, updates: Record<string, string>): Promise<void> {
+  async updateJob(
+    jobId: string,
+    updates: Record<string, string>,
+  ): Promise<void> {
     await this.client.hset(`jobs:${jobId}`, updates);
   }
 
   async subscribe(
     pattern: string,
-    callback: (channel: string, message: string) => void
+    callback: (channel: string, message: string) => void,
   ): Promise<void> {
     await this.subscriber.psubscribe(pattern);
 
@@ -163,7 +172,7 @@ class RedisService {
           elapsed,
           connectionStatus: this.client.status,
         },
-        '[REDIS SLOW] zadd'
+        '[REDIS SLOW] zadd',
       );
     }
     return result;
@@ -177,7 +186,11 @@ class RedisService {
     return this.client.zrem(key, member);
   }
 
-  async zremrangebyscore(key: string, min: number, max: number): Promise<number> {
+  async zremrangebyscore(
+    key: string,
+    min: number,
+    max: number,
+  ): Promise<number> {
     return this.client.zremrangebyscore(key, min, max);
   }
 
@@ -185,7 +198,12 @@ class RedisService {
     return this.client.zrange(key, start, stop);
   }
 
-  async eval(script: string, numKeys: number, keys: string[], args: string[]): Promise<any> {
+  async eval(
+    script: string,
+    numKeys: number,
+    keys: string[],
+    args: string[],
+  ): Promise<any> {
     return this.client.eval(script, numKeys, ...keys, ...args);
   }
 
@@ -196,7 +214,7 @@ class RedisService {
     if (elapsed > 100) {
       logger.warn(
         { key, seconds, elapsed, connectionStatus: this.client.status },
-        '[REDIS SLOW] expire'
+        '[REDIS SLOW] expire',
       );
     }
     return result;

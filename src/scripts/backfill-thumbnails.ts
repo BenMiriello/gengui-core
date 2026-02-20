@@ -21,7 +21,10 @@ async function backfillThumbnails() {
       .from(media)
       .where(and(isNull(media.s3KeyThumb), notDeleted(media.deletedAt)));
 
-    logger.info({ count: mediaItems.length }, 'Found media items without thumbnails');
+    logger.info(
+      { count: mediaItems.length },
+      'Found media items without thumbnails',
+    );
 
     let queued = 0;
     for (const item of mediaItems) {
@@ -34,7 +37,10 @@ async function backfillThumbnails() {
       }
     }
 
-    logger.info({ total: mediaItems.length, queued }, 'Thumbnail backfill completed');
+    logger.info(
+      { total: mediaItems.length, queued },
+      'Thumbnail backfill completed',
+    );
     logger.info('Monitor progress with: redis-cli XLEN thumbnail:stream');
 
     process.exit(0);

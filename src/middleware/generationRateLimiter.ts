@@ -3,17 +3,24 @@ import { ADMIN_DAILY_LIMIT, USER_DAILY_LIMIT } from '../config/constants';
 import { redis } from '../services/redis';
 import { logger } from '../utils/logger';
 
-export async function generationRateLimiter(req: Request, res: Response, next: NextFunction) {
+export async function generationRateLimiter(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
   try {
     const userId = req.user?.id;
     const userRole = req.user?.role;
 
     // Determine limit based on role
-    const dailyLimit = userRole === 'admin' ? ADMIN_DAILY_LIMIT : USER_DAILY_LIMIT;
+    const dailyLimit =
+      userRole === 'admin' ? ADMIN_DAILY_LIMIT : USER_DAILY_LIMIT;
 
     // Calculate midnight UTC today
     const now = new Date();
-    const todayUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const todayUTC = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+    );
     const midnightTimestamp = todayUTC.getTime();
 
     // Redis key for today's generations
@@ -35,7 +42,7 @@ export async function generationRateLimiter(req: Request, res: Response, next: N
           dailyLimit,
           date: dateStr,
         },
-        'Generation rate limit exceeded'
+        'Generation rate limit exceeded',
       );
 
       res.status(429).json({
@@ -58,7 +65,7 @@ export async function generationRateLimiter(req: Request, res: Response, next: N
         dailyLimit,
         remaining: dailyLimit - currentCount,
       },
-      'Rate limit check passed'
+      'Rate limit check passed',
     );
 
     next();

@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from 'bun:test';
 import {
   closeDb,
   createVerifiedUser,
@@ -6,7 +13,12 @@ import {
   resetUserCounter,
   truncateAll,
 } from '../helpers';
-import { clearRedisStore, emailMock, startTestServer, stopTestServer } from '../helpers/testApp';
+import {
+  clearRedisStore,
+  emailMock,
+  startTestServer,
+  stopTestServer,
+} from '../helpers/testApp';
 
 describe('Username Change', () => {
   let baseUrl: string;

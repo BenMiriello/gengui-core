@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from 'bun:test';
 import {
   closeDb,
   createTestMedia,
@@ -188,14 +195,17 @@ describe('Media Tags', () => {
       const { user } = await createVerifiedUser();
       const tag = await createTestTag(user.id);
 
-      const res = await fetch(`${baseUrl}/api/media/00000000-0000-0000-0000-000000000000/tags`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-Id': user.id,
+      const res = await fetch(
+        `${baseUrl}/api/media/00000000-0000-0000-0000-000000000000/tags`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-Id': user.id,
+          },
+          body: JSON.stringify({ tagId: tag.id }),
         },
-        body: JSON.stringify({ tagId: tag.id }),
-      });
+      );
 
       expect(res.status).toBe(404);
     });
@@ -285,10 +295,13 @@ describe('Media Tags', () => {
         body: JSON.stringify({ tagId: tag.id }),
       });
 
-      const res = await fetch(`${baseUrl}/api/media/${media.id}/tags/${tag.id}`, {
-        method: 'DELETE',
-        headers: { 'X-User-Id': user.id },
-      });
+      const res = await fetch(
+        `${baseUrl}/api/media/${media.id}/tags/${tag.id}`,
+        {
+          method: 'DELETE',
+          headers: { 'X-User-Id': user.id },
+        },
+      );
 
       expect(res.status).toBe(200);
       const body = await res.json();
@@ -307,7 +320,7 @@ describe('Media Tags', () => {
         {
           method: 'DELETE',
           headers: { 'X-User-Id': user.id },
-        }
+        },
       );
 
       expect(res.status).toBe(404);
@@ -322,7 +335,7 @@ describe('Media Tags', () => {
         {
           method: 'DELETE',
           headers: { 'X-User-Id': user.id },
-        }
+        },
       );
 
       expect(res.status).toBe(404);
@@ -333,10 +346,13 @@ describe('Media Tags', () => {
       const media = await createTestMedia(user.id);
       const tag = await createTestTag(user.id);
 
-      const res = await fetch(`${baseUrl}/api/media/${media.id}/tags/${tag.id}`, {
-        method: 'DELETE',
-        headers: { 'X-User-Id': user.id },
-      });
+      const res = await fetch(
+        `${baseUrl}/api/media/${media.id}/tags/${tag.id}`,
+        {
+          method: 'DELETE',
+          headers: { 'X-User-Id': user.id },
+        },
+      );
 
       expect(res.status).toBe(404);
     });

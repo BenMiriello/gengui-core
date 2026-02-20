@@ -58,7 +58,7 @@ class JobReconciliationService {
         intervalMs: RECONCILIATION_INTERVAL_MS,
         stalenessThresholdMs: STALENESS_THRESHOLD_MS,
       },
-      'Starting job reconciliation service...'
+      'Starting job reconciliation service...',
     );
 
     this.loopPromise = this.reconcileLoop();
@@ -107,8 +107,8 @@ class JobReconciliationService {
           eq(media.sourceType, 'generation'),
           or(eq(media.status, 'queued'), eq(media.status, 'processing')),
           isNull(media.cancelledAt), // Skip cancelled jobs
-          lt(media.updatedAt, stalenessThreshold)
-        )
+          lt(media.updatedAt, stalenessThreshold),
+        ),
       );
 
     if (stuckJobs.length === 0) {
@@ -116,7 +116,10 @@ class JobReconciliationService {
       return;
     }
 
-    logger.info({ count: stuckJobs.length }, 'Found stuck jobs, reconciling...');
+    logger.info(
+      { count: stuckJobs.length },
+      'Found stuck jobs, reconciling...',
+    );
 
     for (const job of stuckJobs) {
       try {
@@ -137,7 +140,7 @@ class JobReconciliationService {
       // Job never submitted to RunPod, or Redis expired (>1hr old)
       logger.warn(
         { mediaId, age: Date.now() - job.updatedAt.getTime() },
-        'Job missing RunPod ID - never submitted or Redis expired'
+        'Job missing RunPod ID - never submitted or Redis expired',
       );
 
       // Retry if attempts remaining, otherwise mark failed
@@ -156,14 +159,14 @@ class JobReconciliationService {
     } catch (error) {
       logger.error(
         { error, mediaId, runpodJobId },
-        'Failed to query RunPod status, will retry next cycle'
+        'Failed to query RunPod status, will retry next cycle',
       );
       return;
     }
 
     logger.info(
       { mediaId, runpodJobId, runpodStatus: runpodStatus.status },
-      'Retrieved RunPod job status'
+      'Retrieved RunPod job status',
     );
 
     // Handle based on RunPod status
@@ -173,7 +176,7 @@ class JobReconciliationService {
   private async handleRunPodStatus(
     job: typeof media.$inferSelect,
     runpodJobId: string,
-    runpodStatus: RunPodJobStatusResponse
+    runpodStatus: RunPodJobStatusResponse,
   ) {
     const mediaId = job.id;
 
@@ -199,7 +202,10 @@ class JobReconciliationService {
         // Still running, but stuck in our DB (missed processing update?)
         // Update DB status if needed
         if (job.status !== 'processing') {
-          logger.info({ mediaId, runpodJobId }, 'Job still running, updating status to processing');
+          logger.info(
+            { mediaId, runpodJobId },
+            'Job still running, updating status to processing',
+          );
           await db
             .update(media)
             .set({
@@ -212,13 +218,16 @@ class JobReconciliationService {
         break;
 
       default:
-        logger.warn({ mediaId, runpodJobId, status: runpodStatus.status }, 'Unknown RunPod status');
+        logger.warn(
+          { mediaId, runpodJobId, status: runpodStatus.status },
+          'Unknown RunPod status',
+        );
     }
   }
 
   private async handleCompleted(
     job: typeof media.$inferSelect,
-    runpodStatus: RunPodJobStatusResponse
+    runpodStatus: RunPodJobStatusResponse,
   ) {
     const mediaId = job.id;
     const s3Key = runpodStatus.output?.s3Key;
@@ -227,13 +236,16 @@ class JobReconciliationService {
       // Completed but no s3Key? This shouldn't happen. Retry.
       logger.error(
         { mediaId, output: runpodStatus.output },
-        'Job completed without s3Key in output, retrying'
+        'Job completed without s3Key in output, retrying',
       );
 
       if (job.attempts < MAX_ATTEMPTS) {
         await this.retryJob(job, 'Completed without s3Key');
       } else {
-        await this.markFailed(job, 'Completed without s3Key, max attempts reached');
+        await this.markFailed(
+          job,
+          'Completed without s3Key, max attempts reached',
+        );
       }
       return;
     }
@@ -241,7 +253,7 @@ class JobReconciliationService {
     // Successfully completed - recover from RunPod output
     logger.info(
       { mediaId, s3Key },
-      'Recovered completed job from RunPod (worker likely crashed before Redis update)'
+      'Recovered completed job from RunPod (worker likely crashed before Redis update)',
     );
 
     await db
@@ -266,7 +278,7 @@ class JobReconciliationService {
 
   private async handleFailed(
     job: typeof media.$inferSelect,
-    runpodStatus: RunPodJobStatusResponse
+    runpodStatus: RunPodJobStatusResponse,
   ) {
     const mediaId = job.id;
     const error = runpodStatus.error || 'Unknown error from RunPod';
@@ -282,20 +294,23 @@ class JobReconciliationService {
 
   private async handleTimedOut(
     job: typeof media.$inferSelect,
-    runpodStatus: RunPodJobStatusResponse
+    runpodStatus: RunPodJobStatusResponse,
   ) {
     const mediaId = job.id;
     const executionTime = runpodStatus.executionTime || 'unknown';
 
     logger.error(
       { mediaId, executionTime },
-      'Job timed out on RunPod (exceeded execution timeout)'
+      'Job timed out on RunPod (exceeded execution timeout)',
     );
 
     if (job.attempts < MAX_ATTEMPTS) {
       await this.retryJob(job, `Timed out after ${executionTime}ms`);
     } else {
-      await this.markFailed(job, `Timed out after ${executionTime}ms, max attempts reached`);
+      await this.markFailed(
+        job,
+        `Timed out after ${executionTime}ms, max attempts reached`,
+      );
     }
   }
 
@@ -324,7 +339,7 @@ class JobReconciliationService {
 
     logger.warn(
       { mediaId, attempts: newAttempts, maxAttempts: MAX_ATTEMPTS, reason },
-      'Retrying job'
+      'Retrying job',
     );
 
     // Update DB: increment attempts, reset to queued
@@ -351,23 +366,30 @@ class JobReconciliationService {
         },
         {
           executionTimeout: EXECUTION_TIMEOUT_MS,
-        }
+        },
       );
 
       // Update Redis mapping with new RunPod job ID
-      await redis.set(`runpod:job:${mediaId}`, newRunpodJobId, REDIS_JOB_TTL_SECONDS);
+      await redis.set(
+        `runpod:job:${mediaId}`,
+        newRunpodJobId,
+        REDIS_JOB_TTL_SECONDS,
+      );
       await redis.set(
         `runpod:job:${mediaId}:submitted`,
         Date.now().toString(),
-        REDIS_JOB_TTL_SECONDS
+        REDIS_JOB_TTL_SECONDS,
       );
 
       logger.info(
         { mediaId, newRunpodJobId, attempts: newAttempts },
-        'Job retry submitted to RunPod'
+        'Job retry submitted to RunPod',
       );
     } catch (error) {
-      logger.error({ error, mediaId }, 'Failed to submit retry to RunPod, marking failed');
+      logger.error(
+        { error, mediaId },
+        'Failed to submit retry to RunPod, marking failed',
+      );
       await this.markFailed(job, `Retry submission failed: ${error}`);
       return;
     }
@@ -378,7 +400,10 @@ class JobReconciliationService {
   private async markFailed(job: typeof media.$inferSelect, reason: string) {
     const mediaId = job.id;
 
-    logger.error({ mediaId, attempts: job.attempts, reason }, 'Marking job as permanently failed');
+    logger.error(
+      { mediaId, attempts: job.attempts, reason },
+      'Marking job as permanently failed',
+    );
 
     await db
       .update(media)
@@ -410,7 +435,10 @@ class JobReconciliationService {
       if (docMedia.length > 0) {
         const documentId = docMedia[0].documentId;
         sseService.broadcastToDocument(documentId, 'media-update', { mediaId });
-        logger.debug({ mediaId, documentId }, 'Broadcasted media update via SSE');
+        logger.debug(
+          { mediaId, documentId },
+          'Broadcasted media update via SSE',
+        );
       }
     } catch (error) {
       logger.error({ error, mediaId }, 'Failed to broadcast media update');

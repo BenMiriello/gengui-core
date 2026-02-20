@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from 'bun:test';
 import {
   closeDb,
   createQueuedGeneration,
@@ -39,12 +46,17 @@ describe('Generations Ownership', () => {
     test('GET returns 404 for another users generation', async () => {
       const { user: user1 } = await createVerifiedUser();
       const { user: user2, password: password2 } = await createVerifiedUser();
-      const generation = await createQueuedGeneration(user1.id, { prompt: 'User 1 private' });
+      const generation = await createQueuedGeneration(user1.id, {
+        prompt: 'User 1 private',
+      });
 
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: user2.email, password: password2 }),
+        body: JSON.stringify({
+          emailOrUsername: user2.email,
+          password: password2,
+        }),
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
@@ -58,19 +70,27 @@ describe('Generations Ownership', () => {
     test('cancel returns 404 for another users generation', async () => {
       const { user: user1 } = await createVerifiedUser();
       const { user: user2, password: password2 } = await createVerifiedUser();
-      const generation = await createQueuedGeneration(user1.id, { prompt: 'User 1 private' });
+      const generation = await createQueuedGeneration(user1.id, {
+        prompt: 'User 1 private',
+      });
 
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: user2.email, password: password2 }),
+        body: JSON.stringify({
+          emailOrUsername: user2.email,
+          password: password2,
+        }),
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
-      const res = await fetch(`${baseUrl}/api/generations/${generation.id}/cancel`, {
-        method: 'POST',
-        headers: { Cookie: cookie },
-      });
+      const res = await fetch(
+        `${baseUrl}/api/generations/${generation.id}/cancel`,
+        {
+          method: 'POST',
+          headers: { Cookie: cookie },
+        },
+      );
 
       expect(res.status).toBe(404);
     });
@@ -86,7 +106,10 @@ describe('Generations Ownership', () => {
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: user1.email, password: password1 }),
+        body: JSON.stringify({
+          emailOrUsername: user1.email,
+          password: password1,
+        }),
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
@@ -97,7 +120,9 @@ describe('Generations Ownership', () => {
       expect(res.status).toBe(200);
       const body = await res.json();
       expect(body.generations.length).toBe(2);
-      expect(body.generations.every((g: any) => g.userId === user1.id)).toBe(true);
+      expect(body.generations.every((g: any) => g.userId === user1.id)).toBe(
+        true,
+      );
     });
   });
 });

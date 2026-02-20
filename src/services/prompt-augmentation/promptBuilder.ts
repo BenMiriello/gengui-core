@@ -44,9 +44,12 @@ export interface PromptContext {
 
 export function buildGeminiPrompt(
   context: PromptContext,
-  settings: PromptEnhancementSettings
+  settings: PromptEnhancementSettings,
 ): string {
-  const sections: string[] = ['You are helping generate an image prompt for a story scene.', ''];
+  const sections: string[] = [
+    'You are helping generate an image prompt for a story scene.',
+    '',
+  ];
 
   // Add story context if available
   if (context.storyContext) {
@@ -56,7 +59,9 @@ export function buildGeminiPrompt(
 
   // Add reference entity descriptions (for Gemini to incorporate naturally)
   if (context.entityDescriptions?.length) {
-    sections.push('REFERENCE ENTITIES (incorporate their visual details into the prompt):');
+    sections.push(
+      'REFERENCE ENTITIES (incorporate their visual details into the prompt):',
+    );
     for (const entity of context.entityDescriptions) {
       const label = entity.type.charAt(0).toUpperCase() + entity.type.slice(1);
       sections.push(`- [${label}] ${entity.name}: ${entity.description}`);
@@ -86,25 +91,27 @@ export function buildGeminiPrompt(
   // Add critical instructions
   sections.push('CRITICAL INSTRUCTIONS:');
   sections.push(
-    '1. Character/location descriptions from story context show their general state. Use surrounding text to understand their appearance AT THIS SPECIFIC MOMENT.'
+    '1. Character/location descriptions from story context show their general state. Use surrounding text to understand their appearance AT THIS SPECIFIC MOMENT.',
   );
   sections.push(
-    "2. Events that happen AFTER the selected text do not inform the image. They're included only for scene descriptors."
+    "2. Events that happen AFTER the selected text do not inform the image. They're included only for scene descriptors.",
   );
   sections.push(
-    '3. Focus only on relevant information. Lots of context is provided - assess what matters for THIS moment.'
+    '3. Focus only on relevant information. Lots of context is provided - assess what matters for THIS moment.',
   );
   sections.push('4. Capture the mood and feel of this moment in the story.');
   sections.push(
-    '5. Do NOT specify art style (e.g., painting, anime, realistic). Focus on subject, scene, mood only.'
+    '5. Do NOT specify art style (e.g., painting, anime, realistic). Focus on subject, scene, mood only.',
   );
   sections.push(
-    '6. When reference entities are provided, incorporate their visual descriptions naturally into the prompt. Weave appearance details into the scene - do not list them separately.'
+    '6. When reference entities are provided, incorporate their visual descriptions naturally into the prompt. Weave appearance details into the scene - do not list them separately.',
   );
   sections.push('');
 
   // Add scene treatment instructions
-  sections.push(`SCENE TREATMENT - ${getSceneTreatmentLabel(settings.sceneTreatment)}:`);
+  sections.push(
+    `SCENE TREATMENT - ${getSceneTreatmentLabel(settings.sceneTreatment)}:`,
+  );
   sections.push(getSceneTreatmentInstructions(settings));
   sections.push('');
 
@@ -114,7 +121,7 @@ export function buildGeminiPrompt(
   sections.push('');
 
   sections.push(
-    'Generate a detailed, vivid image generation prompt. Return ONLY the prompt text, no explanation.'
+    'Generate a detailed, vivid image generation prompt. Return ONLY the prompt text, no explanation.',
   );
 
   return sections.join('\n');
@@ -129,7 +136,9 @@ export function getSceneTreatmentLabel(treatment: string): string {
   return labels[treatment] || 'Comprehensive';
 }
 
-export function getSceneTreatmentInstructions(settings: PromptEnhancementSettings): string {
+export function getSceneTreatmentInstructions(
+  settings: PromptEnhancementSettings,
+): string {
   switch (settings.sceneTreatment) {
     case 'comprehensive':
       return 'Include as many relevant elements as possible: all mentioned characters, objects, setting details, and atmospheric elements.';

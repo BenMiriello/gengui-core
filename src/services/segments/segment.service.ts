@@ -26,7 +26,10 @@ export const segmentService = {
    */
   async updateDocumentSegments(documentId: string): Promise<Segment[]> {
     const [doc] = await db
-      .select({ content: documents.content, segmentSequence: documents.segmentSequence })
+      .select({
+        content: documents.content,
+        segmentSequence: documents.segmentSequence,
+      })
       .from(documents)
       .where(eq(documents.id, documentId))
       .limit(1);
@@ -66,7 +69,10 @@ export const segmentService = {
   /**
    * Find which segment contains a given absolute position.
    */
-  findSegmentAtPosition(segments: Segment[], absolutePosition: number): SegmentMatch | null {
+  findSegmentAtPosition(
+    segments: Segment[],
+    absolutePosition: number,
+  ): SegmentMatch | null {
     for (const segment of segments) {
       if (absolutePosition >= segment.start && absolutePosition < segment.end) {
         return {
@@ -85,7 +91,7 @@ export const segmentService = {
   toRelativePosition(
     segments: Segment[],
     absoluteStart: number,
-    absoluteEnd: number
+    absoluteEnd: number,
   ): { segmentId: string; relativeStart: number; relativeEnd: number } | null {
     const match = this.findSegmentAtPosition(segments, absoluteStart);
     if (!match) return null;
@@ -104,7 +110,7 @@ export const segmentService = {
     segments: Segment[],
     segmentId: string,
     relativeStart: number,
-    relativeEnd: number
+    relativeEnd: number,
   ): { absoluteStart: number; absoluteEnd: number } | null {
     const segment = segments.find((s) => s.id === segmentId);
     if (!segment) return null;
@@ -154,15 +160,20 @@ export const segmentService = {
   detectChangedSegments(
     currentContent: string,
     currentSegments: Segment[],
-    previousSegments: Segment[]
+    previousSegments: Segment[],
   ): {
     added: string[];
     modified: string[];
     removed: string[];
     unchanged: string[];
   } {
-    const currentWithHashes = this.addHashesToSegments(currentContent, currentSegments);
-    const previousHashMap = new Map(previousSegments.map((s) => [s.id, s.hash]));
+    const currentWithHashes = this.addHashesToSegments(
+      currentContent,
+      currentSegments,
+    );
+    const previousHashMap = new Map(
+      previousSegments.map((s) => [s.id, s.hash]),
+    );
     const currentIds = new Set(currentWithHashes.map((s) => s.id));
 
     const added: string[] = [];
@@ -193,7 +204,7 @@ export const segmentService = {
   getAdjacentSegments(
     segments: Segment[],
     segmentIds: string[],
-    neighborCount: number = 1
+    neighborCount: number = 1,
   ): string[] {
     const targetSet = new Set(segmentIds);
     const adjacentIds = new Set<string>();
@@ -201,7 +212,11 @@ export const segmentService = {
     for (let i = 0; i < segments.length; i++) {
       if (targetSet.has(segments[i].id)) {
         // Add neighbors
-        for (let j = Math.max(0, i - neighborCount); j <= Math.min(segments.length - 1, i + neighborCount); j++) {
+        for (
+          let j = Math.max(0, i - neighborCount);
+          j <= Math.min(segments.length - 1, i + neighborCount);
+          j++
+        ) {
           if (!targetSet.has(segments[j].id)) {
             adjacentIds.add(segments[j].id);
           }
@@ -222,7 +237,7 @@ function parseSegmentSequence(raw: unknown): Segment[] {
         s !== null &&
         typeof s.id === 'string' &&
         typeof s.start === 'number' &&
-        typeof s.end === 'number'
+        typeof s.end === 'number',
     );
   }
   return [];

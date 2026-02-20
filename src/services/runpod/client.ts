@@ -1,6 +1,10 @@
 import { env } from '../../config/env';
 import { logger } from '../../utils/logger';
-import type { RunPodJobInput, RunPodJobPolicy, RunPodJobStatusResponse } from './types';
+import type {
+  RunPodJobInput,
+  RunPodJobPolicy,
+  RunPodJobStatusResponse,
+} from './types';
 
 class RunPodClient {
   private endpoint: any;
@@ -11,17 +15,23 @@ class RunPodClient {
     const apiKey = process.env.RUNPOD_API_KEY || '';
     const endpointId = process.env.RUNPOD_ENDPOINT_ID || '';
 
-    this.enabled = env.IMAGE_INFERENCE_PROVIDER === 'runpod' && !!apiKey && !!endpointId;
+    this.enabled =
+      env.IMAGE_INFERENCE_PROVIDER === 'runpod' && !!apiKey && !!endpointId;
 
     if (this.enabled) {
       // Dynamic import for ESM module
       this.initPromise = this.initializeEndpoint(apiKey, endpointId);
     } else if (env.IMAGE_INFERENCE_PROVIDER === 'runpod') {
-      logger.warn('IMAGE_INFERENCE_PROVIDER=runpod but API key or endpoint ID not configured');
+      logger.warn(
+        'IMAGE_INFERENCE_PROVIDER=runpod but API key or endpoint ID not configured',
+      );
     }
   }
 
-  private async initializeEndpoint(apiKey: string, endpointId: string): Promise<void> {
+  private async initializeEndpoint(
+    apiKey: string,
+    endpointId: string,
+  ): Promise<void> {
     try {
       // Dynamic import because runpod-sdk is ESM-only
       const runpodSdkModule = await import('runpod-sdk');
@@ -54,7 +64,10 @@ class RunPodClient {
    * @param input Job input data
    * @param policy Optional per-job policy (execution timeout, priority, etc.)
    */
-  async submitJob(input: RunPodJobInput, policy?: RunPodJobPolicy): Promise<string> {
+  async submitJob(
+    input: RunPodJobInput,
+    policy?: RunPodJobPolicy,
+  ): Promise<string> {
     await this.ensureInitialized();
 
     if (!this.endpoint) {
@@ -72,12 +85,15 @@ class RunPodClient {
           mediaId: input.mediaId,
           executionTimeout: policy?.executionTimeout,
         },
-        'Job submitted to RunPod successfully'
+        'Job submitted to RunPod successfully',
       );
 
       return result.id;
     } catch (error) {
-      logger.error({ error, mediaId: input.mediaId }, 'Failed to submit job to RunPod');
+      logger.error(
+        { error, mediaId: input.mediaId },
+        'Failed to submit job to RunPod',
+      );
       throw error;
     }
   }

@@ -2,7 +2,7 @@ export class AppError extends Error {
   constructor(
     public statusCode: number,
     public message: string,
-    public code?: string
+    public code?: string,
   ) {
     super(message);
     this.name = 'AppError';
@@ -41,7 +41,11 @@ export class NotFoundError extends AppError {
 export class ConflictError extends AppError {
   public readonly details: Record<string, unknown>;
 
-  constructor(message: string, details: Record<string, unknown> = {}, code?: string) {
+  constructor(
+    message: string,
+    details: Record<string, unknown> = {},
+    code?: string,
+  ) {
     super(409, message, code);
     this.name = 'ConflictError';
     this.details = details;

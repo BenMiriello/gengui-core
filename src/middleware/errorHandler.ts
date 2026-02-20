@@ -11,7 +11,12 @@ export interface ErrorResponse {
   };
 }
 
-export function errorHandler(err: Error, req: Request, res: Response, _next: NextFunction) {
+export function errorHandler(
+  err: Error,
+  req: Request,
+  res: Response,
+  _next: NextFunction,
+) {
   if (err instanceof ZodError) {
     const response: ErrorResponse = {
       error: {

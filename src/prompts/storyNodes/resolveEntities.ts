@@ -39,7 +39,8 @@ export const resolveEntityPrompt: PromptDefinition<ResolveEntityInput> = {
   id: 'stage3-resolve-entity',
   version: 1,
   model: 'gemini-2.5-flash',
-  description: 'Stage 3: Decide if an extracted entity matches existing entities',
+  description:
+    'Stage 3: Decide if an extracted entity matches existing entities',
 
   build: ({ extractedEntity, candidates, documentContext }) => {
     const extractedFacetsByType: Record<string, string[]> = {};
@@ -48,14 +49,16 @@ export const resolveEntityPrompt: PromptDefinition<ResolveEntityInput> = {
       extractedFacetsByType[f.type].push(f.content);
     }
 
-    const candidatesSection = candidates.length > 0
-      ? candidates.map((c, i) => {
-          const cFacetsByType: Record<string, string[]> = {};
-          for (const f of c.facets) {
-            if (!cFacetsByType[f.type]) cFacetsByType[f.type] = [];
-            cFacetsByType[f.type].push(f.content);
-          }
-          return `
+    const candidatesSection =
+      candidates.length > 0
+        ? candidates
+            .map((c, i) => {
+              const cFacetsByType: Record<string, string[]> = {};
+              for (const f of c.facets) {
+                if (!cFacetsByType[f.type]) cFacetsByType[f.type] = [];
+                cFacetsByType[f.type].push(f.content);
+              }
+              return `
 CANDIDATE ${i + 1}: [ID: ${c.id}] "${c.name}" (${c.type})
   Similarity Score: ${(c.similarityScore * 100).toFixed(1)}%
   Mentions: ${c.mentionCount}
@@ -63,8 +66,9 @@ CANDIDATE ${i + 1}: [ID: ${c.id}] "${c.name}" (${c.type})
   Appearance: ${cFacetsByType['appearance']?.join(', ') || 'none'}
   Traits: ${cFacetsByType['trait']?.join(', ') || 'none'}
   States: ${cFacetsByType['state']?.join(', ') || 'none'}`;
-        }).join('\n')
-      : '\n(No candidates found - entity will be created as NEW)';
+            })
+            .join('\n')
+        : '\n(No candidates found - entity will be created as NEW)';
 
     const contextSection = documentContext
       ? `
@@ -153,27 +157,31 @@ export const batchResolveEntitiesPrompt: PromptDefinition<BatchResolveInput> = {
   description: 'Stage 3: Batch resolve multiple extracted entities',
 
   build: ({ extractedEntities, allCandidates, documentContext }) => {
-    const extractedSection = extractedEntities.map((e, i) => {
-      const facetsByType: Record<string, string[]> = {};
-      for (const f of e.facets) {
-        if (!facetsByType[f.type]) facetsByType[f.type] = [];
-        facetsByType[f.type].push(f.content);
-      }
-      return `
+    const extractedSection = extractedEntities
+      .map((e, i) => {
+        const facetsByType: Record<string, string[]> = {};
+        for (const f of e.facets) {
+          if (!facetsByType[f.type]) facetsByType[f.type] = [];
+          facetsByType[f.type].push(f.content);
+        }
+        return `
 [${i + 1}] "${e.name}" (${e.type})
     Names: ${facetsByType['name']?.join(', ') || 'none'}
     Appearance: ${facetsByType['appearance']?.join(', ') || 'none'}
     Candidates: ${e.candidateIds.length > 0 ? e.candidateIds.join(', ') : 'none'}`;
-    }).join('\n');
+      })
+      .join('\n');
 
-    const candidatesSection = allCandidates.map((c) => {
-      const facetsByType: Record<string, string[]> = {};
-      for (const f of c.facets) {
-        if (!facetsByType[f.type]) facetsByType[f.type] = [];
-        facetsByType[f.type].push(f.content);
-      }
-      return `[${c.id}] "${c.name}" (${c.type}): ${facetsByType['name']?.join(', ') || 'no aliases'}`;
-    }).join('\n');
+    const candidatesSection = allCandidates
+      .map((c) => {
+        const facetsByType: Record<string, string[]> = {};
+        for (const f of c.facets) {
+          if (!facetsByType[f.type]) facetsByType[f.type] = [];
+          facetsByType[f.type].push(f.content);
+        }
+        return `[${c.id}] "${c.name}" (${c.type}): ${facetsByType['name']?.join(', ') || 'no aliases'}`;
+      })
+      .join('\n');
 
     const contextSection = documentContext
       ? `

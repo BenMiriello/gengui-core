@@ -28,7 +28,7 @@ export function createApp() {
           upgradeInsecureRequests: null,
         },
       },
-    })
+    }),
   );
 
   const corsOrigins =
@@ -42,7 +42,7 @@ export function createApp() {
     cors({
       origin: corsOrigins,
       credentials: true,
-    })
+    }),
   );
 
   app.use(express.json());
@@ -57,7 +57,9 @@ export function createApp() {
     res.json({
       geminiConfigured: !!process.env.GEMINI_API_KEY,
       redisConfigured: !!process.env.REDIS_URL,
-      s3Configured: !!(process.env.AWS_ACCESS_KEY_ID || process.env.MINIO_ACCESS_KEY),
+      s3Configured: !!(
+        process.env.AWS_ACCESS_KEY_ID || process.env.MINIO_ACCESS_KEY
+      ),
       s3Bucket: process.env.S3_BUCKET || process.env.MINIO_BUCKET || 'media',
       frontendUrl: process.env.FRONTEND_URL || 'not set',
       nodeEnv: process.env.NODE_ENV,

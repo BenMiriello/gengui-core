@@ -7,7 +7,9 @@ describe('EmailService', () => {
       const token = 'test-token-123';
       const verificationUrl = `${frontendUrl}/verify-email?token=${token}`;
 
-      expect(verificationUrl).toBe('https://app.example.com/verify-email?token=test-token-123');
+      expect(verificationUrl).toBe(
+        'https://app.example.com/verify-email?token=test-token-123',
+      );
     });
 
     test('password reset URL follows expected pattern', () => {
@@ -15,7 +17,9 @@ describe('EmailService', () => {
       const token = 'reset-token-456';
       const resetUrl = `${frontendUrl}/reset-password?token=${token}`;
 
-      expect(resetUrl).toBe('https://app.example.com/reset-password?token=reset-token-456');
+      expect(resetUrl).toBe(
+        'https://app.example.com/reset-password?token=reset-token-456',
+      );
     });
 
     test('email change verification URL follows expected pattern', () => {
@@ -24,7 +28,7 @@ describe('EmailService', () => {
       const verificationUrl = `${frontendUrl}/verify-email-change?token=${token}`;
 
       expect(verificationUrl).toBe(
-        'https://app.example.com/verify-email-change?token=change-token-789'
+        'https://app.example.com/verify-email-change?token=change-token-789',
       );
     });
   });
@@ -48,9 +52,15 @@ describe('EmailService', () => {
       const frontendUrl = 'http://localhost:5173';
       const token = 'token';
 
-      expect(`${frontendUrl}/verify-email?token=${token}`).toContain('/verify-email');
-      expect(`${frontendUrl}/reset-password?token=${token}`).toContain('/reset-password');
-      expect(`${frontendUrl}/verify-email-change?token=${token}`).toContain('/verify-email-change');
+      expect(`${frontendUrl}/verify-email?token=${token}`).toContain(
+        '/verify-email',
+      );
+      expect(`${frontendUrl}/reset-password?token=${token}`).toContain(
+        '/reset-password',
+      );
+      expect(`${frontendUrl}/verify-email-change?token=${token}`).toContain(
+        '/verify-email-change',
+      );
     });
   });
 
@@ -72,7 +82,9 @@ describe('EmailService', () => {
         return { email, token };
       };
 
-      expect(() => sendVerificationEmail('test@test.com', 'token')).not.toThrow();
+      expect(() =>
+        sendVerificationEmail('test@test.com', 'token'),
+      ).not.toThrow();
     });
 
     test('password reset email requires token', () => {
@@ -81,7 +93,9 @@ describe('EmailService', () => {
         return { email, token };
       };
 
-      expect(() => sendPasswordResetEmail('test@test.com', 'token')).not.toThrow();
+      expect(() =>
+        sendPasswordResetEmail('test@test.com', 'token'),
+      ).not.toThrow();
     });
 
     test('email change verification requires new email and token', () => {
@@ -90,7 +104,9 @@ describe('EmailService', () => {
         return { newEmail, token };
       };
 
-      expect(() => sendEmailChangeVerification('new@test.com', 'token')).not.toThrow();
+      expect(() =>
+        sendEmailChangeVerification('new@test.com', 'token'),
+      ).not.toThrow();
     });
 
     test('password changed email only requires email', () => {

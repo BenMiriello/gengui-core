@@ -119,29 +119,36 @@ export async function selectEntitiesForContext(
   userId: string,
   segmentEmbedding: number[],
   adjacentSegmentIds: string[],
-  modelConfig: ModelConfig = DEFAULT_MODEL_CONFIG
-): Promise<Array<{
-  id: string;
-  name: string;
-  type: string;
-  facets: Array<{ type: string; content: string }>;
-  mentionCount: number;
-}>> {
+  modelConfig: ModelConfig = DEFAULT_MODEL_CONFIG,
+): Promise<
+  Array<{
+    id: string;
+    name: string;
+    type: string;
+    facets: Array<{ type: string; content: string }>;
+    mentionCount: number;
+  }>
+> {
   // Calculate context budget
-  const budgetTokens = Math.floor(modelConfig.contextWindow * modelConfig.targetUsage);
+  const budgetTokens = Math.floor(
+    modelConfig.contextWindow * modelConfig.targetUsage,
+  );
 
   // Find entities with similar embeddings
   const similarEntities = await graphService.findSimilarNodes(
     segmentEmbedding,
     documentId,
     userId,
-    20
+    20,
   );
 
   // Get entities with mentions in adjacent segments
   const adjacentEntityIds = new Set<string>();
   for (const segmentId of adjacentSegmentIds) {
-    const mentionsInSegment = await mentionService.getBySegmentId(documentId, segmentId);
+    const mentionsInSegment = await mentionService.getBySegmentId(
+      documentId,
+      segmentId,
+    );
     for (const m of mentionsInSegment) {
       adjacentEntityIds.add(m.nodeId);
     }
@@ -210,7 +217,10 @@ export async function selectEntitiesForContext(
 }
 
 export const graphStoryNodesRepository = {
-  async getActiveNodes(documentId: string, userId: string): Promise<StoredStoryNode[]> {
+  async getActiveNodes(
+    documentId: string,
+    userId: string,
+  ): Promise<StoredStoryNode[]> {
     return graphService.getStoryNodesForDocument(documentId, userId);
   },
 
@@ -228,10 +238,15 @@ export const graphStoryNodesRepository = {
     const nodeNameToId = new Map<string, string>();
 
     for (const nodeData of nodes) {
-      const nodeId = await graphService.createStoryNode(documentId, userId, nodeData, {
-        stylePreset: documentStyle?.preset,
-        stylePrompt: documentStyle?.prompt,
-      });
+      const nodeId = await graphService.createStoryNode(
+        documentId,
+        userId,
+        nodeData,
+        {
+          stylePreset: documentStyle?.preset,
+          stylePrompt: documentStyle?.prompt,
+        },
+      );
 
       nodeNameToId.set(nodeData.name, nodeId);
 
@@ -243,16 +258,18 @@ export const graphStoryNodesRepository = {
           nodeData.eventRanges,
           documentContent,
           segments,
-          versionNumber
+          versionNumber,
         );
       } else {
-        const processedPassages = nodeData.mentions.map((p) => processPassage(documentContent, p));
+        const processedPassages = nodeData.mentions.map((p) =>
+          processPassage(documentContent, p),
+        );
         await createMentionsForPassages(
           nodeId,
           documentId,
           processedPassages,
           segments,
-          versionNumber
+          versionNumber,
         );
       }
 
@@ -265,12 +282,12 @@ export const graphStoryNodesRepository = {
           segments,
           versionNumber,
           nodeData.name,
-          nodeData.aliases || []
+          nodeData.aliases || [],
         );
         if (matchCount > 0) {
           logger.info(
             { nodeId, nodeName: nodeData.name, matchCount },
-            'Name matching found additional mentions'
+            'Name matching found additional mentions',
           );
         }
       } catch (err) {
@@ -286,7 +303,7 @@ export const graphStoryNodesRepository = {
         if (storedNode) {
           const extractionMentions = await mentionService.getByNodeIdAndSource(
             nodeId,
-            'extraction'
+            'extraction',
           );
           const text = buildEmbeddingText(storedNode, extractionMentions);
           const embedding = await generateEmbedding(text);
@@ -303,10 +320,15 @@ export const graphStoryNodesRepository = {
     // Create narrative threads
     if (narrativeThreads?.length) {
       for (const thread of narrativeThreads) {
-        const threadId = await graphService.createNarrativeThread(documentId, userId, thread);
+        const threadId = await graphService.createNarrativeThread(
+          documentId,
+          userId,
+          thread,
+        );
         for (const [i, eventName] of thread.eventNames.entries()) {
           const eventId = nodeNameToId.get(eventName);
-          if (eventId) await graphService.linkEventToThread(eventId, threadId, i);
+          if (eventId)
+            await graphService.linkEventToThread(eventId, threadId, i);
         }
       }
     }
@@ -352,10 +374,15 @@ export const graphStoryNodesRepository = {
         eventRanges: nodeData.eventRanges,
       };
 
-      const nodeId = await graphService.createStoryNode(documentId, userId, entityNodeResult, {
-        stylePreset: documentStyle?.preset,
-        stylePrompt: documentStyle?.prompt,
-      });
+      const nodeId = await graphService.createStoryNode(
+        documentId,
+        userId,
+        entityNodeResult,
+        {
+          stylePreset: documentStyle?.preset,
+          stylePrompt: documentStyle?.prompt,
+        },
+      );
 
       nodeNameToId.set(nodeData.name, nodeId);
 
@@ -366,7 +393,11 @@ export const graphStoryNodesRepository = {
       for (const facet of nodeData.facets) {
         try {
           const facetEmbedding = await generateEmbedding(facet.content);
-          const facetId = await graphService.createFacet(nodeId, facet, facetEmbedding);
+          const facetId = await graphService.createFacet(
+            nodeId,
+            facet,
+            facetEmbedding,
+          );
 
           // Track facet content -> ID for mention linking
           facetContentToId.set(facet.content.toLowerCase(), facetId);
@@ -383,7 +414,8 @@ export const graphStoryNodesRepository = {
 
       // Compute entity embedding as weighted average of facet embeddings
       if (facetEmbeddings.length > 0) {
-        const entityEmbedding = computeWeightedAverageEmbedding(facetEmbeddings);
+        const entityEmbedding =
+          computeWeightedAverageEmbedding(facetEmbeddings);
         await graphService.setNodeEmbedding(nodeId, entityEmbedding);
       }
 
@@ -395,25 +427,28 @@ export const graphStoryNodesRepository = {
           nodeData.eventRanges,
           documentContent,
           segments,
-          versionNumber
+          versionNumber,
         );
       } else {
-        const processedPassages = nodeData.mentions.map((p) => processPassage(documentContent, p));
+        const processedPassages = nodeData.mentions.map((p) =>
+          processPassage(documentContent, p),
+        );
         await createMentionsForPassagesWithFacets(
           nodeId,
           documentId,
           processedPassages,
           segments,
           versionNumber,
-          facetContentToId
+          facetContentToId,
         );
       }
 
       // Run name matching using all name facets - link to first name facet
       const nameFacets = nodeData.facets.filter((f) => f.type === 'name');
-      const primaryNameFacetId = nameFacets.length > 0
-        ? facetContentToId.get(nameFacets[0].content.toLowerCase())
-        : undefined;
+      const primaryNameFacetId =
+        nameFacets.length > 0
+          ? facetContentToId.get(nameFacets[0].content.toLowerCase())
+          : undefined;
 
       if (nameFacets.length > 0) {
         try {
@@ -425,12 +460,12 @@ export const graphStoryNodesRepository = {
             versionNumber,
             mainName,
             nameFacets.map((f) => f.content).filter((n) => n !== mainName),
-            primaryNameFacetId
+            primaryNameFacetId,
           );
           if (matchCount > 0) {
             logger.info(
               { nodeId, nodeName: mainName, matchCount },
-              'Name matching found additional mentions'
+              'Name matching found additional mentions',
             );
           }
         } catch (err) {
@@ -447,15 +482,23 @@ export const graphStoryNodesRepository = {
       ...c,
       edgeType: c.edgeType || 'RELATED_TO',
     }));
-    await this.createConnections({ connections: storyConnections, nodeNameToId });
+    await this.createConnections({
+      connections: storyConnections,
+      nodeNameToId,
+    });
 
     // Create narrative threads
     if (narrativeThreads?.length) {
       for (const thread of narrativeThreads) {
-        const threadId = await graphService.createNarrativeThread(documentId, userId, thread);
+        const threadId = await graphService.createNarrativeThread(
+          documentId,
+          userId,
+          thread,
+        );
         for (const [i, eventName] of thread.eventNames.entries()) {
           const eventId = nodeNameToId.get(eventName);
-          if (eventId) await graphService.linkEventToThread(eventId, threadId, i);
+          if (eventId)
+            await graphService.linkEventToThread(eventId, threadId, i);
         }
       }
     }
@@ -463,7 +506,10 @@ export const graphStoryNodesRepository = {
     return nodeNameToId;
   },
 
-  async createConnections({ connections, nodeNameToId }: CreateConnectionsParams): Promise<number> {
+  async createConnections({
+    connections,
+    nodeNameToId,
+  }: CreateConnectionsParams): Promise<number> {
     let created = 0;
 
     for (const connData of connections) {
@@ -477,19 +523,27 @@ export const graphStoryNodesRepository = {
             toId,
             connData.edgeType || 'RELATED_TO',
             connData.description,
-            { strength: connData.strength }
+            { strength: connData.strength },
           );
           created++;
           logger.info(
-            { from: connData.fromName, to: connData.toName, edgeType: connData.edgeType },
-            'Story node connection created'
+            {
+              from: connData.fromName,
+              to: connData.toName,
+              edgeType: connData.edgeType,
+            },
+            'Story node connection created',
           );
         } catch (error: any) {
           // Skip connections that would create cycles (Gemini sometimes suggests these)
           if (error?.message?.includes('would create a cycle')) {
             logger.warn(
-              { from: connData.fromName, to: connData.toName, edgeType: connData.edgeType },
-              'Skipping connection that would create cycle'
+              {
+                from: connData.fromName,
+                to: connData.toName,
+                edgeType: connData.edgeType,
+              },
+              'Skipping connection that would create cycle',
             );
           } else {
             throw error;
@@ -498,7 +552,7 @@ export const graphStoryNodesRepository = {
       } else {
         logger.warn(
           { from: connData.fromName, to: connData.toName },
-          'Connection references unknown node(s)'
+          'Connection references unknown node(s)',
         );
       }
     }
@@ -506,7 +560,10 @@ export const graphStoryNodesRepository = {
     return created;
   },
 
-  async deleteAllForDocument(documentId: string, userId: string): Promise<void> {
+  async deleteAllForDocument(
+    documentId: string,
+    userId: string,
+  ): Promise<void> {
     await graphService.deleteAllStoryNodesForDocument(documentId, userId);
   },
 
@@ -524,7 +581,7 @@ export const graphStoryNodesRepository = {
     documentId: string,
     userId: string,
     candidates: StoryNodeResult[],
-    existingNodes: StoredStoryNode[]
+    existingNodes: StoredStoryNode[],
   ): Promise<EntityResolutionResult> {
     const resolved: ResolvedEntity[] = [];
     const existingNodesByNameLower = new Map<string, StoredStoryNode>();
@@ -599,10 +656,15 @@ export const graphStoryNodesRepository = {
       const embeddingText = `${candidate.name}: ${candidate.description || ''}`;
       try {
         const embedding = await generateEmbedding(embeddingText);
-        const similar = await graphService.findSimilarNodes(embedding, documentId, userId, 5);
+        const similar = await graphService.findSimilarNodes(
+          embedding,
+          documentId,
+          userId,
+          5,
+        );
 
         const bestMatch = similar.find(
-          (s) => s.score > 0.92 && !matchedExistingIds.has(s.id)
+          (s) => s.score > 0.92 && !matchedExistingIds.has(s.id),
         );
 
         if (bestMatch) {
@@ -621,12 +683,15 @@ export const graphStoryNodesRepository = {
               matchedName: bestMatch.name,
               similarity: bestMatch.score,
             },
-            'Entity resolved via embedding similarity'
+            'Entity resolved via embedding similarity',
           );
           continue;
         }
       } catch (err) {
-        logger.warn({ candidate: candidate.name, error: err }, 'Embedding similarity check failed');
+        logger.warn(
+          { candidate: candidate.name, error: err },
+          'Embedding similarity check failed',
+        );
       }
 
       // 4. No match - create new entity
@@ -639,7 +704,9 @@ export const graphStoryNodesRepository = {
     }
 
     // Identify entities to soft-delete (exist in graph but not in new extraction)
-    const preservedIds = new Set(resolved.filter((r) => !r.isNew).map((r) => r.resolvedId));
+    const preservedIds = new Set(
+      resolved.filter((r) => !r.isNew).map((r) => r.resolvedId),
+    );
     const softDeleted: string[] = [];
 
     for (const existing of existingNodes) {
@@ -664,7 +731,11 @@ export const graphStoryNodesRepository = {
     existingNodes,
     updates,
     documentStyle,
-  }: ApplyUpdatesParams): Promise<{ added: number; updated: number; deleted: number }> {
+  }: ApplyUpdatesParams): Promise<{
+    added: number;
+    updated: number;
+    deleted: number;
+  }> {
     let added = 0;
     let updated = 0;
     let deleted = 0;
@@ -691,12 +762,15 @@ export const graphStoryNodesRepository = {
       } = {};
 
       if (update.name !== undefined) updateFields.name = update.name;
-      if (update.description !== undefined) updateFields.description = update.description;
+      if (update.description !== undefined)
+        updateFields.description = update.description;
       if (update.aliases !== undefined) updateFields.aliases = update.aliases;
 
       let processedPassages: (TextPosition | { text: string })[] | undefined;
       if (update.mentions !== undefined) {
-        processedPassages = update.mentions.map((p) => processPassage(documentContent, p));
+        processedPassages = update.mentions.map((p) =>
+          processPassage(documentContent, p),
+        );
       }
 
       await graphService.updateStoryNode(update.id, updateFields);
@@ -710,13 +784,14 @@ export const graphStoryNodesRepository = {
           documentId,
           processedPassages,
           segments,
-          versionNumber
+          versionNumber,
         );
 
         // Run name matching for updated nodes
         const node = await graphService.getStoryNodeByIdInternal(update.id);
         const nodeName = update.name !== undefined ? update.name : node?.name;
-        const aliases = update.aliases !== undefined ? update.aliases : node?.aliases;
+        const aliases =
+          update.aliases !== undefined ? update.aliases : node?.aliases;
         if (nodeName) {
           try {
             const matchCount = await mentionService.runNameMatchingForNode(
@@ -726,16 +801,19 @@ export const graphStoryNodesRepository = {
               segments,
               versionNumber,
               nodeName,
-              aliases || []
+              aliases || [],
             );
             if (matchCount > 0) {
               logger.info(
                 { nodeId: update.id, nodeName, matchCount },
-                'Name matching found additional mentions on update'
+                'Name matching found additional mentions on update',
               );
             }
           } catch (err) {
-            logger.warn({ nodeId: update.id, error: err }, 'Name matching failed on update');
+            logger.warn(
+              { nodeId: update.id, error: err },
+              'Name matching failed on update',
+            );
           }
         }
 
@@ -748,30 +826,42 @@ export const graphStoryNodesRepository = {
         try {
           const node = await graphService.getStoryNodeByIdInternal(update.id);
           if (node) {
-            const extractionMentions = await mentionService.getByNodeIdAndSource(
-              update.id,
-              'extraction'
-            );
+            const extractionMentions =
+              await mentionService.getByNodeIdAndSource(
+                update.id,
+                'extraction',
+              );
             const text = buildEmbeddingText(node, extractionMentions);
             const embedding = await generateEmbedding(text);
             await graphService.setNodeEmbedding(update.id, embedding);
           }
         } catch (err) {
-          logger.warn({ nodeId: update.id, error: err }, 'Re-embedding failed on update');
+          logger.warn(
+            { nodeId: update.id, error: err },
+            'Re-embedding failed on update',
+          );
         }
       }
     }
 
     // 3. Add new nodes
     for (const nodeData of updates.add) {
-      const nodeId = await graphService.createStoryNode(documentId, userId, nodeData, {
-        stylePreset: documentStyle?.preset,
-        stylePrompt: documentStyle?.prompt,
-      });
+      const nodeId = await graphService.createStoryNode(
+        documentId,
+        userId,
+        nodeData,
+        {
+          stylePreset: documentStyle?.preset,
+          stylePrompt: documentStyle?.prompt,
+        },
+      );
 
       newNodeIds.set(nodeData.name, nodeId);
       added++;
-      logger.info({ nodeId, nodeName: nodeData.name }, 'New story node created');
+      logger.info(
+        { nodeId, nodeName: nodeData.name },
+        'New story node created',
+      );
 
       // Create mentions: use eventRanges for events, passages for other types
       if (nodeData.type === 'event' && nodeData.eventRanges?.length) {
@@ -781,16 +871,18 @@ export const graphStoryNodesRepository = {
           nodeData.eventRanges,
           documentContent,
           segments,
-          versionNumber
+          versionNumber,
         );
       } else {
-        const processedPassages = nodeData.mentions.map((p) => processPassage(documentContent, p));
+        const processedPassages = nodeData.mentions.map((p) =>
+          processPassage(documentContent, p),
+        );
         await createMentionsForPassages(
           nodeId,
           documentId,
           processedPassages,
           segments,
-          versionNumber
+          versionNumber,
         );
       }
 
@@ -803,12 +895,12 @@ export const graphStoryNodesRepository = {
           segments,
           versionNumber,
           nodeData.name,
-          nodeData.aliases || []
+          nodeData.aliases || [],
         );
         if (matchCount > 0) {
           logger.info(
             { nodeId, nodeName: nodeData.name, matchCount },
-            'Name matching found additional mentions'
+            'Name matching found additional mentions',
           );
         }
       } catch (err) {
@@ -824,7 +916,7 @@ export const graphStoryNodesRepository = {
         if (storedNode) {
           const extractionMentions = await mentionService.getByNodeIdAndSource(
             nodeId,
-            'extraction'
+            'extraction',
           );
           const text = buildEmbeddingText(storedNode, extractionMentions);
           const embedding = await generateEmbedding(text);
@@ -837,7 +929,10 @@ export const graphStoryNodesRepository = {
 
     // 4. Handle connection deletes
     for (const connDel of updates.connectionUpdates.delete) {
-      await graphService.softDeleteStoryConnection(connDel.fromId, connDel.toId);
+      await graphService.softDeleteStoryConnection(
+        connDel.fromId,
+        connDel.toId,
+      );
     }
 
     // 5. Handle connection adds
@@ -857,9 +952,12 @@ export const graphStoryNodesRepository = {
           toId,
           connAdd.edgeType || 'RELATED_TO',
           connAdd.description,
-          { strength: connAdd.strength }
+          { strength: connAdd.strength },
         );
-        logger.info({ fromId, toId, edgeType: connAdd.edgeType }, 'New connection created');
+        logger.info(
+          { fromId, toId, edgeType: connAdd.edgeType },
+          'New connection created',
+        );
       } else {
         logger.warn({ connAdd }, 'Could not resolve connection node IDs');
       }
@@ -868,10 +966,16 @@ export const graphStoryNodesRepository = {
     // 6. Handle narrative threads
     if (updates.narrativeThreads?.length) {
       for (const thread of updates.narrativeThreads) {
-        const threadId = await graphService.createNarrativeThread(documentId, userId, thread);
+        const threadId = await graphService.createNarrativeThread(
+          documentId,
+          userId,
+          thread,
+        );
         for (const [i, eventName] of thread.eventNames.entries()) {
-          const eventId = existingNodeMap.get(eventName) || newNodeIds.get(eventName);
-          if (eventId) await graphService.linkEventToThread(eventId, threadId, i);
+          const eventId =
+            existingNodeMap.get(eventName) || newNodeIds.get(eventName);
+          if (eventId)
+            await graphService.linkEventToThread(eventId, threadId, i);
         }
       }
     }
@@ -886,7 +990,7 @@ export const graphStoryNodesRepository = {
 
 function processPassage(
   content: string,
-  passage: StoryNodeMention
+  passage: StoryNodeMention,
 ): TextPosition | { text: string } {
   // Try exact match first (fast path)
   const exactIndex = content.indexOf(passage.text);
@@ -910,7 +1014,11 @@ function processPassage(
     const actualText = content.slice(fuzzyResult.start, fuzzyResult.end);
 
     // Validate the match
-    const isValid = validateNearMatch(passage.text, actualText, fuzzyResult.confidence);
+    const isValid = validateNearMatch(
+      passage.text,
+      actualText,
+      fuzzyResult.confidence,
+    );
 
     if (isValid) {
       logger.info(
@@ -919,7 +1027,7 @@ function processPassage(
           actualText: actualText.slice(0, 50),
           confidence: fuzzyResult.confidence,
         },
-        'Passage located and corrected via fuzzy matching'
+        'Passage located and corrected via fuzzy matching',
       );
       // Store ACTUAL document text, not LLM's version
       return {
@@ -932,7 +1040,7 @@ function processPassage(
 
   logger.warn(
     { passageText: passage.text, fuzzyConfidence: fuzzyResult?.confidence },
-    'Passage text not found or validation failed'
+    'Passage text not found or validation failed',
   );
   return { text: passage.text };
 }
@@ -941,14 +1049,20 @@ function processPassage(
  * Validate that fuzzy-matched text is close enough to LLM-provided text.
  * Uses length-based tolerance (longer texts = more lenient).
  */
-function validateNearMatch(llmText: string, actualText: string, confidence: number): boolean {
+function validateNearMatch(
+  llmText: string,
+  actualText: string,
+  confidence: number,
+): boolean {
   // Minimum confidence threshold
   if (confidence < 0.5) return false;
 
   // Allow more deviation for longer texts
   const lengthRatio =
-    Math.abs(llmText.length - actualText.length) / Math.max(llmText.length, actualText.length);
-  const maxLengthDeviation = llmText.length > 100 ? 0.3 : llmText.length > 50 ? 0.2 : 0.1;
+    Math.abs(llmText.length - actualText.length) /
+    Math.max(llmText.length, actualText.length);
+  const maxLengthDeviation =
+    llmText.length > 100 ? 0.3 : llmText.length > 50 ? 0.2 : 0.1;
 
   if (lengthRatio > maxLengthDeviation) return false;
 
@@ -958,7 +1072,8 @@ function validateNearMatch(llmText: string, actualText: string, confidence: numb
 export function parsePassages(mentions: unknown): StoryNodeMention[] {
   if (!mentions) return [];
   try {
-    const parsed = typeof mentions === 'string' ? JSON.parse(mentions) : mentions;
+    const parsed =
+      typeof mentions === 'string' ? JSON.parse(mentions) : mentions;
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
@@ -973,17 +1088,21 @@ async function createMentionsForPassages(
   documentId: string,
   processedPassages: (TextPosition | { text: string })[],
   segments: Segment[],
-  versionNumber: number
+  versionNumber: number,
 ): Promise<void> {
   for (const passage of processedPassages) {
     if (!isTextPosition(passage)) continue;
 
-    const relative = segmentService.toRelativePosition(segments, passage.start, passage.end);
+    const relative = segmentService.toRelativePosition(
+      segments,
+      passage.start,
+      passage.end,
+    );
 
     if (!relative) {
       logger.warn(
         { nodeId, start: passage.start, end: passage.end },
-        'Could not map passage to segment'
+        'Could not map passage to segment',
       );
       continue;
     }
@@ -1020,11 +1139,15 @@ async function createMentionsForEventRanges(
   eventRanges: EventRange[],
   documentContent: string,
   segments: Segment[],
-  versionNumber: number
+  versionNumber: number,
 ): Promise<void> {
   for (const range of eventRanges) {
-    const startResult = processPassage(documentContent, { text: range.startMarker });
-    const endResult = processPassage(documentContent, { text: range.endMarker });
+    const startResult = processPassage(documentContent, {
+      text: range.startMarker,
+    });
+    const endResult = processPassage(documentContent, {
+      text: range.endMarker,
+    });
 
     if (isTextPosition(startResult) && isTextPosition(endResult)) {
       const startPosition = startResult.start;
@@ -1032,8 +1155,12 @@ async function createMentionsForEventRanges(
 
       if (startPosition >= endPosition) {
         logger.warn(
-          { nodeId, startMarker: range.startMarker, endMarker: range.endMarker },
-          'Event range markers are out of order (start >= end)'
+          {
+            nodeId,
+            startMarker: range.startMarker,
+            endMarker: range.endMarker,
+          },
+          'Event range markers are out of order (start >= end)',
         );
         continue;
       }
@@ -1049,13 +1176,13 @@ async function createMentionsForEventRanges(
         versionNumber,
         segments,
         'extraction',
-        100
+        100,
       );
 
       if (!mention) {
         logger.warn(
           { nodeId, startPosition, endPosition },
-          'Could not create mention for event range'
+          'Could not create mention for event range',
         );
       }
     } else {
@@ -1067,7 +1194,7 @@ async function createMentionsForEventRanges(
           startFound: isTextPosition(startResult),
           endFound: isTextPosition(endResult),
         },
-        'Could not locate event range markers'
+        'Could not locate event range markers',
       );
     }
   }
@@ -1077,12 +1204,20 @@ async function createMentionsForEventRanges(
  * Compute documentOrder from mentions and update the node.
  * documentOrder = min(absolutePosition) across all mentions.
  */
-async function updateDocumentOrderFromMentions(nodeId: string, segments: Segment[]): Promise<void> {
+async function updateDocumentOrderFromMentions(
+  nodeId: string,
+  segments: Segment[],
+): Promise<void> {
   const firstPosition = await mentionService.getFirstPosition(nodeId, segments);
 
   if (firstPosition !== null) {
-    await graphService.updateStoryNode(nodeId, { documentOrder: firstPosition });
-    logger.debug({ nodeId, documentOrder: firstPosition }, 'Updated documentOrder from mentions');
+    await graphService.updateStoryNode(nodeId, {
+      documentOrder: firstPosition,
+    });
+    logger.debug(
+      { nodeId, documentOrder: firstPosition },
+      'Updated documentOrder from mentions',
+    );
   }
 }
 
@@ -1111,8 +1246,13 @@ function deriveDescriptionFromFacets(facets: FacetInput[]): string {
  * Derive main name from name facets.
  * Picks the most common name under 40 chars, or falls back to original.
  */
-function deriveMainNameFromFacets(facets: FacetInput[], originalName: string): string {
-  const nameFacets = facets.filter((f) => f.type === 'name' && f.content.length < 40);
+function deriveMainNameFromFacets(
+  facets: FacetInput[],
+  originalName: string,
+): string {
+  const nameFacets = facets.filter(
+    (f) => f.type === 'name' && f.content.length < 40,
+  );
 
   if (nameFacets.length === 0) {
     return originalName;
@@ -1128,7 +1268,7 @@ function deriveMainNameFromFacets(facets: FacetInput[], originalName: string): s
  * Each embedding is multiplied by its weight, summed, then normalized.
  */
 function computeWeightedAverageEmbedding(
-  embeddings: { embedding: number[]; weight: number }[]
+  embeddings: { embedding: number[]; weight: number }[],
 ): number[] {
   if (embeddings.length === 0) {
     throw new Error('Cannot compute average of zero embeddings');
@@ -1176,17 +1316,21 @@ async function createMentionsForPassagesWithFacets(
   processedPassages: (TextPosition | { text: string })[],
   segments: Segment[],
   versionNumber: number,
-  facetContentToId: Map<string, string>
+  facetContentToId: Map<string, string>,
 ): Promise<void> {
   for (const passage of processedPassages) {
     if (!isTextPosition(passage)) continue;
 
-    const relative = segmentService.toRelativePosition(segments, passage.start, passage.end);
+    const relative = segmentService.toRelativePosition(
+      segments,
+      passage.start,
+      passage.end,
+    );
 
     if (!relative) {
       logger.warn(
         { nodeId, start: passage.start, end: passage.end },
-        'Could not map passage to segment'
+        'Could not map passage to segment',
       );
       continue;
     }
@@ -1214,7 +1358,7 @@ async function createMentionsForPassagesWithFacets(
 
 function findMatchingFacet(
   mentionText: string,
-  facetContentToId: Map<string, string>
+  facetContentToId: Map<string, string>,
 ): string | null {
   const mentionLower = mentionText.toLowerCase();
 
@@ -1223,7 +1367,10 @@ function findMatchingFacet(
   }
 
   for (const [facetContent, facetId] of facetContentToId) {
-    if (mentionLower.includes(facetContent) || facetContent.includes(mentionLower)) {
+    if (
+      mentionLower.includes(facetContent) ||
+      facetContent.includes(mentionLower)
+    ) {
       return facetId;
     }
   }
@@ -1239,13 +1386,16 @@ function findMatchingFacet(
  * Call this AFTER all mentions are created for accurate weighting.
  */
 export async function recomputeEntityEmbeddingWithMentionWeights(
-  nodeId: string
+  nodeId: string,
 ): Promise<void> {
   // Get all facets for this entity
   const facets = await graphService.getFacetsForEntity(nodeId);
 
   if (facets.length === 0) {
-    logger.warn({ nodeId }, 'No facets found for entity embedding recomputation');
+    logger.warn(
+      { nodeId },
+      'No facets found for entity embedding recomputation',
+    );
     return;
   }
 
@@ -1279,8 +1429,12 @@ export async function recomputeEntityEmbeddingWithMentionWeights(
   await graphService.setNodeEmbedding(nodeId, entityEmbedding);
 
   logger.info(
-    { nodeId, facetCount: facetEmbeddings.length, totalWeight: facetEmbeddings.reduce((s, e) => s + e.weight, 0) },
-    'Entity embedding recomputed with mention weights'
+    {
+      nodeId,
+      facetCount: facetEmbeddings.length,
+      totalWeight: facetEmbeddings.reduce((s, e) => s + e.weight, 0),
+    },
+    'Entity embedding recomputed with mention weights',
   );
 }
 
@@ -1292,17 +1446,20 @@ async function runNameMatchingWithFacet(
   versionNumber: number,
   name: string,
   aliases: string[],
-  facetId?: string
+  facetId?: string,
 ): Promise<number> {
   // Get existing mentions to exclude their spans
-  const existingMentions = await mentionService.getByNodeIdWithAbsolutePositions(nodeId, segments);
+  const existingMentions =
+    await mentionService.getByNodeIdWithAbsolutePositions(nodeId, segments);
   const excludeSpans = existingMentions.map((m) => ({
     start: m.absoluteStart,
     end: m.absoluteEnd,
   }));
 
   // Find name occurrences
-  const { findNameOccurrences, nameMatchesToMentionInputs } = await import('../mentions/nameMatch.js');
+  const { findNameOccurrences, nameMatchesToMentionInputs } = await import(
+    '../mentions/nameMatch.js'
+  );
   const matches = findNameOccurrences(documentContent, name, aliases, {
     excludeExistingSpans: excludeSpans,
     minConfidence: 70,
@@ -1311,7 +1468,13 @@ async function runNameMatchingWithFacet(
   if (matches.length === 0) return 0;
 
   // Convert to mention inputs with facetId
-  const inputs = nameMatchesToMentionInputs(nodeId, documentId, matches, segments, versionNumber);
+  const inputs = nameMatchesToMentionInputs(
+    nodeId,
+    documentId,
+    matches,
+    segments,
+    versionNumber,
+  );
 
   // Add facetId to each input
   const inputsWithFacet = inputs.map((input) => ({

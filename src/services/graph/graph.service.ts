@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import Redis from 'ioredis';
 import { THREAD_COLORS } from '../../config/constants';
 import type {
+  ArcType,
   FacetInput,
   FacetType,
   NarrativeThreadResult,
@@ -10,11 +11,10 @@ import type {
   StoryNodeType,
 } from '../../types/storyNodes';
 import { logger } from '../../utils/logger';
-import type { ArcType } from '../../types/storyNodes';
 import {
   CAUSAL_EDGE_TYPES,
-  causalEdgePattern,
   type ChangesToEdgeProps,
+  causalEdgePattern,
   type NodeProperties,
   type QueryResult,
   type StoredArc,
@@ -24,7 +24,12 @@ import {
   type StoredStoryNode,
 } from './graph.types';
 
-export type { NodeProperties, StoredStoryNode, StoredStoryConnection, QueryResult };
+export type {
+  NodeProperties,
+  StoredStoryNode,
+  StoredStoryConnection,
+  QueryResult,
+};
 
 const GRAPH_NAME = process.env.FALKORDB_GRAPH_NAME || 'gengui';
 
@@ -190,7 +195,10 @@ class GraphService {
   /**
    * Execute a Cypher query against FalkorDB
    */
-  async query(cypher: string, params?: Record<string, unknown>): Promise<QueryResult> {
+  async query(
+    cypher: string,
+    params?: Record<string, unknown>,
+  ): Promise<QueryResult> {
     const client = await this.ensureConnected();
 
     let queryString = cypher;
@@ -201,7 +209,11 @@ class GraphService {
       queryString = cypherParams + cypher;
     }
 
-    const result = (await client.call('GRAPH.QUERY', GRAPH_NAME, queryString)) as unknown[];
+    const result = (await client.call(
+      'GRAPH.QUERY',
+      GRAPH_NAME,
+      queryString,
+    )) as unknown[];
 
     return this.parseResult(result);
   }
@@ -276,7 +288,7 @@ class GraphService {
     fromId: string,
     toId: string,
     type: string,
-    props?: NodeProperties
+    props?: NodeProperties,
   ): Promise<string> {
     const fromNodeId = this.validateInternalId(fromId);
     const toNodeId = this.validateInternalId(toId);
@@ -354,7 +366,7 @@ class GraphService {
   private validateLabel(label: string): void {
     if (!ALLOWED_NODE_LABELS.has(label)) {
       throw new Error(
-        `Invalid node label: ${label}. Allowed: ${[...ALLOWED_NODE_LABELS].join(', ')}`
+        `Invalid node label: ${label}. Allowed: ${[...ALLOWED_NODE_LABELS].join(', ')}`,
       );
     }
   }
@@ -366,7 +378,7 @@ class GraphService {
   private validateEdgeType(edgeType: string): void {
     if (!ALLOWED_EDGE_TYPES.has(edgeType)) {
       throw new Error(
-        `Invalid edge type: ${edgeType}. Allowed: ${[...ALLOWED_EDGE_TYPES].join(', ')}`
+        `Invalid edge type: ${edgeType}. Allowed: ${[...ALLOWED_EDGE_TYPES].join(', ')}`,
       );
     }
   }
@@ -396,12 +408,17 @@ class GraphService {
   /**
    * Validate that an embedding is a valid float array of expected dimension.
    */
-  private validateEmbedding(embedding: number[], expectedDim: number = 1536): void {
+  private validateEmbedding(
+    embedding: number[],
+    expectedDim: number = 1536,
+  ): void {
     if (!Array.isArray(embedding)) {
       throw new Error('Embedding must be an array');
     }
     if (embedding.length !== expectedDim) {
-      throw new Error(`Embedding must have ${expectedDim} dimensions, got ${embedding.length}`);
+      throw new Error(
+        `Embedding must have ${expectedDim} dimensions, got ${embedding.length}`,
+      );
     }
     for (let i = 0; i < embedding.length; i++) {
       if (typeof embedding[i] !== 'number' || !Number.isFinite(embedding[i])) {
@@ -416,7 +433,10 @@ class GraphService {
 
   // ========== Acyclicity Validation ==========
 
-  async wouldCreateCycle(fromNodeId: string, toNodeId: string): Promise<boolean> {
+  async wouldCreateCycle(
+    fromNodeId: string,
+    toNodeId: string,
+  ): Promise<boolean> {
     const cypher = `
       MATCH path = (b:StoryNode)-[${causalEdgePattern('*1..50')}]->(a:StoryNode)
       WHERE b.id = $toNodeId AND a.id = $fromNodeId
@@ -450,7 +470,11 @@ class GraphService {
    * Generate deletedAt filter for queries with two nodes and a relationship.
    * Common pattern: MATCH (a)-[r]->(b)
    */
-  private deletedAtFilterEdge(fromVar: string, relVar: string, toVar: string): string {
+  private deletedAtFilterEdge(
+    fromVar: string,
+    relVar: string,
+    toVar: string,
+  ): string {
     return `${fromVar}.deletedAt IS NULL AND ${toVar}.deletedAt IS NULL AND ${relVar}.deletedAt IS NULL`;
   }
 
@@ -469,13 +493,21 @@ class GraphService {
 
     for (const idx of indexes) {
       try {
-        await this.query(`CREATE INDEX FOR (n:StoryNode) ON (n.${idx.property})`);
+        await this.query(
+          `CREATE INDEX FOR (n:StoryNode) ON (n.${idx.property})`,
+        );
         logger.info({ index: idx.name }, 'Created property index on StoryNode');
       } catch (err: any) {
-        if (err?.message?.includes('already exists') || err?.message?.includes('already indexed')) {
+        if (
+          err?.message?.includes('already exists') ||
+          err?.message?.includes('already indexed')
+        ) {
           logger.debug({ index: idx.name }, 'Property index already exists');
         } else {
-          logger.warn({ error: err, index: idx.name }, 'Failed to create property index');
+          logger.warn(
+            { error: err, index: idx.name },
+            'Failed to create property index',
+          );
         }
       }
     }
@@ -484,11 +516,14 @@ class GraphService {
   async createVectorIndex(): Promise<void> {
     try {
       await this.query(
-        `CREATE VECTOR INDEX FOR (n:StoryNode) ON (n.embedding) OPTIONS {dimension: 1536, similarityFunction: 'cosine'}`
+        `CREATE VECTOR INDEX FOR (n:StoryNode) ON (n.embedding) OPTIONS {dimension: 1536, similarityFunction: 'cosine'}`,
       );
       logger.info('Created vector index on StoryNode.embedding');
     } catch (err: any) {
-      if (err?.message?.includes('already exists') || err?.message?.includes('already indexed')) {
+      if (
+        err?.message?.includes('already exists') ||
+        err?.message?.includes('already indexed')
+      ) {
         logger.debug('Vector index already exists');
       } else {
         logger.error({ error: err }, 'Failed to create vector index');
@@ -515,7 +550,10 @@ class GraphService {
    * @param params - Optional query parameters
    * @returns The execution plan as a string
    */
-  async explainQuery(cypher: string, params?: Record<string, unknown>): Promise<string> {
+  async explainQuery(
+    cypher: string,
+    params?: Record<string, unknown>,
+  ): Promise<string> {
     const client = await this.ensureConnected();
 
     let queryString = cypher;
@@ -526,7 +564,11 @@ class GraphService {
       queryString = cypherParams + cypher;
     }
 
-    const result = (await client.call('GRAPH.EXPLAIN', GRAPH_NAME, queryString)) as string[];
+    const result = (await client.call(
+      'GRAPH.EXPLAIN',
+      GRAPH_NAME,
+      queryString,
+    )) as string[];
     return result.join('\n');
   }
 
@@ -583,7 +625,7 @@ class GraphService {
     embedding: number[],
     documentId: string,
     userId: string,
-    limit: number = 10
+    limit: number = 10,
   ): Promise<(StoredStoryNode & { score: number })[]> {
     this.validateEmbedding(embedding);
     // Over-fetch to ensure we get enough results after filtering by document/user.
@@ -652,7 +694,7 @@ class GraphService {
       stylePreset?: string | null;
       stylePrompt?: string | null;
       existingId?: string;
-    }
+    },
   ): Promise<string> {
     const label = this.getLabelForType(node.type);
     const nodeId = options?.existingId || randomUUID();
@@ -665,7 +707,10 @@ class GraphService {
       type: node.type,
       name: node.name,
       description: node.description || null,
-      aliases: node.aliases && node.aliases.length > 0 ? JSON.stringify(node.aliases) : null,
+      aliases:
+        node.aliases && node.aliases.length > 0
+          ? JSON.stringify(node.aliases)
+          : null,
       metadata: node.metadata ? JSON.stringify(node.metadata) : null,
       primaryMediaId: null,
       stylePreset: options?.stylePreset ?? null,
@@ -684,7 +729,10 @@ class GraphService {
       throw new Error('Failed to create story node');
     }
 
-    logger.info({ nodeId, nodeName: node.name, type: node.type }, 'Story node created in FalkorDB');
+    logger.info(
+      { nodeId, nodeName: node.name, type: node.type },
+      'Story node created in FalkorDB',
+    );
     return nodeId;
   }
 
@@ -693,7 +741,7 @@ class GraphService {
     toId: string,
     edgeType: StoryEdgeType,
     description: string | null,
-    properties?: { strength?: number }
+    properties?: { strength?: number },
   ): Promise<string> {
     this.validateEdgeType(edgeType);
 
@@ -701,7 +749,7 @@ class GraphService {
       const wouldCycle = await this.wouldCreateCycle(fromId, toId);
       if (wouldCycle) {
         throw new Error(
-          `Cannot create ${edgeType} edge from ${fromId} to ${toId}: would create a cycle`
+          `Cannot create ${edgeType} edge from ${fromId} to ${toId}: would create a cycle`,
         );
       }
     }
@@ -731,11 +779,17 @@ class GraphService {
       throw new Error('Failed to create story connection');
     }
 
-    logger.info({ connectionId, fromId, toId, edgeType }, 'Story connection created in FalkorDB');
+    logger.info(
+      { connectionId, fromId, toId, edgeType },
+      'Story connection created in FalkorDB',
+    );
     return connectionId;
   }
 
-  async getStoryNodesForDocument(documentId: string, userId: string): Promise<StoredStoryNode[]> {
+  async getStoryNodesForDocument(
+    documentId: string,
+    userId: string,
+  ): Promise<StoredStoryNode[]> {
     const cypher = `
       MATCH (n:StoryNode)
       WHERE n.documentId = $documentId AND n.userId = $userId AND ${this.deletedAtFilter('n')}
@@ -770,7 +824,9 @@ class GraphService {
     });
   }
 
-  async getStoryConnectionsForDocument(documentId: string): Promise<StoredStoryConnection[]> {
+  async getStoryConnectionsForDocument(
+    documentId: string,
+  ): Promise<StoredStoryConnection[]> {
     const cypher = `
       MATCH (a:StoryNode)-[r]->(b:StoryNode)
       WHERE a.documentId = $documentId
@@ -806,7 +862,9 @@ class GraphService {
     return connections;
   }
 
-  async getConnectionsFromNode(nodeId: string): Promise<StoredStoryConnection[]> {
+  async getConnectionsFromNode(
+    nodeId: string,
+  ): Promise<StoredStoryConnection[]> {
     const cypher = `
       MATCH (a:StoryNode)-[r]->(b:StoryNode)
       WHERE a.id = $nodeId
@@ -846,11 +904,18 @@ class GraphService {
         AND type(r) <> 'BELONGS_TO_THREAD'
       SET r.deletedAt = $deletedAt
     `;
-    await this.query(cypher, { fromId, toId, deletedAt: new Date().toISOString() });
+    await this.query(cypher, {
+      fromId,
+      toId,
+      deletedAt: new Date().toISOString(),
+    });
     logger.info({ fromId, toId }, 'Story connection soft deleted in FalkorDB');
   }
 
-  async deleteAllStoryNodesForDocument(documentId: string, userId: string): Promise<void> {
+  async deleteAllStoryNodesForDocument(
+    documentId: string,
+    userId: string,
+  ): Promise<void> {
     // Also delete narrative threads for this document
     await this.query(
       `
@@ -858,7 +923,7 @@ class GraphService {
       WHERE nt.documentId = $documentId AND nt.userId = $userId
       DETACH DELETE nt
       `,
-      { documentId, userId }
+      { documentId, userId },
     );
     const cypher = `
       MATCH (n:StoryNode)
@@ -866,7 +931,10 @@ class GraphService {
       DETACH DELETE n
     `;
     await this.query(cypher, { documentId, userId });
-    logger.info({ documentId, userId }, 'All story nodes deleted from FalkorDB');
+    logger.info(
+      { documentId, userId },
+      'All story nodes deleted from FalkorDB',
+    );
   }
 
   async updateStoryNode(
@@ -876,10 +944,13 @@ class GraphService {
       description?: string | null;
       aliases?: string[];
       documentOrder?: number | null;
-    }
+    },
   ): Promise<void> {
     const setStatements: string[] = [];
-    const params: Record<string, unknown> = { nodeId, updatedAt: new Date().toISOString() };
+    const params: Record<string, unknown> = {
+      nodeId,
+      updatedAt: new Date().toISOString(),
+    };
 
     setStatements.push(`n.updatedAt = $updatedAt`);
 
@@ -893,7 +964,8 @@ class GraphService {
     }
     if (updates.aliases !== undefined) {
       setStatements.push(`n.aliases = $aliases`);
-      params.aliases = updates.aliases.length > 0 ? JSON.stringify(updates.aliases) : null;
+      params.aliases =
+        updates.aliases.length > 0 ? JSON.stringify(updates.aliases) : null;
     }
     if (updates.documentOrder !== undefined) {
       setStatements.push(`n.documentOrder = $documentOrder`);
@@ -909,20 +981,27 @@ class GraphService {
     logger.info({ nodeId }, 'Story node updated in FalkorDB');
   }
 
-  async updateStoryNodePrimaryMedia(nodeId: string, mediaId: string | null): Promise<void> {
+  async updateStoryNodePrimaryMedia(
+    nodeId: string,
+    mediaId: string | null,
+  ): Promise<void> {
     const cypher = `
       MATCH (n:StoryNode)
       WHERE n.id = $nodeId
       SET n.primaryMediaId = $mediaId,
           n.updatedAt = $updatedAt
     `;
-    await this.query(cypher, { nodeId, mediaId, updatedAt: new Date().toISOString() });
+    await this.query(cypher, {
+      nodeId,
+      mediaId,
+      updatedAt: new Date().toISOString(),
+    });
   }
 
   async updateStoryNodeStyle(
     nodeId: string,
     stylePreset: string | null,
-    stylePrompt: string | null
+    stylePrompt: string | null,
   ): Promise<StoredStoryNode | null> {
     const cypher = `
       MATCH (n:StoryNode)
@@ -967,7 +1046,10 @@ class GraphService {
     };
   }
 
-  async getStoryNodeById(nodeId: string, userId: string): Promise<StoredStoryNode | null> {
+  async getStoryNodeById(
+    nodeId: string,
+    userId: string,
+  ): Promise<StoredStoryNode | null> {
     const cypher = `
       MATCH (n:StoryNode)
       WHERE n.id = $nodeId AND n.userId = $userId AND ${this.deletedAtFilter('n')}
@@ -1007,7 +1089,9 @@ class GraphService {
    * Cleanup soft-deleted nodes and connections older than the given date.
    * Returns count of deleted nodes.
    */
-  async cleanupSoftDeleted(beforeDate: Date): Promise<{ nodes: number; connections: number }> {
+  async cleanupSoftDeleted(
+    beforeDate: Date,
+  ): Promise<{ nodes: number; connections: number }> {
     const threshold = beforeDate.toISOString();
 
     const connResult = await this.query(
@@ -1017,7 +1101,7 @@ class GraphService {
       DELETE r
       RETURN count(r) as deleted
       `,
-      { threshold }
+      { threshold },
     );
     const connectionsDeleted = (connResult.data[0]?.[0] as number) || 0;
 
@@ -1028,14 +1112,14 @@ class GraphService {
       DETACH DELETE n
       RETURN count(n) as deleted
       `,
-      { threshold }
+      { threshold },
     );
     const nodesDeleted = (nodeResult.data[0]?.[0] as number) || 0;
 
     if (nodesDeleted > 0 || connectionsDeleted > 0) {
       logger.info(
         { nodesDeleted, connectionsDeleted, threshold },
-        'Cleaned up soft-deleted graph nodes'
+        'Cleaned up soft-deleted graph nodes',
       );
     }
 
@@ -1046,7 +1130,9 @@ class GraphService {
    * Internal method: get node by ID without user verification.
    * Use only for trusted internal service operations.
    */
-  async getStoryNodeByIdInternal(nodeId: string): Promise<StoredStoryNode | null> {
+  async getStoryNodeByIdInternal(
+    nodeId: string,
+  ): Promise<StoredStoryNode | null> {
     const cypher = `
       MATCH (n:StoryNode)
       WHERE n.id = $nodeId AND n.deletedAt IS NULL
@@ -1087,15 +1173,20 @@ class GraphService {
   async createNarrativeThread(
     documentId: string,
     userId: string,
-    thread: NarrativeThreadResult
+    thread: NarrativeThreadResult,
   ): Promise<string> {
     const threadId = randomUUID();
     const now = new Date().toISOString();
 
     // Auto-assign color from Material Design palette
     const { graphThreads } = await import('./graph.threads.js');
-    const existingThreads = await graphThreads.getThreadsForDocument(documentId, userId);
-    const usedColors = new Set(existingThreads.map((t: any) => t.color).filter(Boolean));
+    const existingThreads = await graphThreads.getThreadsForDocument(
+      documentId,
+      userId,
+    );
+    const usedColors = new Set(
+      existingThreads.map((t: any) => t.color).filter(Boolean),
+    );
 
     // Find first unused color, or cycle back to start
     let color = THREAD_COLORS[0];
@@ -1124,11 +1215,18 @@ class GraphService {
       throw new Error('Failed to create narrative thread');
     }
 
-    logger.info({ threadId, name: thread.name, color }, 'Narrative thread created in FalkorDB');
+    logger.info(
+      { threadId, name: thread.name, color },
+      'Narrative thread created in FalkorDB',
+    );
     return threadId;
   }
 
-  async linkEventToThread(eventId: string, threadId: string, order: number): Promise<void> {
+  async linkEventToThread(
+    eventId: string,
+    threadId: string,
+    order: number,
+  ): Promise<void> {
     const cypher = `
       MATCH (e:StoryNode), (nt:NarrativeThread)
       WHERE e.id = $eventId AND nt.id = $threadId
@@ -1141,7 +1239,7 @@ class GraphService {
     documentId: string,
     userId: string,
     k: number = 10,
-    cutoff: number = 0.3
+    cutoff: number = 0.3,
   ): Promise<{ source: string; target: string; similarity: number }[]> {
     // Single query: pass source.embedding directly to vector index (never leaves FalkorDB)
     const cypher = `
@@ -1156,7 +1254,11 @@ class GraphService {
     `;
     const result = await this.query(cypher, { documentId, userId, cutoff });
 
-    const similarities: { source: string; target: string; similarity: number }[] = [];
+    const similarities: {
+      source: string;
+      target: string;
+      similarity: number;
+    }[] = [];
     const seen = new Set<string>();
 
     for (const row of result.data) {
@@ -1181,7 +1283,7 @@ class GraphService {
 
   async getNodeEmbeddingsProjection(
     documentId: string,
-    userId: string
+    userId: string,
   ): Promise<Array<{ nodeId: string; x: number; y: number }>> {
     const cypher = `
       MATCH (n:StoryNode)
@@ -1220,7 +1322,7 @@ class GraphService {
       } else {
         logger.warn(
           { nodeId, embeddingType: typeof embeddingRaw },
-          'Skipping node with invalid embedding format'
+          'Skipping node with invalid embedding format',
         );
         continue;
       }
@@ -1228,7 +1330,7 @@ class GraphService {
       if (embedding.length !== 1536) {
         logger.warn(
           { nodeId, length: embedding.length },
-          'Skipping node with wrong embedding dimension'
+          'Skipping node with wrong embedding dimension',
         );
         continue;
       }
@@ -1240,7 +1342,7 @@ class GraphService {
     if (embeddings.length < 2) {
       logger.info(
         { count: embeddings.length },
-        'Not enough embeddings for PCA, returning empty projection'
+        'Not enough embeddings for PCA, returning empty projection',
       );
       return [];
     }
@@ -1270,7 +1372,8 @@ class GraphService {
 
     const SCALE_FACTOR = 0.8;
 
-    const result_positions: Array<{ nodeId: string; x: number; y: number }> = [];
+    const result_positions: Array<{ nodeId: string; x: number; y: number }> =
+      [];
 
     for (let i = 0; i < nodeIds.length; i++) {
       const point = projectedArray[i];
@@ -1278,8 +1381,10 @@ class GraphService {
       const normalizedX = (point[0] - minX) / rangeX;
       const normalizedY = (point[1] - minY) / rangeY;
 
-      const x = VIEWPORT_CENTER + (normalizedX - 0.5) * VIEWPORT_SIZE * SCALE_FACTOR;
-      const y = VIEWPORT_CENTER + (normalizedY - 0.5) * VIEWPORT_SIZE * SCALE_FACTOR;
+      const x =
+        VIEWPORT_CENTER + (normalizedX - 0.5) * VIEWPORT_SIZE * SCALE_FACTOR;
+      const y =
+        VIEWPORT_CENTER + (normalizedY - 0.5) * VIEWPORT_SIZE * SCALE_FACTOR;
 
       result_positions.push({
         nodeId: nodeIds[i],
@@ -1290,7 +1395,7 @@ class GraphService {
 
     logger.info(
       { documentId, nodeCount: result_positions.length },
-      'Generated PCA projection for document'
+      'Generated PCA projection for document',
     );
 
     return result_positions;
@@ -1301,7 +1406,7 @@ class GraphService {
   async createFacet(
     entityId: string,
     facet: FacetInput,
-    embedding?: number[]
+    embedding?: number[],
   ): Promise<string> {
     const facetId = randomUUID();
     const now = new Date().toISOString();
@@ -1337,7 +1442,10 @@ class GraphService {
       await this.setFacetEmbedding(facetId, embedding);
     }
 
-    logger.info({ facetId, entityId, type: facet.type }, 'Facet created in FalkorDB');
+    logger.info(
+      { facetId, entityId, type: facet.type },
+      'Facet created in FalkorDB',
+    );
     return facetId;
   }
 
@@ -1391,10 +1499,13 @@ class GraphService {
 
   async updateFacet(
     facetId: string,
-    updates: { content?: string; embedding?: number[] }
+    updates: { content?: string; embedding?: number[] },
   ): Promise<void> {
     const setStatements: string[] = [];
-    const params: Record<string, unknown> = { facetId, updatedAt: new Date().toISOString() };
+    const params: Record<string, unknown> = {
+      facetId,
+      updatedAt: new Date().toISOString(),
+    };
 
     setStatements.push('f.updatedAt = $updatedAt');
 
@@ -1452,11 +1563,13 @@ class GraphService {
   async createFacetsForEntity(
     entityId: string,
     facets: FacetInput[],
-    getEmbedding?: (content: string) => Promise<number[]>
+    getEmbedding?: (content: string) => Promise<number[]>,
   ): Promise<string[]> {
     const facetIds: string[] = [];
     for (const facet of facets) {
-      const embedding = getEmbedding ? await getEmbedding(facet.content) : undefined;
+      const embedding = getEmbedding
+        ? await getEmbedding(facet.content)
+        : undefined;
       const facetId = await this.createFacet(entityId, facet, embedding);
       facetIds.push(facetId);
     }
@@ -1471,7 +1584,7 @@ class GraphService {
    */
   async getEntityGraph(
     nodeId: string,
-    userId: string
+    userId: string,
   ): Promise<{
     entity: StoredStoryNode;
     facets: StoredFacet[];
@@ -1555,7 +1668,7 @@ class GraphService {
       phaseIndex: number;
       documentOrder: number;
       causalOrder: number;
-    }
+    },
   ): Promise<string> {
     const stateId = randomUUID();
     const now = new Date().toISOString();
@@ -1582,7 +1695,10 @@ class GraphService {
       throw new Error('Failed to create character state');
     }
 
-    logger.info({ stateId, characterId, name: input.name }, 'CharacterState created in FalkorDB');
+    logger.info(
+      { stateId, characterId, name: input.name },
+      'CharacterState created in FalkorDB',
+    );
     return stateId;
   }
 
@@ -1597,7 +1713,7 @@ class GraphService {
       arcType: ArcType;
       name?: string;
       summary?: string;
-    }
+    },
   ): Promise<string> {
     const arcId = randomUUID();
     const now = new Date().toISOString();
@@ -1631,7 +1747,10 @@ class GraphService {
     `;
     await this.query(edgeCypher, { characterId, arcId, now });
 
-    logger.info({ arcId, characterId, arcType: input.arcType }, 'Arc created in FalkorDB');
+    logger.info(
+      { arcId, characterId, arcType: input.arcType },
+      'Arc created in FalkorDB',
+    );
     return arcId;
   }
 
@@ -1641,7 +1760,7 @@ class GraphService {
   async createChangesToEdge(
     fromStateId: string,
     toStateId: string,
-    props: ChangesToEdgeProps
+    props: ChangesToEdgeProps,
   ): Promise<void> {
     const now = new Date().toISOString();
     const cypher = `
@@ -1660,13 +1779,20 @@ class GraphService {
       gapDetected: props.gapDetected,
       now,
     });
-    logger.info({ fromStateId, toStateId, triggerEventId: props.triggerEventId }, 'CHANGES_TO edge created');
+    logger.info(
+      { fromStateId, toStateId, triggerEventId: props.triggerEventId },
+      'CHANGES_TO edge created',
+    );
   }
 
   /**
    * Link a CharacterState to an Arc via INCLUDES_STATE edge.
    */
-  async linkStateToArc(stateId: string, arcId: string, order: number): Promise<void> {
+  async linkStateToArc(
+    stateId: string,
+    arcId: string,
+    order: number,
+  ): Promise<void> {
     const now = new Date().toISOString();
     const cypher = `
       MATCH (s:CharacterState), (a:Arc)
@@ -1692,7 +1818,11 @@ class GraphService {
   /**
    * Create HAS_STATE edge from character to state with optional isCurrent flag.
    */
-  async linkCharacterToState(characterId: string, stateId: string, isCurrent: boolean): Promise<void> {
+  async linkCharacterToState(
+    characterId: string,
+    stateId: string,
+    isCurrent: boolean,
+  ): Promise<void> {
     const now = new Date().toISOString();
     const cypher = `
       MATCH (c:StoryNode), (s:CharacterState)
@@ -1705,7 +1835,9 @@ class GraphService {
   /**
    * Get all CharacterStates for a character, ordered by phaseIndex.
    */
-  async getCharacterStates(characterId: string): Promise<StoredCharacterState[]> {
+  async getCharacterStates(
+    characterId: string,
+  ): Promise<StoredCharacterState[]> {
     const cypher = `
       MATCH (c:StoryNode)-[:HAS_STATE]->(s:CharacterState)
       WHERE c.id = $characterId AND s.deletedAt IS NULL
@@ -1823,12 +1955,14 @@ class GraphService {
   /**
    * Get CHANGES_TO edges for a character's states (state transitions).
    */
-  async getStateTransitions(characterId: string): Promise<Array<{
-    fromStateId: string;
-    toStateId: string;
-    triggerEventId: string | null;
-    gapDetected: boolean;
-  }>> {
+  async getStateTransitions(characterId: string): Promise<
+    Array<{
+      fromStateId: string;
+      toStateId: string;
+      triggerEventId: string | null;
+      gapDetected: boolean;
+    }>
+  > {
     const cypher = `
       MATCH (c:StoryNode)-[:HAS_STATE]->(from:CharacterState)-[r:CHANGES_TO]->(to:CharacterState)
       WHERE c.id = $characterId AND from.deletedAt IS NULL AND to.deletedAt IS NULL
@@ -1862,25 +1996,33 @@ class GraphService {
     if (typeof raw === 'string') {
       // Handle string representations from FalkorDB
       // Format could be "[a, b, c]" or "<a,b,c>" or just "a,b,c"
-      const cleaned = raw.replace(/^[<\[]|[>\]]$/g, '').trim();
+      const cleaned = raw.replace(/^[<[]|[>\]]$/g, '').trim();
       if (!cleaned) {
         return [];
       }
-      return cleaned.split(',').map((s) => s.trim()).filter(Boolean);
+      return cleaned
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
     }
-    logger.warn({ raw, type: typeof raw }, 'Unexpected collect() result format');
+    logger.warn(
+      { raw, type: typeof raw },
+      'Unexpected collect() result format',
+    );
     return [];
   }
 
   /**
    * Get thread participation for a character (events they participate in, with thread info).
    */
-  async getCharacterThreadParticipation(characterId: string): Promise<Array<{
-    threadId: string;
-    threadName: string;
-    threadColor: string | null;
-    eventIds: string[];
-  }>> {
+  async getCharacterThreadParticipation(characterId: string): Promise<
+    Array<{
+      threadId: string;
+      threadName: string;
+      threadColor: string | null;
+      eventIds: string[];
+    }>
+  > {
     const cypher = `
       MATCH (c:StoryNode)-[:PARTICIPATES_IN]->(e:StoryNode)-[bt:BELONGS_TO_THREAD]->(t:NarrativeThread)
       WHERE c.id = $characterId AND c.deletedAt IS NULL AND e.deletedAt IS NULL
@@ -1899,7 +2041,10 @@ class GraphService {
   /**
    * Set embedding on a CharacterState node.
    */
-  async setCharacterStateEmbedding(stateId: string, embedding: number[]): Promise<void> {
+  async setCharacterStateEmbedding(
+    stateId: string,
+    embedding: number[],
+  ): Promise<void> {
     this.validateEmbedding(embedding);
     const vecString = embedding.join(',');
     const cypher = `
@@ -1919,7 +2064,11 @@ class GraphService {
       WHERE a.id = $arcId
       SET a.summary = $summary, a.updatedAt = $updatedAt
     `;
-    await this.query(cypher, { arcId, summary, updatedAt: new Date().toISOString() });
+    await this.query(cypher, {
+      arcId,
+      summary,
+      updatedAt: new Date().toISOString(),
+    });
   }
 
   // ========== Idempotent Operation Helpers ==========
@@ -1930,7 +2079,7 @@ class GraphService {
    */
   async findNodeByNameInDocument(
     documentId: string,
-    name: string
+    name: string,
   ): Promise<StoredStoryNode | null> {
     const cypher = `
       MATCH (n:StoryNode)
@@ -1975,7 +2124,7 @@ class GraphService {
   async findConnection(
     fromId: string,
     toId: string,
-    edgeType: StoryEdgeType
+    edgeType: StoryEdgeType,
   ): Promise<StoredStoryConnection | null> {
     this.validateEdgeType(edgeType);
     const cypher = `
@@ -2008,8 +2157,13 @@ class GraphService {
    */
   async findThreadByName(
     documentId: string,
-    name: string
-  ): Promise<{ id: string; name: string; isPrimary: boolean; color: string | null } | null> {
+    name: string,
+  ): Promise<{
+    id: string;
+    name: string;
+    isPrimary: boolean;
+    color: string | null;
+  } | null> {
     const cypher = `
       MATCH (nt:NarrativeThread)
       WHERE nt.documentId = $documentId AND nt.name = $name
@@ -2041,11 +2195,13 @@ class GraphService {
       stylePreset?: string | null;
       stylePrompt?: string | null;
       existingId?: string;
-    }
+    },
   ): Promise<{ id: string; created: boolean }> {
     // If existingId provided, check by ID first (handles aliases mapped to same ID)
     if (options?.existingId) {
-      const existingById = await this.getStoryNodeByIdInternal(options.existingId);
+      const existingById = await this.getStoryNodeByIdInternal(
+        options.existingId,
+      );
       if (existingById) {
         return { id: options.existingId, created: false };
       }
@@ -2070,13 +2226,19 @@ class GraphService {
     toId: string,
     edgeType: StoryEdgeType,
     description: string | null,
-    properties?: { strength?: number }
+    properties?: { strength?: number },
   ): Promise<{ id: string; created: boolean }> {
     const existing = await this.findConnection(fromId, toId, edgeType);
     if (existing) {
       return { id: existing.id, created: false };
     }
-    const id = await this.createStoryConnection(fromId, toId, edgeType, description, properties);
+    const id = await this.createStoryConnection(
+      fromId,
+      toId,
+      edgeType,
+      description,
+      properties,
+    );
     return { id, created: true };
   }
 
@@ -2087,7 +2249,7 @@ class GraphService {
   async createNarrativeThreadIdempotent(
     documentId: string,
     userId: string,
-    thread: NarrativeThreadResult
+    thread: NarrativeThreadResult,
   ): Promise<{ id: string; created: boolean }> {
     const existing = await this.findThreadByName(documentId, thread.name);
     if (existing) {

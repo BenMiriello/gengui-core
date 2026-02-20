@@ -23,18 +23,22 @@ interface ExtractRelationshipsInput {
  * Stage 4 prompt for relationship extraction from a single segment.
  * Uses entity IDs, not names, for stable references.
  */
-export const extractRelationshipsPrompt: PromptDefinition<ExtractRelationshipsInput> = {
-  id: 'stage4-extract-relationships',
-  version: 1,
-  model: 'gemini-2.5-flash',
-  description: 'Stage 4: Extract relationships between resolved entities in a segment',
+export const extractRelationshipsPrompt: PromptDefinition<ExtractRelationshipsInput> =
+  {
+    id: 'stage4-extract-relationships',
+    version: 1,
+    model: 'gemini-2.5-flash',
+    description:
+      'Stage 4: Extract relationships between resolved entities in a segment',
 
-  build: ({ segmentText, segmentIndex, resolvedEntities }) => {
-    const entitiesSection = resolvedEntities.map((e) => {
-      return `[${e.id}] ${e.type.toUpperCase()}: "${e.name}" - ${e.keyFacets.join(', ') || 'no facets'}`;
-    }).join('\n');
+    build: ({ segmentText, segmentIndex, resolvedEntities }) => {
+      const entitiesSection = resolvedEntities
+        .map((e) => {
+          return `[${e.id}] ${e.type.toUpperCase()}: "${e.name}" - ${e.keyFacets.join(', ') || 'no facets'}`;
+        })
+        .join('\n');
 
-    return `Extract relationships between entities in this segment.
+      return `Extract relationships between entities in this segment.
 
 SEGMENT ${segmentIndex + 1}:
 """
@@ -92,8 +96,8 @@ QUALITY CHECKLIST:
 - Entity at place -> LOCATED_AT
 - One event causing another -> CAUSES with strength
 - Object owned by character -> POSSESSES`;
-  },
-};
+    },
+  };
 
 interface ExtractCrossSegmentInput {
   documentSummary?: string;
@@ -115,36 +119,41 @@ interface ExtractCrossSegmentInput {
  * Stage 4b prompt for cross-segment relationship extraction.
  * Sequential processing after all segments are analyzed.
  */
-export const extractCrossSegmentRelationshipsPrompt: PromptDefinition<ExtractCrossSegmentInput> = {
-  id: 'stage4b-extract-cross-segment-relationships',
-  version: 1,
-  model: 'gemini-2.5-flash',
-  description: 'Stage 4b: Extract relationships between entities in different segments',
+export const extractCrossSegmentRelationshipsPrompt: PromptDefinition<ExtractCrossSegmentInput> =
+  {
+    id: 'stage4b-extract-cross-segment-relationships',
+    version: 1,
+    model: 'gemini-2.5-flash',
+    description:
+      'Stage 4b: Extract relationships between entities in different segments',
 
-  build: ({ documentSummary, allEntities, existingRelationships }) => {
-    const entitiesSection = allEntities.map((e) => {
-      return `[${e.id}] ${e.type.toUpperCase()}: "${e.name}"
+    build: ({ documentSummary, allEntities, existingRelationships }) => {
+      const entitiesSection = allEntities
+        .map((e) => {
+          return `[${e.id}] ${e.type.toUpperCase()}: "${e.name}"
     Segments: ${e.segmentIds.join(', ')}
     Facets: ${e.keyFacets.join(', ') || 'none'}`;
-    }).join('\n\n');
+        })
+        .join('\n\n');
 
-    const existingSection = existingRelationships.length > 0
-      ? `
+      const existingSection =
+        existingRelationships.length > 0
+          ? `
 EXISTING RELATIONSHIPS (already extracted from segments):
 ${existingRelationships.map((r) => `  ${r.fromId} --[${r.edgeType}]--> ${r.toId}`).join('\n')}
 `
-      : '';
+          : '';
 
-    const summarySection = documentSummary
-      ? `
+      const summarySection = documentSummary
+        ? `
 DOCUMENT OVERVIEW:
 """
 ${documentSummary}
 """
 `
-      : '';
+        : '';
 
-    return `Extract relationships between entities that span DIFFERENT segments.
+      return `Extract relationships between entities that span DIFFERENT segments.
 
 ${summarySection}
 ALL RESOLVED ENTITIES:
@@ -177,5 +186,5 @@ RULES:
 3. For CAUSES/ENABLES/PREVENTS between events in different segments = strong signal
 4. Character arc connections (same character, different states) = ABOUT theme
 5. Do NOT duplicate existing relationships`;
-  },
-};
+    },
+  };

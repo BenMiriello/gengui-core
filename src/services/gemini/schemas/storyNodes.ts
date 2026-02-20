@@ -230,7 +230,10 @@ export const stage1ExtractEntitiesSchema = {
 const resolutionFacetSchema = {
   type: GeminiType.OBJECT,
   properties: {
-    type: { type: GeminiType.STRING, enum: ['name', 'appearance', 'trait', 'state'] },
+    type: {
+      type: GeminiType.STRING,
+      enum: ['name', 'appearance', 'trait', 'state'],
+    },
     content: { type: GeminiType.STRING },
   },
   required: ['type', 'content'],
@@ -350,7 +353,13 @@ const arcPhaseSchema = {
       items: { type: GeminiType.STRING },
     },
   },
-  required: ['characterId', 'phaseIndex', 'phaseName', 'arcType', 'stateFacets'],
+  required: [
+    'characterId',
+    'phaseIndex',
+    'phaseName',
+    'arcType',
+    'stateFacets',
+  ],
 };
 
 export const stage5HigherOrderSchema = {

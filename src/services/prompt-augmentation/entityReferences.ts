@@ -24,11 +24,14 @@ export async function fetchEntityReferenceData(
   documentId: string,
   userId: string,
   entityRefs: EntityReferences,
-  selectedText: string
+  selectedText: string,
 ): Promise<EntityReferenceData> {
-  const allNodes = await graphService.getStoryNodesForDocument(documentId, userId);
+  const allNodes = await graphService.getStoryNodesForDocument(
+    documentId,
+    userId,
+  );
   const allEntityNodes = allNodes.filter((n) =>
-    ENTITY_TYPES.includes(n.type as (typeof ENTITY_TYPES)[number])
+    ENTITY_TYPES.includes(n.type as (typeof ENTITY_TYPES)[number]),
   );
 
   if (allEntityNodes.length === 0) {
@@ -41,15 +44,25 @@ export async function fetchEntityReferenceData(
   if (entityRefs.mode === 'manual' && entityRefs.selectedNodeIds) {
     targetNodeIds = entityRefs.selectedNodeIds;
   } else {
-    targetNodeIds = await detectEntitiesInText(selectedText, allEntityNodes, documentId, userId);
+    targetNodeIds = await detectEntitiesInText(
+      selectedText,
+      allEntityNodes,
+      documentId,
+      userId,
+    );
   }
 
   if (targetNodeIds.length === 0) {
-    logger.info({ documentId, mode: entityRefs.mode }, 'No entity nodes selected for references');
+    logger.info(
+      { documentId, mode: entityRefs.mode },
+      'No entity nodes selected for references',
+    );
     return { images: [], descriptions: [] };
   }
 
-  const selectedNodes = allEntityNodes.filter((node) => targetNodeIds.includes(node.id));
+  const selectedNodes = allEntityNodes.filter((node) =>
+    targetNodeIds.includes(node.id),
+  );
 
   const result: EntityReferenceData = {
     images: [],
@@ -68,7 +81,12 @@ export async function fetchEntityReferenceData(
 }
 
 async function fetchEntityImages(
-  nodes: Array<{ id: string; name: string; type: string; primaryMediaId: string | null }>
+  nodes: Array<{
+    id: string;
+    name: string;
+    type: string;
+    primaryMediaId: string | null;
+  }>,
 ): Promise<ReferenceImage[]> {
   const nodesWithMedia = nodes.filter((node) => node.primaryMediaId);
 
@@ -78,7 +96,10 @@ async function fetchEntityImages(
   }
 
   const mediaIds = nodesWithMedia.map((n) => n.primaryMediaId!);
-  const mediaRecords = await db.select().from(media).where(inArray(media.id, mediaIds));
+  const mediaRecords = await db
+    .select()
+    .from(media)
+    .where(inArray(media.id, mediaIds));
 
   const mediaMap = new Map(mediaRecords.map((m) => [m.id, m]));
 
@@ -87,7 +108,10 @@ async function fetchEntityImages(
   for (const node of nodesWithMedia) {
     const mediaRecord = mediaMap.get(node.primaryMediaId!);
     if (!mediaRecord?.s3Key) {
-      logger.warn({ nodeId: node.id, nodeName: node.name }, 'Primary media missing s3Key');
+      logger.warn(
+        { nodeId: node.id, nodeName: node.name },
+        'Primary media missing s3Key',
+      );
       continue;
     }
 
@@ -101,14 +125,22 @@ async function fetchEntityImages(
       });
     } catch (error) {
       logger.error(
-        { error, nodeId: node.id, nodeName: node.name, s3Key: mediaRecord.s3Key },
-        'Failed to download reference image'
+        {
+          error,
+          nodeId: node.id,
+          nodeName: node.name,
+          s3Key: mediaRecord.s3Key,
+        },
+        'Failed to download reference image',
       );
     }
   }
 
   if (referenceImages.length > 5) {
-    logger.warn({ count: referenceImages.length }, 'Limiting reference images to 5 for Gemini API');
+    logger.warn(
+      { count: referenceImages.length },
+      'Limiting reference images to 5 for Gemini API',
+    );
     return referenceImages.slice(0, 5);
   }
 
@@ -116,7 +148,12 @@ async function fetchEntityImages(
 }
 
 function extractEntityDescriptions(
-  nodes: Array<{ id: string; name: string; type: string; description: string | null }>
+  nodes: Array<{
+    id: string;
+    name: string;
+    type: string;
+    description: string | null;
+  }>,
 ): EntityDescription[] {
   return nodes
     .filter((node) => node.description?.trim())
@@ -127,7 +164,9 @@ function extractEntityDescriptions(
     }));
 }
 
-function mapNodeTypeToEntityType(nodeType: string): 'character' | 'location' | 'object' {
+function mapNodeTypeToEntityType(
+  nodeType: string,
+): 'character' | 'location' | 'object' {
   if (nodeType === 'character') return 'character';
   if (nodeType === 'location') return 'location';
   return 'object';
@@ -137,7 +176,7 @@ export async function detectEntitiesInText(
   selectedText: string,
   entityNodes: Array<{ id: string; name: string; description: string | null }>,
   documentId: string,
-  userId: string
+  userId: string,
 ): Promise<string[]> {
   if (entityNodes.length === 0) {
     return [];
@@ -145,13 +184,20 @@ export async function detectEntitiesInText(
 
   try {
     const queryEmbedding = await generateEmbedding(selectedText);
-    const similar = await graphService.findSimilarNodes(queryEmbedding, documentId, userId, 10);
+    const similar = await graphService.findSimilarNodes(
+      queryEmbedding,
+      documentId,
+      userId,
+      10,
+    );
     const entityIds = new Set(entityNodes.map((e) => e.id));
-    const result = similar.filter((n) => entityIds.has(n.id) && n.score > 0.3).map((n) => n.id);
+    const result = similar
+      .filter((n) => entityIds.has(n.id) && n.score > 0.3)
+      .map((n) => n.id);
 
     logger.info(
       { detectedCount: result.length, detectedEntities: result },
-      'Entities detected in text via embeddings'
+      'Entities detected in text via embeddings',
     );
 
     return result;
@@ -166,7 +212,7 @@ export async function fetchCharacterReferenceImages(
   documentId: string,
   userId: string,
   characterRefs: { mode: 'auto' | 'manual'; selectedNodeIds?: string[] },
-  selectedText: string
+  selectedText: string,
 ): Promise<ReferenceImage[]> {
   const entityRefs: EntityReferences = {
     ...characterRefs,
@@ -174,6 +220,11 @@ export async function fetchCharacterReferenceImages(
     useDescriptions: false,
   };
 
-  const result = await fetchEntityReferenceData(documentId, userId, entityRefs, selectedText);
+  const result = await fetchEntityReferenceData(
+    documentId,
+    userId,
+    entityRefs,
+    selectedText,
+  );
   return result.images;
 }

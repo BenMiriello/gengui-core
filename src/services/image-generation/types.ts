@@ -21,4 +21,6 @@ export interface DimensionConstraint {
   height: number;
 }
 
-export type DimensionWhitelist = DimensionConstraint[] | { min: number; max: number; step: number };
+export type DimensionWhitelist =
+  | DimensionConstraint[]
+  | { min: number; max: number; step: number };

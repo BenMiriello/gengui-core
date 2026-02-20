@@ -10,7 +10,9 @@ class RunPodProvider implements ImageGenerationProvider {
   readonly name = 'runpod' as const;
 
   isEnabled(): boolean {
-    return env.IMAGE_INFERENCE_PROVIDER === 'runpod' && runpodClient.isEnabled();
+    return (
+      env.IMAGE_INFERENCE_PROVIDER === 'runpod' && runpodClient.isEnabled()
+    );
   }
 
   async submitJob(input: GenerationInput): Promise<void> {
@@ -29,24 +31,24 @@ class RunPodProvider implements ImageGenerationProvider {
       },
       {
         executionTimeout: RUNPOD_CONSTANTS.EXECUTION_TIMEOUT_MS,
-      }
+      },
     );
 
     // Store RunPod job ID and submission timestamp in Redis for reconciliation
     await redis.set(
       `runpod:job:${input.mediaId}`,
       runpodJobId,
-      RUNPOD_CONSTANTS.REDIS_JOB_TTL_SECONDS
+      RUNPOD_CONSTANTS.REDIS_JOB_TTL_SECONDS,
     );
     await redis.set(
       `runpod:job:${input.mediaId}:submitted`,
       Date.now().toString(),
-      RUNPOD_CONSTANTS.REDIS_JOB_TTL_SECONDS
+      RUNPOD_CONSTANTS.REDIS_JOB_TTL_SECONDS,
     );
 
     logger.info(
       { mediaId: input.mediaId, runpodJobId, prompt: input.prompt },
-      'Generation submitted to RunPod'
+      'Generation submitted to RunPod',
     );
   }
 
@@ -56,7 +58,11 @@ class RunPodProvider implements ImageGenerationProvider {
   }
 
   validateDimensions(width: number, height: number): boolean {
-    const constraints = this.getSupportedDimensions() as { min: number; max: number; step: number };
+    const constraints = this.getSupportedDimensions() as {
+      min: number;
+      max: number;
+      step: number;
+    };
 
     if (width < constraints.min || width > constraints.max) return false;
     if (height < constraints.min || height > constraints.max) return false;

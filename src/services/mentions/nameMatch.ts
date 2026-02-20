@@ -28,9 +28,13 @@ export function findNameOccurrences(
   content: string,
   name: string,
   aliases: string[] = [],
-  config: NameMatchConfig = {}
+  config: NameMatchConfig = {},
 ): NameMatchResult[] {
-  const { caseSensitive = false, minConfidence = 70, excludeExistingSpans = [] } = config;
+  const {
+    caseSensitive = false,
+    minConfidence = 70,
+    excludeExistingSpans = [],
+  } = config;
 
   const results: NameMatchResult[] = [];
   const searchTerms = [name, ...aliases].filter((t) => t && t.length > 0);
@@ -45,7 +49,11 @@ export function findNameOccurrences(
       }
 
       // Calculate confidence based on match quality
-      const confidence = calculateMatchConfidence(term, match.matchedText, name);
+      const confidence = calculateMatchConfidence(
+        term,
+        match.matchedText,
+        name,
+      );
 
       if (confidence >= minConfidence) {
         results.push({
@@ -68,12 +76,16 @@ export function nameMatchesToMentionInputs(
   documentId: string,
   matches: NameMatchResult[],
   segments: Segment[],
-  versionNumber: number
+  versionNumber: number,
 ): CreateMentionInput[] {
   const inputs: CreateMentionInput[] = [];
 
   for (const match of matches) {
-    const relative = segmentService.toRelativePosition(segments, match.start, match.end);
+    const relative = segmentService.toRelativePosition(
+      segments,
+      match.start,
+      match.end,
+    );
 
     if (!relative) continue;
 
@@ -96,9 +108,10 @@ export function nameMatchesToMentionInputs(
 function findAllMatches(
   content: string,
   term: string,
-  caseSensitive: boolean
+  caseSensitive: boolean,
 ): Array<{ start: number; end: number; matchedText: string }> {
-  const matches: Array<{ start: number; end: number; matchedText: string }> = [];
+  const matches: Array<{ start: number; end: number; matchedText: string }> =
+    [];
 
   if (!term || term.length === 0) return matches;
 
@@ -149,7 +162,7 @@ function findAllMatches(
 function calculateMatchConfidence(
   searchTerm: string,
   matchedText: string,
-  primaryName: string
+  primaryName: string,
 ): number {
   // Exact match with primary name = highest confidence
   if (matchedText.toLowerCase() === primaryName.toLowerCase()) {
@@ -172,7 +185,7 @@ function calculateMatchConfidence(
 
 function isOverlapping(
   match: { start: number; end: number },
-  excludedSpans: Array<{ start: number; end: number }>
+  excludedSpans: Array<{ start: number; end: number }>,
 ): boolean {
   for (const span of excludedSpans) {
     if (match.start < span.end && match.end > span.start) {

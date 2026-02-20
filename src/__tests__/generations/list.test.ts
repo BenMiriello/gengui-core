@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from 'bun:test';
 import {
   closeDb,
   createQueuedGeneration,
@@ -110,7 +117,10 @@ describe('Generations List', () => {
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: user1.email, password: password1 }),
+        body: JSON.stringify({
+          emailOrUsername: user1.email,
+          password: password1,
+        }),
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
@@ -166,7 +176,9 @@ describe('Generations List', () => {
   describe('GET /generations/:id', () => {
     test('returns a single generation', async () => {
       const { user, password } = await createVerifiedUser();
-      const generation = await createQueuedGeneration(user.id, { prompt: 'Test prompt' });
+      const generation = await createQueuedGeneration(user.id, {
+        prompt: 'Test prompt',
+      });
 
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
@@ -195,9 +207,12 @@ describe('Generations List', () => {
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
-      const res = await fetch(`${baseUrl}/api/generations/00000000-0000-0000-0000-000000000000`, {
-        headers: { Cookie: cookie },
-      });
+      const res = await fetch(
+        `${baseUrl}/api/generations/00000000-0000-0000-0000-000000000000`,
+        {
+          headers: { Cookie: cookie },
+        },
+      );
 
       expect(res.status).toBe(404);
     });

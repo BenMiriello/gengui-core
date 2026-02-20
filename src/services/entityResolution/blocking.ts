@@ -10,8 +10,8 @@
  * 3. Type filter: only compare same entity types
  */
 
-import type { ExistingEntity, EntityCluster } from './types';
 import { getNameTokens, getPhoneticCodes } from './aliasPatterns';
+import type { EntityCluster, ExistingEntity } from './types';
 
 export interface BlockingIndex {
   byNameToken: Map<string, Set<string>>;
@@ -79,7 +79,7 @@ export function buildBlockingIndex(entities: ExistingEntity[]): BlockingIndex {
  */
 export function getCandidateIds(
   cluster: EntityCluster,
-  index: BlockingIndex
+  index: BlockingIndex,
 ): Set<string> {
   const candidates = new Set<string>();
 
@@ -141,7 +141,7 @@ export function getCandidateIds(
 export function filterByBlocking(
   cluster: EntityCluster,
   existingEntities: ExistingEntity[],
-  index: BlockingIndex
+  index: BlockingIndex,
 ): ExistingEntity[] {
   const candidateIds = getCandidateIds(cluster, index);
 

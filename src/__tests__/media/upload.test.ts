@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from 'bun:test';
 import {
   closeDb,
   createTestMedia,
@@ -48,7 +55,9 @@ describe('Media Upload', () => {
       const cookie = loginRes.headers.get('set-cookie')!;
 
       const formData = new FormData();
-      const fileContent = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+      const fileContent = new Uint8Array([
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+      ]);
       const file = new Blob([fileContent], { type: 'image/png' });
       formData.append('file', file, 'test.png');
 
@@ -204,7 +213,10 @@ describe('Media Upload', () => {
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: user1.email, password: password1 }),
+        body: JSON.stringify({
+          emailOrUsername: user1.email,
+          password: password1,
+        }),
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 

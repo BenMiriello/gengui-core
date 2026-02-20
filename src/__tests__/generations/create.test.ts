@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from 'bun:test';
 import {
   closeDb,
   createTestDocument,
@@ -83,7 +90,11 @@ describe('Generations Create', () => {
       const res = await fetch(`${baseUrl}/api/generations`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Cookie: cookie },
-        body: JSON.stringify({ prompt: 'A test image', width: 512, height: 512 }),
+        body: JSON.stringify({
+          prompt: 'A test image',
+          width: 512,
+          height: 512,
+        }),
       });
 
       expect(res.status).toBe(201);

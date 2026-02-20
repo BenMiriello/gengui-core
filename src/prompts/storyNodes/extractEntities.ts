@@ -30,24 +30,27 @@ export const extractEntitiesPrompt: PromptDefinition<ExtractEntitiesInput> = {
   id: 'stage1-extract-entities',
   version: 1,
   model: 'gemini-2.5-flash',
-  description: 'Stage 1: Extract entities, facets, and mentions from a single segment',
+  description:
+    'Stage 1: Extract entities, facets, and mentions from a single segment',
 
   build: ({ segmentText, segmentIndex, totalSegments, existingContext }) => {
     const contextSection = existingContext?.length
       ? `
 EXISTING ENTITIES (from previous segments or similarity match):
-${existingContext.map((e) => {
-  const facetsByType: Record<string, string[]> = {};
-  for (const f of e.facets) {
-    if (!facetsByType[f.type]) facetsByType[f.type] = [];
-    facetsByType[f.type].push(f.content);
-  }
-  return `- [${e.id}] ${e.type.toUpperCase()} "${e.name}" (${e.mentionCount} mentions)
+${existingContext
+  .map((e) => {
+    const facetsByType: Record<string, string[]> = {};
+    for (const f of e.facets) {
+      if (!facetsByType[f.type]) facetsByType[f.type] = [];
+      facetsByType[f.type].push(f.content);
+    }
+    return `- [${e.id}] ${e.type.toUpperCase()} "${e.name}" (${e.mentionCount} mentions)
     Names: ${facetsByType['name']?.join(', ') || 'none'}
     Appearance: ${facetsByType['appearance']?.join(', ') || 'none'}
     Traits: ${facetsByType['trait']?.join(', ') || 'none'}
     States: ${facetsByType['state']?.join(', ') || 'none'}`;
-}).join('\n')}
+  })
+  .join('\n')}
 
 When extracting entities, check if they match existing entities above.
 If you find a reference to an existing entity, use its EXACT name in your output.

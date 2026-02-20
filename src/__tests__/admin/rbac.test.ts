@@ -1,5 +1,17 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
-import { closeDb, createVerifiedUser, resetUserCounter, truncateAll } from '../helpers';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from 'bun:test';
+import {
+  closeDb,
+  createVerifiedUser,
+  resetUserCounter,
+  truncateAll,
+} from '../helpers';
 import {
   clearRedisStore,
   clearStorageData,
@@ -30,9 +42,18 @@ describe('Admin RBAC', () => {
   describe('All admin endpoints require admin role', () => {
     const adminEndpoints = [
       { method: 'GET', path: '/api/admin/users' },
-      { method: 'GET', path: '/api/admin/users/00000000-0000-0000-0000-000000000000' },
-      { method: 'GET', path: '/api/admin/users/00000000-0000-0000-0000-000000000000/limits' },
-      { method: 'PATCH', path: '/api/admin/users/00000000-0000-0000-0000-000000000000/limits' },
+      {
+        method: 'GET',
+        path: '/api/admin/users/00000000-0000-0000-0000-000000000000',
+      },
+      {
+        method: 'GET',
+        path: '/api/admin/users/00000000-0000-0000-0000-000000000000/limits',
+      },
+      {
+        method: 'PATCH',
+        path: '/api/admin/users/00000000-0000-0000-0000-000000000000/limits',
+      },
       { method: 'GET', path: '/api/admin/queue/status' },
       { method: 'GET', path: '/api/admin/workers/status' },
       { method: 'POST', path: '/api/admin/workers/start' },

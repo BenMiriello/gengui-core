@@ -67,7 +67,10 @@ export abstract class PubSubConsumer {
     // Dedicated client for Pub/Sub (SUBSCRIBE blocks the connection)
     this.subscriber = new Redis(redisUrl, redisConfig);
     this.subscriber.on('error', (error) => {
-      logger.error({ error, service: this.serviceName }, 'Subscriber client error');
+      logger.error(
+        { error, service: this.serviceName },
+        'Subscriber client error',
+      );
     });
 
     // Dedicated client for stream operations (XREADGROUP)
@@ -99,7 +102,10 @@ export abstract class PubSubConsumer {
     // Start fallback check (handles missed notifications)
     this.startFallbackCheck();
 
-    logger.info({ service: this.serviceName }, 'Pub/Sub consumer started successfully');
+    logger.info(
+      { service: this.serviceName },
+      'Pub/Sub consumer started successfully',
+    );
   }
 
   private subscribeLoop() {
@@ -107,9 +113,15 @@ export abstract class PubSubConsumer {
 
     this.subscriber.subscribe(channel, (err) => {
       if (err) {
-        logger.error({ error: err, channel, service: this.serviceName }, 'Subscribe failed');
+        logger.error(
+          { error: err, channel, service: this.serviceName },
+          'Subscribe failed',
+        );
       } else {
-        logger.debug({ channel, service: this.serviceName }, 'Subscribed to notification channel');
+        logger.debug(
+          { channel, service: this.serviceName },
+          'Subscribed to notification channel',
+        );
       }
     });
 
@@ -130,9 +142,14 @@ export abstract class PubSubConsumer {
     while (this.isRunning) {
       try {
         // Non-blocking read - return immediately if empty (no block param = immediate)
-        const msg = await this.streams.consume(this.streamName, this.groupName, this.consumerName, {
-          count: 1,
-        });
+        const msg = await this.streams.consume(
+          this.streamName,
+          this.groupName,
+          this.consumerName,
+          {
+            count: 1,
+          },
+        );
 
         if (!msg) break;
 
@@ -141,7 +158,7 @@ export abstract class PubSubConsumer {
         } catch (error) {
           logger.error(
             { error, messageId: msg.id, service: this.serviceName },
-            'Error processing message'
+            'Error processing message',
           );
         }
 
@@ -152,11 +169,17 @@ export abstract class PubSubConsumer {
         if (!this.isRunning) break;
 
         // Redis disconnected
-        if (error?.message?.includes('Connection') || error?.code === 'ERR_CONNECTION_CLOSED') {
+        if (
+          error?.message?.includes('Connection') ||
+          error?.code === 'ERR_CONNECTION_CLOSED'
+        ) {
           break;
         }
 
-        logger.error({ error, service: this.serviceName }, 'Error in consume loop');
+        logger.error(
+          { error, service: this.serviceName },
+          'Error in consume loop',
+        );
         break;
       }
     }
@@ -199,7 +222,10 @@ export abstract class PubSubConsumer {
     if (this.processingPromise) {
       const timeout = new Promise<void>((resolve) => {
         setTimeout(() => {
-          logger.warn({ service: this.serviceName }, 'Processing did not complete in time');
+          logger.warn(
+            { service: this.serviceName },
+            'Processing did not complete in time',
+          );
           resolve();
         }, 3000);
       });
@@ -234,7 +260,7 @@ export abstract class MultiStreamPubSubConsumer {
   protected abstract handleMessage(
     streamName: string,
     groupName: string,
-    message: StreamMessage
+    message: StreamMessage,
   ): Promise<void>;
 
   constructor(serviceName: string) {
@@ -255,7 +281,10 @@ export abstract class MultiStreamPubSubConsumer {
 
     this.subscriber = new Redis(redisUrl, redisConfig);
     this.subscriber.on('error', (error) => {
-      logger.error({ error, service: this.serviceName }, 'Subscriber client error');
+      logger.error(
+        { error, service: this.serviceName },
+        'Subscriber client error',
+      );
     });
 
     this.streamClient = new Redis(redisUrl, redisConfig);
@@ -273,7 +302,10 @@ export abstract class MultiStreamPubSubConsumer {
     }
 
     this.isRunning = true;
-    logger.info({ service: this.serviceName }, 'Starting multi-stream Pub/Sub consumer...');
+    logger.info(
+      { service: this.serviceName },
+      'Starting multi-stream Pub/Sub consumer...',
+    );
 
     // Ensure all consumer groups exist
     for (const config of this.streamConfigs) {
@@ -291,19 +323,27 @@ export abstract class MultiStreamPubSubConsumer {
     // Start fallback check
     this.startFallbackCheck();
 
-    logger.info({ service: this.serviceName }, 'Multi-stream Pub/Sub consumer started');
+    logger.info(
+      { service: this.serviceName },
+      'Multi-stream Pub/Sub consumer started',
+    );
   }
 
   private subscribeLoop() {
-    const channels = this.streamConfigs.map((c) => `streams:notify:${c.streamName}`);
+    const channels = this.streamConfigs.map(
+      (c) => `streams:notify:${c.streamName}`,
+    );
 
     this.subscriber.subscribe(...channels, (err) => {
       if (err) {
-        logger.error({ error: err, channels, service: this.serviceName }, 'Subscribe failed');
+        logger.error(
+          { error: err, channels, service: this.serviceName },
+          'Subscribe failed',
+        );
       } else {
         logger.debug(
           { channels, service: this.serviceName },
-          'Subscribed to notification channels'
+          'Subscribed to notification channels',
         );
       }
     });
@@ -313,7 +353,9 @@ export abstract class MultiStreamPubSubConsumer {
 
       // Find which stream this notification is for
       const streamName = ch.replace('streams:notify:', '');
-      const config = this.streamConfigs.find((c) => c.streamName === streamName);
+      const config = this.streamConfigs.find(
+        (c) => c.streamName === streamName,
+      );
       if (!config) return;
 
       // Avoid overlapping processing for the same stream
@@ -340,7 +382,7 @@ export abstract class MultiStreamPubSubConsumer {
           config.streamName,
           config.groupName,
           config.consumerName,
-          { count: 1 }
+          { count: 1 },
         );
 
         if (!msg) break;
@@ -349,20 +391,28 @@ export abstract class MultiStreamPubSubConsumer {
           await this.handleMessage(config.streamName, config.groupName, msg);
         } catch (error) {
           logger.error(
-            { error, messageId: msg.id, streamName: config.streamName, service: this.serviceName },
-            'Error processing message'
+            {
+              error,
+              messageId: msg.id,
+              streamName: config.streamName,
+              service: this.serviceName,
+            },
+            'Error processing message',
           );
         }
 
         await this.streams.ack(config.streamName, config.groupName, msg.id);
       } catch (error: any) {
         if (!this.isRunning) break;
-        if (error?.message?.includes('Connection') || error?.code === 'ERR_CONNECTION_CLOSED') {
+        if (
+          error?.message?.includes('Connection') ||
+          error?.code === 'ERR_CONNECTION_CLOSED'
+        ) {
           break;
         }
         logger.error(
           { error, streamName: config.streamName, service: this.serviceName },
-          'Error in consume loop'
+          'Error in consume loop',
         );
         break;
       }
@@ -387,7 +437,10 @@ export abstract class MultiStreamPubSubConsumer {
   async stop() {
     if (!this.isRunning) return;
 
-    logger.info({ service: this.serviceName }, 'Stopping multi-stream Pub/Sub consumer...');
+    logger.info(
+      { service: this.serviceName },
+      'Stopping multi-stream Pub/Sub consumer...',
+    );
     this.isRunning = false;
 
     if (this.fallbackInterval) {
@@ -409,13 +462,19 @@ export abstract class MultiStreamPubSubConsumer {
     if (promises.length > 0) {
       const timeout = new Promise<void>((resolve) => {
         setTimeout(() => {
-          logger.warn({ service: this.serviceName }, 'Processing did not complete in time');
+          logger.warn(
+            { service: this.serviceName },
+            'Processing did not complete in time',
+          );
           resolve();
         }, 3000);
       });
       await Promise.race([Promise.all(promises), timeout]);
     }
 
-    logger.info({ service: this.serviceName }, 'Multi-stream Pub/Sub consumer stopped');
+    logger.info(
+      { service: this.serviceName },
+      'Multi-stream Pub/Sub consumer stopped',
+    );
   }
 }

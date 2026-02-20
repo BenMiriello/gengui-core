@@ -44,16 +44,28 @@ export class ProducerStreams {
     }
 
     try {
-      await this.client.xgroup('CREATE', streamName, groupName, '0', 'MKSTREAM');
+      await this.client.xgroup(
+        'CREATE',
+        streamName,
+        groupName,
+        '0',
+        'MKSTREAM',
+      );
       logger.info({ streamName, groupName }, 'Created consumer group');
       this.ensuredGroups.add(key);
     } catch (error: any) {
       // BUSYGROUP error means group already exists - this is fine
       if (error.message?.includes('BUSYGROUP')) {
-        logger.debug({ streamName, groupName }, 'Consumer group already exists');
+        logger.debug(
+          { streamName, groupName },
+          'Consumer group already exists',
+        );
         this.ensuredGroups.add(key);
       } else {
-        logger.error({ error, streamName, groupName }, 'Failed to create consumer group');
+        logger.error(
+          { error, streamName, groupName },
+          'Failed to create consumer group',
+        );
         throw error;
       }
     }
@@ -78,7 +90,7 @@ export class ProducerStreams {
           dataSize: JSON.stringify(data).length,
           connectionStatus: this.client.status,
         },
-        '[REDIS SLOW] xadd'
+        '[REDIS SLOW] xadd',
       );
     }
     return result as string;
@@ -87,11 +99,18 @@ export class ProducerStreams {
   /**
    * Acknowledge a message (mark as processed)
    */
-  async ack(streamName: string, groupName: string, messageId: string): Promise<void> {
+  async ack(
+    streamName: string,
+    groupName: string,
+    messageId: string,
+  ): Promise<void> {
     try {
       await this.client.xack(streamName, groupName, messageId);
     } catch (error) {
-      logger.error({ error, streamName, groupName, messageId }, 'Failed to acknowledge message');
+      logger.error(
+        { error, streamName, groupName, messageId },
+        'Failed to acknowledge message',
+      );
       throw error;
     }
   }
@@ -113,7 +132,7 @@ export class ProducerStreams {
    */
   async getPending(
     streamName: string,
-    groupName: string
+    groupName: string,
   ): Promise<{
     count: number;
     minId: string | null;
@@ -142,7 +161,11 @@ export class ProducerStreams {
     firstEntry: any;
     lastEntry: any;
   }> {
-    const info = (await this.client.call('XINFO', 'STREAM', streamName)) as any[];
+    const info = (await this.client.call(
+      'XINFO',
+      'STREAM',
+      streamName,
+    )) as any[];
     const infoMap: Record<string, any> = {};
     for (let i = 0; i < info.length; i += 2) {
       infoMap[info[i]] = info[i + 1];
@@ -160,9 +183,14 @@ export class ProducerStreams {
   async getConsumerLag(
     streamName: string,
     groupName: string,
-    consumerName: string
+    consumerName: string,
   ): Promise<number> {
-    const info = (await this.client.call('XINFO', 'CONSUMERS', streamName, groupName)) as any[];
+    const info = (await this.client.call(
+      'XINFO',
+      'CONSUMERS',
+      streamName,
+      groupName,
+    )) as any[];
     for (const consumerArr of info) {
       const consumerMap: Record<string, any> = {};
       for (let i = 0; i < consumerArr.length; i += 2) {
@@ -201,7 +229,7 @@ export class ConsumerStreams extends ProducerStreams {
     options: {
       count?: number;
       block?: number; // milliseconds, undefined = non-blocking
-    } = {}
+    } = {},
   ): Promise<StreamMessage | null> {
     const { count = 1, block } = options;
 
@@ -220,7 +248,7 @@ export class ConsumerStreams extends ProducerStreams {
           block,
           'STREAMS',
           streamName,
-          '>'
+          '>',
         )) as [string, [string, string[]][]][] | null;
       } else {
         // Non-blocking read (no BLOCK clause = return immediately)
@@ -232,7 +260,7 @@ export class ConsumerStreams extends ProducerStreams {
           count,
           'STREAMS',
           streamName,
-          '>'
+          '>',
         )) as [string, [string, string[]][]][] | null;
       }
 
@@ -250,7 +278,10 @@ export class ConsumerStreams extends ProducerStreams {
 
       return { id, data };
     } catch (error) {
-      logger.error({ error, streamName, groupName, consumerName }, 'Failed to consume from stream');
+      logger.error(
+        { error, streamName, groupName, consumerName },
+        'Failed to consume from stream',
+      );
       throw error;
     }
   }
@@ -264,4 +295,6 @@ export class ConsumerStreams extends ProducerStreams {
  *
  * For consuming, extend BlockingConsumer which provides a dedicated client + ConsumerStreams.
  */
-export const redisStreams: ProducerStreams = new ProducerStreams(redis.getClient());
+export const redisStreams: ProducerStreams = new ProducerStreams(
+  redis.getClient(),
+);

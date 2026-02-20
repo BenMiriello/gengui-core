@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from 'bun:test';
 import {
   closeDb,
   createSession,
@@ -6,7 +13,12 @@ import {
   resetUserCounter,
   truncateAll,
 } from '../helpers';
-import { clearRedisStore, emailMock, startTestServer, stopTestServer } from '../helpers/testApp';
+import {
+  clearRedisStore,
+  emailMock,
+  startTestServer,
+  stopTestServer,
+} from '../helpers/testApp';
 
 describe('Ownership & Authorization', () => {
   let baseUrl: string;
@@ -36,7 +48,10 @@ describe('Ownership & Authorization', () => {
       const loginResponse = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: userA.email, password: passwordA }),
+        body: JSON.stringify({
+          emailOrUsername: userA.email,
+          password: passwordA,
+        }),
       });
       const cookie = loginResponse.headers.get('set-cookie') ?? '';
 
@@ -57,7 +72,10 @@ describe('Ownership & Authorization', () => {
       const loginAResponse = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: userA.email, password: passwordA }),
+        body: JSON.stringify({
+          emailOrUsername: userA.email,
+          password: passwordA,
+        }),
       });
       const cookieA = loginAResponse.headers.get('set-cookie') ?? '';
 
@@ -85,7 +103,10 @@ describe('Ownership & Authorization', () => {
       const loginAResponse = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: userA.email, password: passwordA }),
+        body: JSON.stringify({
+          emailOrUsername: userA.email,
+          password: passwordA,
+        }),
       });
       const cookieA = loginAResponse.headers.get('set-cookie') ?? '';
 
@@ -104,7 +125,10 @@ describe('Ownership & Authorization', () => {
       const loginBResponse = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: userB.email, password: passwordB }),
+        body: JSON.stringify({
+          emailOrUsername: userB.email,
+          password: passwordB,
+        }),
       });
 
       expect(loginBResponse.status).toBe(200);
@@ -117,7 +141,10 @@ describe('Ownership & Authorization', () => {
       const loginAResponse = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: userA.email, password: passwordA }),
+        body: JSON.stringify({
+          emailOrUsername: userA.email,
+          password: passwordA,
+        }),
       });
       const cookieA = loginAResponse.headers.get('set-cookie') ?? '';
 
@@ -136,7 +163,10 @@ describe('Ownership & Authorization', () => {
       const loginBResponse = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: userB.username, password: passwordB }),
+        body: JSON.stringify({
+          emailOrUsername: userB.username,
+          password: passwordB,
+        }),
       });
 
       expect(loginBResponse.status).toBe(200);
@@ -195,7 +225,10 @@ describe('Ownership & Authorization', () => {
       const loginBResponse = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: userB.email, password: passwordB }),
+        body: JSON.stringify({
+          emailOrUsername: userB.email,
+          password: passwordB,
+        }),
       });
       expect(loginBResponse.status).toBe(200);
 

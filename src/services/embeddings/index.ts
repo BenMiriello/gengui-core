@@ -23,7 +23,7 @@ export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
  */
 export function buildEmbeddingText(
   node: StoredStoryNode,
-  extractionMentions?: Array<{ originalText: string }>
+  extractionMentions?: Array<{ originalText: string }>,
 ): string {
   const name = node.name;
   const description = node.description || '';

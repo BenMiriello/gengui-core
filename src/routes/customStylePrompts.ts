@@ -1,4 +1,9 @@
-import { type NextFunction, type Request, type Response, Router } from 'express';
+import {
+  type NextFunction,
+  type Request,
+  type Response,
+  Router,
+} from 'express';
 import {
   MAX_CUSTOM_STYLE_PROMPT_LENGTH,
   MAX_CUSTOM_STYLE_PROMPTS_PER_USER,
@@ -19,7 +24,7 @@ router.get(
     } catch (error) {
       next(error);
     }
-  }
+  },
 );
 
 router.post(
@@ -32,7 +37,10 @@ router.post(
 
       if (!name || !prompt) {
         res.status(400).json({
-          error: { message: 'Name and prompt are required', code: 'INVALID_INPUT' },
+          error: {
+            message: 'Name and prompt are required',
+            code: 'INVALID_INPUT',
+          },
         });
         return;
       }
@@ -58,12 +66,16 @@ router.post(
         return;
       }
 
-      const customPrompt = await customStylePromptsService.create(userId, name, prompt);
+      const customPrompt = await customStylePromptsService.create(
+        userId,
+        name,
+        prompt,
+      );
       res.status(201).json({ prompt: customPrompt });
     } catch (error) {
       next(error);
     }
-  }
+  },
 );
 
 router.patch(
@@ -85,12 +97,17 @@ router.patch(
         return;
       }
 
-      const updated = await customStylePromptsService.update(id, userId, name, prompt);
+      const updated = await customStylePromptsService.update(
+        id,
+        userId,
+        name,
+        prompt,
+      );
       res.json({ prompt: updated });
     } catch (error) {
       next(error);
     }
-  }
+  },
 );
 
 router.delete(
@@ -106,7 +123,7 @@ router.delete(
     } catch (error) {
       next(error);
     }
-  }
+  },
 );
 
 export default router;

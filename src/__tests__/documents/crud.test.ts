@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from 'bun:test';
 import {
   closeDb,
   createTestDocument,
@@ -9,7 +16,11 @@ import {
   resetUserCounter,
   truncateAll,
 } from '../helpers';
-import { clearRedisStore, startTestServer, stopTestServer } from '../helpers/testApp';
+import {
+  clearRedisStore,
+  startTestServer,
+  stopTestServer,
+} from '../helpers/testApp';
 
 describe('Document CRUD', () => {
   let baseUrl: string;
@@ -77,7 +88,9 @@ describe('Document CRUD', () => {
     test('excludes deleted documents', async () => {
       const { user, password } = await createVerifiedUser();
       await createTestDocument(user.id, { title: 'Active' });
-      const deletedDoc = await createTestDocument(user.id, { title: 'Deleted' });
+      const deletedDoc = await createTestDocument(user.id, {
+        title: 'Deleted',
+      });
 
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
@@ -109,7 +122,10 @@ describe('Document CRUD', () => {
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: user1.email, password: password1 }),
+        body: JSON.stringify({
+          emailOrUsername: user1.email,
+          password: password1,
+        }),
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
@@ -131,7 +147,10 @@ describe('Document CRUD', () => {
   describe('GET /documents/:id', () => {
     test('returns document by id', async () => {
       const { user, password } = await createVerifiedUser();
-      const doc = await createTestDocument(user.id, { title: 'My Doc', content: 'Hello world' });
+      const doc = await createTestDocument(user.id, {
+        title: 'My Doc',
+        content: 'Hello world',
+      });
 
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
@@ -161,9 +180,12 @@ describe('Document CRUD', () => {
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
-      const res = await fetch(`${baseUrl}/api/documents/00000000-0000-0000-0000-000000000000`, {
-        headers: { Cookie: cookie },
-      });
+      const res = await fetch(
+        `${baseUrl}/api/documents/00000000-0000-0000-0000-000000000000`,
+        {
+          headers: { Cookie: cookie },
+        },
+      );
 
       expect(res.status).toBe(404);
     });
@@ -353,10 +375,13 @@ describe('Document CRUD', () => {
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
-      const res = await fetch(`${baseUrl}/api/documents/00000000-0000-0000-0000-000000000000`, {
-        method: 'DELETE',
-        headers: { Cookie: cookie },
-      });
+      const res = await fetch(
+        `${baseUrl}/api/documents/00000000-0000-0000-0000-000000000000`,
+        {
+          method: 'DELETE',
+          headers: { Cookie: cookie },
+        },
+      );
 
       expect(res.status).toBe(404);
     });
@@ -463,7 +488,7 @@ describe('Document CRUD', () => {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Cookie: cookie },
           body: JSON.stringify({ title: 'Copy' }),
-        }
+        },
       );
 
       expect(res.status).toBe(404);

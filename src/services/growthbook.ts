@@ -9,7 +9,7 @@ export async function getGrowthBook(): Promise<GrowthBook> {
 
     if (!apiHost || !clientKey) {
       console.warn(
-        'GrowthBook not configured. Missing GROWTHBOOK_API_HOST or GROWTHBOOK_CLIENT_KEY. Features disabled.'
+        'GrowthBook not configured. Missing GROWTHBOOK_API_HOST or GROWTHBOOK_CLIENT_KEY. Features disabled.',
       );
       // Return a stub instance that always returns default values
       gbInstance = new GrowthBook({

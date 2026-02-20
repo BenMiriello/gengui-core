@@ -7,9 +7,33 @@ import { createHash } from 'node:crypto';
 import type { Sentence } from './sentence.types';
 
 const ABBREVIATIONS = new Set([
-  'mr', 'mrs', 'ms', 'dr', 'prof', 'sr', 'jr', 'st', 'ave', 'blvd',
-  'vs', 'etc', 'i.e', 'e.g', 'cf', 'al', 'vol', 'no', 'pp',
-  'inc', 'ltd', 'corp', 'co', 'fig', 'approx', 'dept', 'est',
+  'mr',
+  'mrs',
+  'ms',
+  'dr',
+  'prof',
+  'sr',
+  'jr',
+  'st',
+  'ave',
+  'blvd',
+  'vs',
+  'etc',
+  'i.e',
+  'e.g',
+  'cf',
+  'al',
+  'vol',
+  'no',
+  'pp',
+  'inc',
+  'ltd',
+  'corp',
+  'co',
+  'fig',
+  'approx',
+  'dept',
+  'est',
 ]);
 
 /**

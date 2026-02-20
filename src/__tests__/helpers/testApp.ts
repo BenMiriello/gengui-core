@@ -21,7 +21,12 @@ export function clearStorageData() {
 
 mock.module('../../services/storage', () => ({
   storageProvider: {
-    upload: async (userId: string, mediaId: string, buffer: Buffer, _mimeType: string) => {
+    upload: async (
+      userId: string,
+      mediaId: string,
+      buffer: Buffer,
+      _mimeType: string,
+    ) => {
       const key = `${userId}/${mediaId}/${++storageKeyCounter}`;
       mockStorageData.set(key, buffer);
       return key;
@@ -40,7 +45,12 @@ mock.module('../../services/storage', () => ({
     healthCheck: async () => true,
   },
   createStorageProvider: () => ({
-    upload: async (userId: string, mediaId: string, buffer: Buffer, _mimeType: string) => {
+    upload: async (
+      userId: string,
+      mediaId: string,
+      buffer: Buffer,
+      _mimeType: string,
+    ) => {
       const key = `${userId}/${mediaId}/${++storageKeyCounter}`;
       mockStorageData.set(key, buffer);
       return key;
@@ -90,7 +100,9 @@ const mockRedisClient = {
       return 'OK';
     }
     if (command === 'INCR') {
-      const val = (Number.parseInt(redisStore.get(rest[0]) || '0', 10) + 1).toString();
+      const val = (
+        Number.parseInt(redisStore.get(rest[0]) || '0', 10) + 1
+      ).toString();
       redisStore.set(rest[0], val);
       return Number.parseInt(val, 10);
     }
@@ -162,7 +174,8 @@ mock.module('../../services/redis', () => ({
   },
 }));
 
-const noOpRateLimiter = (_req: unknown, _res: unknown, next: () => void) => next();
+const noOpRateLimiter = (_req: unknown, _res: unknown, next: () => void) =>
+  next();
 
 mock.module('../../middleware/rateLimiter', () => ({
   authRateLimiter: noOpRateLimiter,
@@ -230,7 +243,8 @@ mock.module('../../services/presence', () => ({
       const primary = primaryEditors.get(documentId);
       return primary === sessionId;
     },
-    getPrimaryEditor: async (documentId: string) => primaryEditors.get(documentId) || null,
+    getPrimaryEditor: async (documentId: string) =>
+      primaryEditors.get(documentId) || null,
     recordHeartbeat: async () => {},
     renewPrimaryLock: async () => true,
     attemptTakeover: async (documentId: string, sessionId: string) => {
@@ -283,7 +297,8 @@ mock.module('../../services/graph/graph.service', () => ({
       if (!node || node.userId !== userId) return null;
       return node;
     },
-    getStoryNodeByIdInternal: async (nodeId: string) => mockStoryNodes.get(nodeId) || null,
+    getStoryNodeByIdInternal: async (nodeId: string) =>
+      mockStoryNodes.get(nodeId) || null,
     getStoryNodesForDocument: async (documentId: string, userId: string) => {
       const nodes: any[] = [];
       for (const node of mockStoryNodes.values()) {
@@ -297,7 +312,7 @@ mock.module('../../services/graph/graph.service', () => ({
     updateStoryNodeStyle: async (
       nodeId: string,
       stylePreset: string | null,
-      stylePrompt: string | null
+      stylePrompt: string | null,
     ) => {
       const node = mockStoryNodes.get(nodeId);
       if (!node) return null;
@@ -381,14 +396,14 @@ function createTestApp() {
           upgradeInsecureRequests: null,
         },
       },
-    })
+    }),
   );
 
   app.use(
     cors({
       origin: ['http://localhost:5173', 'http://localhost:3001'],
       credentials: true,
-    })
+    }),
   );
 
   app.use(express.json());
@@ -399,9 +414,14 @@ function createTestApp() {
     res.json({ status: 'ok' });
   });
 
-  app.get('/test/require-email-verified', requireAuth, requireEmailVerified(), (_req, res) => {
-    res.json({ success: true });
-  });
+  app.get(
+    '/test/require-email-verified',
+    requireAuth,
+    requireEmailVerified(),
+    (_req, res) => {
+      res.json({ success: true });
+    },
+  );
 
   app.get(
     '/test/require-email-verified-custom',
@@ -409,7 +429,7 @@ function createTestApp() {
     requireEmailVerified('Custom verification message'),
     (_req, res) => {
       res.json({ success: true });
-    }
+    },
   );
 
   app.get('/test/require-admin', requireAdmin, (_req, res) => {

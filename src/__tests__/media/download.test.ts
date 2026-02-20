@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from 'bun:test';
 import {
   closeDb,
   createTestMedia,
@@ -67,9 +74,12 @@ describe('Media Download', () => {
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
-      const res = await fetch(`${baseUrl}/api/media/00000000-0000-0000-0000-000000000000`, {
-        headers: { Cookie: cookie },
-      });
+      const res = await fetch(
+        `${baseUrl}/api/media/00000000-0000-0000-0000-000000000000`,
+        {
+          headers: { Cookie: cookie },
+        },
+      );
 
       expect(res.status).toBe(404);
     });
@@ -82,7 +92,10 @@ describe('Media Download', () => {
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: user1.email, password: password1 }),
+        body: JSON.stringify({
+          emailOrUsername: user1.email,
+          password: password1,
+        }),
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
@@ -131,9 +144,12 @@ describe('Media Download', () => {
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
-      const res = await fetch(`${baseUrl}/api/media/00000000-0000-0000-0000-000000000000/url`, {
-        headers: { Cookie: cookie },
-      });
+      const res = await fetch(
+        `${baseUrl}/api/media/00000000-0000-0000-0000-000000000000/url`,
+        {
+          headers: { Cookie: cookie },
+        },
+      );
 
       expect(res.status).toBe(404);
     });
@@ -146,7 +162,10 @@ describe('Media Download', () => {
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: user1.email, password: password1 }),
+        body: JSON.stringify({
+          emailOrUsername: user1.email,
+          password: password1,
+        }),
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
@@ -168,9 +187,12 @@ describe('Media Download', () => {
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
-      const res = await fetch(`${baseUrl}/api/media/${media.id}/url?type=thumb`, {
-        headers: { Cookie: cookie },
-      });
+      const res = await fetch(
+        `${baseUrl}/api/media/${media.id}/url?type=thumb`,
+        {
+          headers: { Cookie: cookie },
+        },
+      );
 
       expect(res.status).toBe(200);
       const body = await res.json();

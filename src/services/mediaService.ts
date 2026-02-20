@@ -1,5 +1,13 @@
 import crypto from 'node:crypto';
-import { and, desc, eq, getTableColumns, isNull, notInArray, or } from 'drizzle-orm';
+import {
+  and,
+  desc,
+  eq,
+  getTableColumns,
+  isNull,
+  notInArray,
+  or,
+} from 'drizzle-orm';
 import { PRESIGNED_S3_URL_EXPIRATION } from '../config/constants';
 import { db } from '../config/database';
 import { documentMedia, documents, media, nodeMedia } from '../models/schema';
@@ -15,7 +23,7 @@ import { storageProvider } from './storage';
 export class MediaService {
   async upload(
     userId: string,
-    file: Express.Multer.File
+    file: Express.Multer.File,
   ): Promise<{ id: string; storageKey: string; url: string }> {
     const hash = this.computeHash(file.buffer);
 
@@ -23,16 +31,28 @@ export class MediaService {
     if (file.mimetype.startsWith('image/')) {
       try {
         dimensions = await imageProcessor.extractDimensions(file.buffer);
-        logger.info({ width: dimensions.width, height: dimensions.height }, 'Dimensions extracted');
+        logger.info(
+          { width: dimensions.width, height: dimensions.height },
+          'Dimensions extracted',
+        );
       } catch (error) {
-        logger.warn({ error }, 'Failed to extract dimensions, continuing without');
+        logger.warn(
+          { error },
+          'Failed to extract dimensions, continuing without',
+        );
       }
     }
 
     const existing = await db
       .select()
       .from(media)
-      .where(and(eq(media.userId, userId), eq(media.hash, hash), notDeleted(media.deletedAt)))
+      .where(
+        and(
+          eq(media.userId, userId),
+          eq(media.hash, hash),
+          notDeleted(media.deletedAt),
+        ),
+      )
       .limit(1);
 
     if (existing.length > 0) {
@@ -43,9 +63,13 @@ export class MediaService {
       const url = await storageProvider.getSignedUrl(existingMedia.storageKey);
       logger.info(
         { mediaId: existingMedia.id, hash },
-        'Duplicate upload detected, returning existing'
+        'Duplicate upload detected, returning existing',
       );
-      return { id: existingMedia.id, storageKey: existingMedia.storageKey, url };
+      return {
+        id: existingMedia.id,
+        storageKey: existingMedia.storageKey,
+        url,
+      };
     }
 
     const result = await db.transaction(async (tx) => {
@@ -68,7 +92,7 @@ export class MediaService {
           userId,
           newMedia.id,
           file.buffer,
-          file.mimetype
+          file.mimetype,
         );
 
         const [updated] = await tx
@@ -82,7 +106,10 @@ export class MediaService {
 
         return updated;
       } catch (error) {
-        logger.error({ error, mediaId: newMedia.id }, 'Storage upload failed, rolling back');
+        logger.error(
+          { error, mediaId: newMedia.id },
+          'Storage upload failed, rolling back',
+        );
         throw error;
       }
     });
@@ -98,17 +125,27 @@ export class MediaService {
       logger.info({ mediaId: result.id }, 'Queued thumbnail generation');
     }
 
-    logger.info({ mediaId: result.id, size: file.size }, 'Media uploaded successfully');
+    logger.info(
+      { mediaId: result.id, size: file.size },
+      'Media uploaded successfully',
+    );
 
     return { id: result.id, storageKey: result.storageKey, url };
   }
 
-  async list(userId: string, limit: number = 50, options?: { excludeRoles?: string[] }) {
+  async list(
+    userId: string,
+    limit: number = 50,
+    options?: { excludeRoles?: string[] },
+  ) {
     const conditions = [eq(media.userId, userId), notDeleted(media.deletedAt)];
 
     if (options?.excludeRoles?.length) {
       conditions.push(
-        or(isNull(media.mediaRole), notInArray(media.mediaRole, options.excludeRoles))!
+        or(
+          isNull(media.mediaRole),
+          notInArray(media.mediaRole, options.excludeRoles),
+        )!,
       );
     }
 
@@ -128,7 +165,13 @@ export class MediaService {
     const result = await db
       .select()
       .from(media)
-      .where(and(eq(media.id, id), eq(media.userId, userId), notDeleted(media.deletedAt)))
+      .where(
+        and(
+          eq(media.id, id),
+          eq(media.userId, userId),
+          notDeleted(media.deletedAt),
+        ),
+      )
       .limit(1);
 
     if (result.length === 0) {
@@ -138,7 +181,11 @@ export class MediaService {
     return result[0];
   }
 
-  async getDocumentsByMediaId(mediaId: string, userId: string, requestedFields?: string[]) {
+  async getDocumentsByMediaId(
+    mediaId: string,
+    userId: string,
+    requestedFields?: string[],
+  ) {
     const allColumns = getTableColumns(documents);
     let selection: Record<string, any> = allColumns;
 
@@ -163,8 +210,8 @@ export class MediaService {
         and(
           eq(documentMedia.mediaId, mediaId),
           eq(documents.userId, userId),
-          notDeleted(documents.deletedAt)
-        )
+          notDeleted(documents.deletedAt),
+        ),
       )
       .orderBy(desc(documents.createdAt))
       .limit(100);
@@ -181,7 +228,9 @@ export class MediaService {
     const [nodeMed] = await db
       .select({ nodeId: nodeMedia.nodeId })
       .from(nodeMedia)
-      .where(and(eq(nodeMedia.mediaId, mediaId), notDeleted(nodeMedia.deletedAt)))
+      .where(
+        and(eq(nodeMedia.mediaId, mediaId), notDeleted(nodeMedia.deletedAt)),
+      )
       .limit(1);
 
     if (!nodeMed) {
@@ -206,7 +255,7 @@ export class MediaService {
     id: string,
     userId: string,
     expiresIn: number = PRESIGNED_S3_URL_EXPIRATION,
-    type: MediaUrlType = 'full'
+    type: MediaUrlType = 'full',
   ) {
     const cachedUrl = await cache.getMediaUrl(id, type);
     if (cachedUrl) {
@@ -234,7 +283,13 @@ export class MediaService {
     const result = await db
       .update(media)
       .set({ deletedAt: new Date() })
-      .where(and(eq(media.id, id), eq(media.userId, userId), notDeleted(media.deletedAt)))
+      .where(
+        and(
+          eq(media.id, id),
+          eq(media.userId, userId),
+          notDeleted(media.deletedAt),
+        ),
+      )
       .returning();
 
     if (result.length === 0) {
@@ -285,8 +340,8 @@ export class MediaService {
         and(
           eq(documentMedia.documentId, documentId),
           notDeleted(documentMedia.deletedAt),
-          notDeleted(media.deletedAt)
-        )
+          notDeleted(media.deletedAt),
+        ),
       )
       .orderBy(desc(documentMedia.createdAt));
 

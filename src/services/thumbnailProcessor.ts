@@ -16,9 +16,14 @@ export class ThumbnailProcessor {
     const config: any = {
       region: process.env.AWS_REGION || 'us-east-1',
       credentials: {
-        accessKeyId: process.env.AWS_ACCESS_KEY_ID || process.env.MINIO_ACCESS_KEY || 'minioadmin',
+        accessKeyId:
+          process.env.AWS_ACCESS_KEY_ID ||
+          process.env.MINIO_ACCESS_KEY ||
+          'minioadmin',
         secretAccessKey:
-          process.env.AWS_SECRET_ACCESS_KEY || process.env.MINIO_SECRET_KEY || 'minioadmin',
+          process.env.AWS_SECRET_ACCESS_KEY ||
+          process.env.MINIO_SECRET_KEY ||
+          'minioadmin',
       },
     };
 
@@ -34,7 +39,11 @@ export class ThumbnailProcessor {
 
   async processThumbnail(mediaId: string): Promise<void> {
     try {
-      const [mediaItem] = await db.select().from(media).where(eq(media.id, mediaId)).limit(1);
+      const [mediaItem] = await db
+        .select()
+        .from(media)
+        .where(eq(media.id, mediaId))
+        .limit(1);
 
       if (!mediaItem) {
         logger.error({ mediaId }, 'Media not found for thumbnail generation');
@@ -56,7 +65,10 @@ export class ThumbnailProcessor {
 
       const originalBuffer = await storageProvider.downloadToBuffer(storageKey);
 
-      const thumbnailBuffer = await imageProcessor.createThumbnail(originalBuffer, 256);
+      const thumbnailBuffer = await imageProcessor.createThumbnail(
+        originalBuffer,
+        256,
+      );
 
       const ext = path.extname(storageKey);
       const thumbKey = `users/${mediaItem.userId}/media/thumbs/${mediaItem.id}${ext}`;
@@ -70,12 +82,15 @@ export class ThumbnailProcessor {
 
       await this.s3Client.send(command);
 
-      await db.update(media).set({ s3KeyThumb: thumbKey }).where(eq(media.id, mediaId));
+      await db
+        .update(media)
+        .set({ s3KeyThumb: thumbKey })
+        .where(eq(media.id, mediaId));
 
       const duration = Date.now() - startTime;
       logger.info(
         { mediaId, duration, thumbKey, size: thumbnailBuffer.length },
-        'Thumbnail generated successfully'
+        'Thumbnail generated successfully',
       );
 
       // Broadcast SSE update so frontend knows thumbnail is ready
@@ -97,7 +112,10 @@ export class ThumbnailProcessor {
       if (docMedia.length > 0) {
         const documentId = docMedia[0].documentId;
         sseService.broadcastToDocument(documentId, 'media-update', { mediaId });
-        logger.debug({ mediaId, documentId }, 'Broadcasted thumbnail update via SSE');
+        logger.debug(
+          { mediaId, documentId },
+          'Broadcasted thumbnail update via SSE',
+        );
       }
     } catch (error) {
       logger.error({ error, mediaId }, 'Failed to broadcast thumbnail update');

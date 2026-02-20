@@ -28,7 +28,9 @@ async function loadDoubleMetaphone(): Promise<void> {
 
 function getDoubleMetaphone(): DoubleMetaphoneFn {
   if (!doubleMetaphone) {
-    throw new Error('Double Metaphone not loaded. Call loadDoubleMetaphone() first.');
+    throw new Error(
+      'Double Metaphone not loaded. Call loadDoubleMetaphone() first.',
+    );
   }
   return doubleMetaphone;
 }
@@ -101,7 +103,7 @@ const EPITHET_SUFFIXES = [
 
 const EPITHET_SUFFIX_PATTERN = new RegExp(
   `,?\\s+(${EPITHET_SUFFIXES.join('|')})$`,
-  'i'
+  'i',
 );
 
 // ========== Core Functions ==========

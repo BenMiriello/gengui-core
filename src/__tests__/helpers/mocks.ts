@@ -2,7 +2,9 @@ import { type Mock, mock } from 'bun:test';
 
 interface EmailServiceMock {
   sendVerificationEmail: Mock<(email: string, token: string) => Promise<void>>;
-  sendEmailChangeVerification: Mock<(newEmail: string, token: string) => Promise<void>>;
+  sendEmailChangeVerification: Mock<
+    (newEmail: string, token: string) => Promise<void>
+  >;
   sendPasswordResetEmail: Mock<(email: string, token: string) => Promise<void>>;
   sendPasswordChangedEmail: Mock<(email: string) => Promise<void>>;
   getLastVerificationToken: () => string | null;
@@ -18,9 +20,11 @@ export function createEmailServiceMock(): EmailServiceMock {
     lastVerificationToken = token;
   });
 
-  const sendEmailChangeVerification = mock(async (_newEmail: string, token: string) => {
-    lastVerificationToken = token;
-  });
+  const sendEmailChangeVerification = mock(
+    async (_newEmail: string, token: string) => {
+      lastVerificationToken = token;
+    },
+  );
 
   const sendPasswordResetEmail = mock(async (_email: string, token: string) => {
     lastPasswordResetToken = token;

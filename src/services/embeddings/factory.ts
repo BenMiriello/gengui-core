@@ -9,7 +9,9 @@ export function getEmbeddingProvider(): EmbeddingProvider {
 
   switch (providerName) {
     default: {
-      const { openaiEmbeddingProvider } = require('./providers/openai.provider');
+      const {
+        openaiEmbeddingProvider,
+      } = require('./providers/openai.provider');
       cachedProvider = openaiEmbeddingProvider;
       break;
     }

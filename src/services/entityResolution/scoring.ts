@@ -9,21 +9,21 @@
  */
 
 import {
-  type SignalBreakdown,
-  type SignalWeights,
+  computeAliasPatternScore,
+  isSubstringMatch,
+  normalizeNameForMatching,
+  phoneticMatch,
+  tokenOverlap,
+} from './aliasPatterns';
+import {
+  DEFAULT_WEIGHTS,
   type EntityCandidate,
   type ExistingEntity,
   type ScoredCandidate,
+  type SignalBreakdown,
+  type SignalWeights,
   WEIGHTS_BY_TYPE,
-  DEFAULT_WEIGHTS,
 } from './types';
-import {
-  normalizeNameForMatching,
-  tokenOverlap,
-  isSubstringMatch,
-  computeAliasPatternScore,
-  phoneticMatch,
-} from './aliasPatterns';
 
 // ========== Embedding Similarity ==========
 
@@ -53,7 +53,7 @@ export function cosineSimilarity(a: number[], b: number[]): number {
  */
 export function scoreEmbeddingSimilarity(
   candidate: EntityCandidate,
-  existing: ExistingEntity
+  existing: ExistingEntity,
 ): number {
   if (!existing.embedding || existing.embedding.length === 0) {
     return 0;
@@ -74,7 +74,7 @@ function levenshteinDistance(a: string, b: string): number {
   if (n === 0) return m;
 
   const dp: number[][] = Array.from({ length: m + 1 }, () =>
-    Array(n + 1).fill(0)
+    Array(n + 1).fill(0),
   );
 
   for (let i = 0; i <= m; i++) dp[i][0] = i;
@@ -86,7 +86,7 @@ function levenshteinDistance(a: string, b: string): number {
       dp[i][j] = Math.min(
         dp[i - 1][j] + 1,
         dp[i][j - 1] + 1,
-        dp[i - 1][j - 1] + cost
+        dp[i - 1][j - 1] + cost,
       );
     }
   }
@@ -118,7 +118,7 @@ function levenshteinSimilarity(a: string, b: string): number {
 export function scoreNameSimilarity(
   candidateName: string,
   existingName: string,
-  existingAliases?: string[]
+  existingAliases?: string[],
 ): number {
   const namesToCheck = [existingName, ...(existingAliases || [])];
   let bestScore = 0;
@@ -166,7 +166,7 @@ export function scoreNameSimilarity(
  */
 export function scoreTypeMatch(
   candidateType: string,
-  existingType: string
+  existingType: string,
 ): number {
   if (candidateType === existingType) return 1.0;
 
@@ -196,40 +196,45 @@ export interface GraphContext {
  * Only useful for incremental re-analysis. Uncomment when wiring up getGraphContext.
  */
 export function scoreGraphContext(
-  candidateContext: GraphContext,
-  existingContext: GraphContext
+  _candidateContext: GraphContext,
+  _existingContext: GraphContext,
 ): number {
   // NOOP until incremental analysis is wired up
+  // Graph edges don't exist until Stage 4 (after resolution)
   return 0;
 
-  // Segment overlap
-  const candidateSegments = new Set(candidateContext.segmentIds);
-  const existingSegments = new Set(existingContext.segmentIds);
-
-  let segmentOverlap = 0;
-  for (const s of candidateSegments) {
-    if (existingSegments.has(s)) segmentOverlap++;
-  }
-
-  const segmentUnion = new Set([...candidateSegments, ...existingSegments]);
-  const segmentScore =
-    segmentUnion.size > 0 ? segmentOverlap / segmentUnion.size : 0;
-
-  // Neighbor overlap
-  const candidateNeighbors = new Set(candidateContext.neighborEntityIds);
-  const existingNeighbors = new Set(existingContext.neighborEntityIds);
-
-  let neighborOverlap = 0;
-  for (const n of candidateNeighbors) {
-    if (existingNeighbors.has(n)) neighborOverlap++;
-  }
-
-  const neighborUnion = new Set([...candidateNeighbors, ...existingNeighbors]);
-  const neighborScore =
-    neighborUnion.size > 0 ? neighborOverlap / neighborUnion.size : 0;
-
-  // Combine scores (segment overlap is more important)
-  return segmentScore * 0.6 + neighborScore * 0.4;
+  // TODO: Uncomment when wiring up getGraphContext for incremental re-analysis
+  // const candidateContext = _candidateContext;
+  // const existingContext = _existingContext;
+  //
+  // // Segment overlap
+  // const candidateSegments = new Set(candidateContext.segmentIds);
+  // const existingSegments = new Set(existingContext.segmentIds);
+  //
+  // let segmentOverlap = 0;
+  // for (const s of candidateSegments) {
+  //   if (existingSegments.has(s)) segmentOverlap++;
+  // }
+  //
+  // const segmentUnion = new Set([...candidateSegments, ...existingSegments]);
+  // const segmentScore =
+  //   segmentUnion.size > 0 ? segmentOverlap / segmentUnion.size : 0;
+  //
+  // // Neighbor overlap
+  // const candidateNeighbors = new Set(candidateContext.neighborEntityIds);
+  // const existingNeighbors = new Set(existingContext.neighborEntityIds);
+  //
+  // let neighborOverlap = 0;
+  // for (const n of candidateNeighbors) {
+  //   if (existingNeighbors.has(n)) neighborOverlap++;
+  // }
+  //
+  // const neighborUnion = new Set([...candidateNeighbors, ...existingNeighbors]);
+  // const neighborScore =
+  //   neighborUnion.size > 0 ? neighborOverlap / neighborUnion.size : 0;
+  //
+  // // Combine scores (segment overlap is more important)
+  // return segmentScore * 0.6 + neighborScore * 0.4;
 }
 
 // ========== Combined Scoring ==========
@@ -241,7 +246,7 @@ export function computeSignalBreakdown(
   candidate: EntityCandidate,
   existing: ExistingEntity,
   candidateGraphContext?: GraphContext,
-  existingGraphContext?: GraphContext
+  existingGraphContext?: GraphContext,
 ): SignalBreakdown {
   return {
     embedding: scoreEmbeddingSimilarity(candidate, existing),
@@ -259,7 +264,7 @@ export function computeSignalBreakdown(
  */
 export function computeWeightedScore(
   signals: SignalBreakdown,
-  weights: SignalWeights
+  weights: SignalWeights,
 ): number {
   return (
     signals.embedding * weights.embedding +
@@ -298,13 +303,13 @@ export function scoreCandidate(
   candidate: EntityCandidate,
   existing: ExistingEntity,
   candidateGraphContext?: GraphContext,
-  existingGraphContext?: GraphContext
+  existingGraphContext?: GraphContext,
 ): ScoredCandidate {
   const signals = computeSignalBreakdown(
     candidate,
     existing,
     candidateGraphContext,
-    existingGraphContext
+    existingGraphContext,
   );
 
   const weights = WEIGHTS_BY_TYPE[candidate.type] || DEFAULT_WEIGHTS;
@@ -327,8 +332,8 @@ export function scoreCandidates(
   candidate: EntityCandidate,
   existingEntities: ExistingEntity[],
   getGraphContext?: (
-    entityId: string
-  ) => Promise<GraphContext> | GraphContext | undefined
+    entityId: string,
+  ) => Promise<GraphContext> | GraphContext | undefined,
 ): ScoredCandidate[] {
   const candidateContext: GraphContext = {
     segmentIds: candidate.mentions
@@ -345,7 +350,7 @@ export function scoreCandidates(
       existingContext instanceof Promise ? undefined : existingContext;
 
     scored.push(
-      scoreCandidate(candidate, existing, candidateContext, resolvedContext)
+      scoreCandidate(candidate, existing, candidateContext, resolvedContext),
     );
   }
 

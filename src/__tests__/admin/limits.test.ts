@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from 'bun:test';
 import {
   closeDb,
   createAdminUser,
@@ -41,7 +48,10 @@ describe('Admin Limits', () => {
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: admin.email, password: adminPassword }),
+        body: JSON.stringify({
+          emailOrUsername: admin.email,
+          password: adminPassword,
+        }),
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
@@ -86,7 +96,10 @@ describe('Admin Limits', () => {
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: admin.email, password: adminPassword }),
+        body: JSON.stringify({
+          emailOrUsername: admin.email,
+          password: adminPassword,
+        }),
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
@@ -101,9 +114,12 @@ describe('Admin Limits', () => {
       expect(body.userId).toBe(user.id);
       expect(body.dailyLimit).toBe(50);
 
-      const getRes = await fetch(`${baseUrl}/api/admin/users/${user.id}/limits`, {
-        headers: { Cookie: cookie },
-      });
+      const getRes = await fetch(
+        `${baseUrl}/api/admin/users/${user.id}/limits`,
+        {
+          headers: { Cookie: cookie },
+        },
+      );
       const getBody = await getRes.json();
       expect(getBody.dailyLimit).toBe(50);
     });
@@ -115,7 +131,10 @@ describe('Admin Limits', () => {
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: admin.email, password: adminPassword }),
+        body: JSON.stringify({
+          emailOrUsername: admin.email,
+          password: adminPassword,
+        }),
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
@@ -137,7 +156,10 @@ describe('Admin Limits', () => {
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: admin.email, password: adminPassword }),
+        body: JSON.stringify({
+          emailOrUsername: admin.email,
+          password: adminPassword,
+        }),
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
@@ -157,7 +179,10 @@ describe('Admin Limits', () => {
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: admin.email, password: adminPassword }),
+        body: JSON.stringify({
+          emailOrUsername: admin.email,
+          password: adminPassword,
+        }),
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
@@ -179,7 +204,10 @@ describe('Admin Limits', () => {
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: admin.email, password: adminPassword }),
+        body: JSON.stringify({
+          emailOrUsername: admin.email,
+          password: adminPassword,
+        }),
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
@@ -198,7 +226,10 @@ describe('Admin Limits', () => {
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: admin.email, password: adminPassword }),
+        body: JSON.stringify({
+          emailOrUsername: admin.email,
+          password: adminPassword,
+        }),
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
@@ -208,7 +239,7 @@ describe('Admin Limits', () => {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json', Cookie: cookie },
           body: JSON.stringify({ dailyLimit: 50 }),
-        }
+        },
       );
 
       expect(res.status).toBe(404);

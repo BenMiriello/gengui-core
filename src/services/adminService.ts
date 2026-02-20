@@ -58,7 +58,14 @@ export class AdminService {
    * List all users with optional filtering and pagination
    */
   async listUsers(filters: UserListFilters = {}) {
-    const { search, role, emailVerified, limit = 50, offset = 0, includeStats = false } = filters;
+    const {
+      search,
+      role,
+      emailVerified,
+      limit = 50,
+      offset = 0,
+      includeStats = false,
+    } = filters;
 
     // Validate limit
     if (limit < 1 || limit > 100) {
@@ -69,7 +76,12 @@ export class AdminService {
     const conditions = [];
 
     if (search) {
-      conditions.push(or(ilike(users.email, `%${search}%`), ilike(users.username, `%${search}%`))!);
+      conditions.push(
+        or(
+          ilike(users.email, `%${search}%`),
+          ilike(users.username, `%${search}%`),
+        )!,
+      );
     }
 
     if (role) {
@@ -84,7 +96,11 @@ export class AdminService {
     const [{ value: totalCount }] = await db
       .select({ value: count() })
       .from(users)
-      .where(conditions.length > 0 ? sql`${sql.join(conditions, sql` AND `)}` : undefined);
+      .where(
+        conditions.length > 0
+          ? sql`${sql.join(conditions, sql` AND `)}`
+          : undefined,
+      );
 
     // Get users
     const userList = await db
@@ -100,7 +116,11 @@ export class AdminService {
         lockedUntil: users.lockedUntil,
       })
       .from(users)
-      .where(conditions.length > 0 ? sql`${sql.join(conditions, sql` AND `)}` : undefined)
+      .where(
+        conditions.length > 0
+          ? sql`${sql.join(conditions, sql` AND `)}`
+          : undefined,
+      )
       .orderBy(desc(users.createdAt))
       .limit(limit)
       .offset(offset);
@@ -122,7 +142,12 @@ export class AdminService {
           failedCount: sql<number>`COUNT(CASE WHEN ${media.status} = 'failed' THEN 1 END)`,
         })
         .from(media)
-        .where(and(inArray(media.userId, userIds), eq(media.sourceType, 'generation')))
+        .where(
+          and(
+            inArray(media.userId, userIds),
+            eq(media.sourceType, 'generation'),
+          ),
+        )
         .groupBy(media.userId);
 
       // Build stats map
@@ -156,7 +181,7 @@ export class AdminService {
         resultCount: userList.length,
         totalCount,
       },
-      'Admin listed users'
+      'Admin listed users',
     );
 
     return {
@@ -174,7 +199,11 @@ export class AdminService {
    * Get detailed information about a specific user
    */
   async getUserDetails(userId: string) {
-    const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
 
     if (!user) {
       throw new NotFoundError('User not found');
@@ -220,7 +249,9 @@ export class AdminService {
     const [{ value: totalGenerations }] = await db
       .select({ value: count() })
       .from(media)
-      .where(sql`${media.userId} = ${userId} AND ${media.sourceType} = 'generation'`);
+      .where(
+        sql`${media.userId} = ${userId} AND ${media.sourceType} = 'generation'`,
+      );
 
     // Get account age
     const [user] = await db
@@ -230,7 +261,9 @@ export class AdminService {
       .limit(1);
 
     const accountAge = user
-      ? Math.floor((Date.now() - user.createdAt.getTime()) / (1000 * 60 * 60 * 24))
+      ? Math.floor(
+          (Date.now() - user.createdAt.getTime()) / (1000 * 60 * 60 * 24),
+        )
       : 0;
 
     return {
@@ -271,7 +304,7 @@ export class AdminService {
         userId,
         dailyLimit,
       },
-      'Admin updated user generation limit'
+      'Admin updated user generation limit',
     );
 
     return {
@@ -323,7 +356,10 @@ export class AdminService {
         }
       }
 
-      logger.info({ depth, oldestJobAge, isConnected }, 'Admin checked queue status');
+      logger.info(
+        { depth, oldestJobAge, isConnected },
+        'Admin checked queue status',
+      );
 
       return {
         depth,
@@ -356,7 +392,9 @@ export class AdminService {
   async startWorker(): Promise<{ success: boolean; message: string }> {
     logger.warn('Admin attempted to start worker (not yet implemented)');
 
-    throw new BadRequestError('Worker control API not yet implemented - see issue #198');
+    throw new BadRequestError(
+      'Worker control API not yet implemented - see issue #198',
+    );
   }
 
   /**
@@ -366,7 +404,9 @@ export class AdminService {
   async stopWorker(): Promise<{ success: boolean; message: string }> {
     logger.warn('Admin attempted to stop worker (not yet implemented)');
 
-    throw new BadRequestError('Worker control API not yet implemented - see issue #198');
+    throw new BadRequestError(
+      'Worker control API not yet implemented - see issue #198',
+    );
   }
 }
 

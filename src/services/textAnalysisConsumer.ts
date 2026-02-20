@@ -11,11 +11,15 @@ import type { ExistingNode } from '../types/storyNodes';
 import { logger } from '../utils/logger';
 import { updateNodes } from './gemini';
 import { mentionService } from './mentions';
+import {
+  AnalysisCancelledError,
+  AnalysisPausedError,
+  multiStagePipeline,
+} from './pipeline';
 import { redisStreams, type StreamMessage } from './redis-streams';
 import { type Segment, segmentService } from './segments';
 import { sseService } from './sse';
 import { graphStoryNodesRepository } from './storyNodes';
-import { multiStagePipeline, AnalysisCancelledError, AnalysisPausedError } from './pipeline';
 
 const MIN_CONTENT_LENGTH = 50;
 const MAX_CONTENT_LENGTH = 50000;
@@ -55,8 +59,8 @@ class TextAnalysisConsumer extends PubSubConsumer {
         and(
           eq(documents.analysisStatus, 'analyzing'),
           isNotNull(documents.analysisCheckpoint),
-          sql`${documents.analysisStartedAt} >= ${staleThreshold}`
-        )
+          sql`${documents.analysisStartedAt} >= ${staleThreshold}`,
+        ),
       );
 
     if (interrupted.length === 0) {
@@ -66,13 +70,17 @@ class TextAnalysisConsumer extends PubSubConsumer {
 
     logger.info(
       { count: interrupted.length },
-      'Recovering interrupted analyses'
+      'Recovering interrupted analyses',
     );
 
     for (const doc of interrupted) {
       logger.info(
-        { documentId: doc.id, userId: doc.userId, startedAt: doc.analysisStartedAt },
-        'Re-queuing interrupted analysis'
+        {
+          documentId: doc.id,
+          userId: doc.userId,
+          startedAt: doc.analysisStartedAt,
+        },
+        'Re-queuing interrupted analysis',
       );
 
       await redisStreams.add(this.streamName, {
@@ -87,7 +95,10 @@ class TextAnalysisConsumer extends PubSubConsumer {
     const { documentId, userId, reanalyze, updateMode } = message.data;
 
     if (!documentId || !userId) {
-      logger.error({ data: message.data }, 'Request missing documentId or userId');
+      logger.error(
+        { data: message.data },
+        'Request missing documentId or userId',
+      );
       return;
     }
 
@@ -95,7 +106,11 @@ class TextAnalysisConsumer extends PubSubConsumer {
       if (updateMode === 'true') {
         await this.handleUpdate(documentId, userId);
       } else {
-        await this.handleMultiStageAnalyze(documentId, userId, reanalyze === 'true');
+        await this.handleMultiStageAnalyze(
+          documentId,
+          userId,
+          reanalyze === 'true',
+        );
       }
     } catch (error: any) {
       // Handle pause - keep status as 'paused', keep checkpoint
@@ -117,7 +132,8 @@ class TextAnalysisConsumer extends PubSubConsumer {
         return;
       }
 
-      const errorMessage = error?.message || 'Operation failed. Please try again.';
+      const errorMessage =
+        error?.message || 'Operation failed. Please try again.';
       logger.error({ error, documentId, errorMessage }, 'Text analysis failed');
 
       // Mark analysis as failed
@@ -134,7 +150,8 @@ class TextAnalysisConsumer extends PubSubConsumer {
         });
       }
 
-      const eventType = updateMode === 'true' ? 'update-failed' : 'analysis-failed';
+      const eventType =
+        updateMode === 'true' ? 'update-failed' : 'analysis-failed';
       this.broadcast(documentId, eventType, { error: errorMessage });
     }
   }
@@ -143,10 +160,21 @@ class TextAnalysisConsumer extends PubSubConsumer {
    * Handle multi-stage pipeline analysis.
    * Uses the 7-stage extraction process for better quality.
    */
-  private async handleMultiStageAnalyze(documentId: string, userId: string, reanalyze: boolean) {
-    logger.info({ documentId, userId, reanalyze }, 'Processing multi-stage analysis request');
+  private async handleMultiStageAnalyze(
+    documentId: string,
+    userId: string,
+    reanalyze: boolean,
+  ) {
+    logger.info(
+      { documentId, userId, reanalyze },
+      'Processing multi-stage analysis request',
+    );
 
-    const document = await this.fetchAndValidateDocument(documentId, userId, 'analysis-failed');
+    const document = await this.fetchAndValidateDocument(
+      documentId,
+      userId,
+      'analysis-failed',
+    );
     if (!document) return;
 
     // Mark analysis as in progress
@@ -207,21 +235,28 @@ class TextAnalysisConsumer extends PubSubConsumer {
 
     logger.info(
       { documentId, ...result },
-      'Multi-stage analysis completed successfully'
+      'Multi-stage analysis completed successfully',
     );
   }
 
   private async handleUpdate(documentId: string, userId: string) {
     logger.info({ documentId, userId }, 'Processing node update request');
 
-    const document = await this.fetchAndValidateDocument(documentId, userId, 'update-failed');
+    const document = await this.fetchAndValidateDocument(
+      documentId,
+      userId,
+      'update-failed',
+    );
     if (!document) return;
 
     // Get segments (compute and persist if needed)
     const segments = await this.getDocumentSegments(documentId, document);
 
     // Fetch existing nodes
-    const existingDbNodes = await graphStoryNodesRepository.getActiveNodes(documentId, userId);
+    const existingDbNodes = await graphStoryNodesRepository.getActiveNodes(
+      documentId,
+      userId,
+    );
 
     if (existingDbNodes.length === 0) {
       logger.info({ documentId }, 'No existing nodes to update');
@@ -234,7 +269,10 @@ class TextAnalysisConsumer extends PubSubConsumer {
     // Convert to format for Gemini, fetching passages from mentions
     const existingNodes: ExistingNode[] = await Promise.all(
       existingDbNodes.map(async (n) => {
-        const mentions = await mentionService.getByNodeIdWithAbsolutePositions(n.id, segments);
+        const mentions = await mentionService.getByNodeIdWithAbsolutePositions(
+          n.id,
+          segments,
+        );
         return {
           id: n.id,
           type: n.type,
@@ -242,13 +280,13 @@ class TextAnalysisConsumer extends PubSubConsumer {
           description: n.description || '',
           mentions: mentions.map((m) => ({ text: m.originalText })),
         };
-      })
+      }),
     );
 
     // Call Gemini
     logger.info(
       { documentId, existingNodeCount: existingNodes.length },
-      'Calling Gemini updateNodes'
+      'Calling Gemini updateNodes',
     );
     const updates = await updateNodes(document.content, existingNodes);
 
@@ -269,10 +307,17 @@ class TextAnalysisConsumer extends PubSubConsumer {
 
     this.broadcast(documentId, 'nodes-updated', result);
 
-    logger.info({ documentId, ...result }, 'Node update completed successfully');
+    logger.info(
+      { documentId, ...result },
+      'Node update completed successfully',
+    );
   }
 
-  private async fetchAndValidateDocument(documentId: string, userId: string, errorEvent: string) {
+  private async fetchAndValidateDocument(
+    documentId: string,
+    userId: string,
+    errorEvent: string,
+  ) {
     const [document] = await db
       .select()
       .from(documents)
@@ -310,7 +355,11 @@ class TextAnalysisConsumer extends PubSubConsumer {
     return document;
   }
 
-  private broadcast(documentId: string, event: string, data: Record<string, any>) {
+  private broadcast(
+    documentId: string,
+    event: string,
+    data: Record<string, any>,
+  ) {
     sseService.broadcastToDocument(documentId, event, {
       documentId,
       ...data,
@@ -323,7 +372,7 @@ class TextAnalysisConsumer extends PubSubConsumer {
    */
   private async getDocumentSegments(
     documentId: string,
-    document: { content: string; segmentSequence: unknown }
+    document: { content: string; segmentSequence: unknown },
   ): Promise<Segment[]> {
     const existing = parseSegmentSequence(document.segmentSequence);
     if (existing.length > 0) {
@@ -343,7 +392,7 @@ function parseSegmentSequence(raw: unknown): Segment[] {
         s !== null &&
         typeof s.id === 'string' &&
         typeof s.start === 'number' &&
-        typeof s.end === 'number'
+        typeof s.end === 'number',
     );
   }
   return [];

@@ -4,7 +4,11 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import type { Segment, SegmentationResult, SegmentBoundary } from './segment.types';
+import type {
+  Segment,
+  SegmentationResult,
+  SegmentBoundary,
+} from './segment.types';
 import { SEGMENTATION_CONFIG } from './segment.types';
 
 const SCENE_MARKER_PATTERN = /^(?:\*{3,}|-{3,}|#{1,3}\s+.+)$/m;
@@ -33,7 +37,10 @@ export function detectBoundaries(text: string): SegmentBoundary[] {
   const lines = text.split('\n');
   let charOffset = 0;
   for (const line of lines) {
-    if (SCENE_MARKER_PATTERN.test(line.trim()) || SCREENPLAY_MARKER_PATTERN.test(line.trim())) {
+    if (
+      SCENE_MARKER_PATTERN.test(line.trim()) ||
+      SCREENPLAY_MARKER_PATTERN.test(line.trim())
+    ) {
       boundaries.push({
         position: charOffset,
         type: 'scene_marker',
@@ -51,7 +58,7 @@ export function detectBoundaries(text: string): SegmentBoundary[] {
  */
 export function filterBoundariesBySize(
   boundaries: SegmentBoundary[],
-  _textLength: number
+  _textLength: number,
 ): SegmentBoundary[] {
   const { TARGET_MIN_SIZE } = SEGMENTATION_CONFIG;
   const filtered: SegmentBoundary[] = [];
@@ -73,7 +80,10 @@ export function filterBoundariesBySize(
  * Insert size-based splits for segments that exceed max size.
  * Tries to split at word boundaries.
  */
-export function insertSizeSplits(boundaries: SegmentBoundary[], text: string): SegmentBoundary[] {
+export function insertSizeSplits(
+  boundaries: SegmentBoundary[],
+  text: string,
+): SegmentBoundary[] {
   const { HARD_MAX_SIZE } = SEGMENTATION_CONFIG;
   const result: SegmentBoundary[] = [];
   let lastPosition = 0;
@@ -82,7 +92,11 @@ export function insertSizeSplits(boundaries: SegmentBoundary[], text: string): S
     const segmentSize = boundary.position - lastPosition;
 
     if (segmentSize > HARD_MAX_SIZE) {
-      const splits = splitOversizedSegment(text, lastPosition, boundary.position);
+      const splits = splitOversizedSegment(
+        text,
+        lastPosition,
+        boundary.position,
+      );
       result.push(...splits);
     }
 
@@ -103,7 +117,11 @@ export function insertSizeSplits(boundaries: SegmentBoundary[], text: string): S
 /**
  * Split an oversized region at word boundaries.
  */
-function splitOversizedSegment(text: string, start: number, end: number): SegmentBoundary[] {
+function splitOversizedSegment(
+  text: string,
+  start: number,
+  end: number,
+): SegmentBoundary[] {
   const { TARGET_MAX_SIZE } = SEGMENTATION_CONFIG;
   const splits: SegmentBoundary[] = [];
   let position = start;
@@ -126,7 +144,12 @@ function splitOversizedSegment(text: string, start: number, end: number): Segmen
 /**
  * Find nearest word boundary to target position.
  */
-function findWordBoundary(text: string, target: number, min: number, max: number): number {
+function findWordBoundary(
+  text: string,
+  target: number,
+  min: number,
+  max: number,
+): number {
   const searchRange = 200;
   const searchStart = Math.max(min, target - searchRange);
   const searchEnd = Math.min(max, target + searchRange);
@@ -155,7 +178,7 @@ export function boundariesToSegments(
   boundaries: SegmentBoundary[],
   textLength: number,
   text: string,
-  existingSegments?: Segment[]
+  existingSegments?: Segment[],
 ): Segment[] {
   const segments: Segment[] = [];
   const usedIds = new Set<string>();
@@ -172,7 +195,7 @@ export function boundariesToSegments(
         content,
         text,
         existingSegments,
-        usedIds
+        usedIds,
       );
 
       const id = matchedSegment?.id || randomUUID();
@@ -193,7 +216,7 @@ export function boundariesToSegments(
       content,
       text,
       existingSegments,
-      usedIds
+      usedIds,
     );
 
     const id = matchedSegment?.id || randomUUID();
@@ -215,7 +238,7 @@ function findBestSegmentMatch(
   newContent: string,
   fullText: string,
   existingSegments?: Segment[],
-  usedIds?: Set<string>
+  usedIds?: Set<string>,
 ): Segment | null {
   if (!existingSegments?.length) return null;
 
@@ -228,9 +251,17 @@ function findBestSegmentMatch(
 
     // Extract old content from current text at old position
     // (This works if text hasn't changed much; for major changes, would need old text)
-    const oldContent = fullText.slice(existing.start, Math.min(existing.end, fullText.length));
+    const oldContent = fullText.slice(
+      existing.start,
+      Math.min(existing.end, fullText.length),
+    );
 
-    const score = calculateSegmentSimilarity(newRange, newContent, existing, oldContent);
+    const score = calculateSegmentSimilarity(
+      newRange,
+      newContent,
+      existing,
+      oldContent,
+    );
 
     // Threshold: 0.7 = significant overlap/similarity
     if (score > bestScore && score >= 0.7) {
@@ -250,17 +281,21 @@ function calculateSegmentSimilarity(
   newRange: { start: number; end: number },
   newContent: string,
   existing: Segment,
-  oldContent: string
+  oldContent: string,
 ): number {
   // 1. Position overlap
   const overlap = calculateRangeOverlap(newRange, existing);
-  const maxSize = Math.max(newRange.end - newRange.start, existing.end - existing.start);
+  const maxSize = Math.max(
+    newRange.end - newRange.start,
+    existing.end - existing.start,
+  );
   const positionScore = overlap / maxSize;
 
   // 2. Size similarity
   const newSize = newRange.end - newRange.start;
   const oldSize = existing.end - existing.start;
-  const sizeScore = 1 - Math.abs(newSize - oldSize) / Math.max(newSize, oldSize);
+  const sizeScore =
+    1 - Math.abs(newSize - oldSize) / Math.max(newSize, oldSize);
 
   // 3. Content similarity (if old content available)
   if (oldContent && oldContent.length > 20) {
@@ -277,7 +312,7 @@ function calculateSegmentSimilarity(
  */
 function calculateRangeOverlap(
   range1: { start: number; end: number },
-  range2: { start: number; end: number }
+  range2: { start: number; end: number },
 ): number {
   const overlapStart = Math.max(range1.start, range2.start);
   const overlapEnd = Math.min(range1.end, range2.end);
@@ -316,13 +351,13 @@ function calculateWordOverlap(text1: string, text2: string): number {
     text1
       .toLowerCase()
       .split(/\s+/)
-      .filter((w) => w.length > 2)
+      .filter((w) => w.length > 2),
   );
   const words2 = new Set(
     text2
       .toLowerCase()
       .split(/\s+/)
-      .filter((w) => w.length > 2)
+      .filter((w) => w.length > 2),
   );
 
   if (words1.size === 0 || words2.size === 0) return 0;
@@ -335,7 +370,10 @@ function calculateWordOverlap(text1: string, text2: string): number {
  * Main segmentation function.
  * Returns segments with stable UUIDs, reusing existing IDs where positions match.
  */
-export function segmentText(text: string, existingSegments?: Segment[]): SegmentationResult {
+export function segmentText(
+  text: string,
+  existingSegments?: Segment[],
+): SegmentationResult {
   const { MIN_DOCUMENT_LENGTH } = SEGMENTATION_CONFIG;
 
   // Short documents get a single segment
@@ -356,7 +394,12 @@ export function segmentText(text: string, existingSegments?: Segment[]): Segment
   const rawBoundaries = detectBoundaries(text);
   const sizedBoundaries = filterBoundariesBySize(rawBoundaries, text.length);
   const finalBoundaries = insertSizeSplits(sizedBoundaries, text);
-  const segments = boundariesToSegments(finalBoundaries, text.length, text, existingSegments);
+  const segments = boundariesToSegments(
+    finalBoundaries,
+    text.length,
+    text,
+    existingSegments,
+  );
 
   return { segments, boundaries: finalBoundaries };
 }

@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from 'bun:test';
 import {
   closeDb,
   createExpiredSession,
@@ -8,7 +15,12 @@ import {
   resetUserCounter,
   truncateAll,
 } from '../helpers';
-import { clearRedisStore, emailMock, startTestServer, stopTestServer } from '../helpers/testApp';
+import {
+  clearRedisStore,
+  emailMock,
+  startTestServer,
+  stopTestServer,
+} from '../helpers/testApp';
 
 describe('Auth Middleware', () => {
   let baseUrl: string;
@@ -210,9 +222,12 @@ describe('Auth Middleware', () => {
       });
       const cookie = loginResponse.headers.get('set-cookie') ?? '';
 
-      const response = await fetch(`${baseUrl}/test/require-email-verified-custom`, {
-        headers: { Cookie: cookie },
-      });
+      const response = await fetch(
+        `${baseUrl}/test/require-email-verified-custom`,
+        {
+          headers: { Cookie: cookie },
+        },
+      );
 
       expect(response.status).toBe(403);
       const body = await response.json();

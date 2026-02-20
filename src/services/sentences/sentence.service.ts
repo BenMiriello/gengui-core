@@ -6,15 +6,15 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '../../config/database';
 import { sentenceEmbeddings } from '../../models/schema';
-import type { Segment } from '../segments';
-import { generateEmbedding } from '../embeddings';
 import { logger } from '../../utils/logger';
+import { generateEmbedding } from '../embeddings';
+import type { Segment } from '../segments';
 import { splitIntoSentences } from './sentence.detector';
 import type {
   Sentence,
+  SentenceSimilarityResult,
   SentenceWithEmbedding,
   StoredSentenceEmbedding,
-  SentenceSimilarityResult,
 } from './sentence.types';
 
 export const sentenceService = {
@@ -32,7 +32,7 @@ export const sentenceService = {
   async processSegment(
     documentId: string,
     segmentId: string,
-    segmentText: string
+    segmentText: string,
   ): Promise<SentenceWithEmbedding[]> {
     const sentences = this.extractSentences(segmentText);
 
@@ -59,7 +59,9 @@ export const sentenceService = {
 
     // Generate embeddings for uncached sentences
     if (toEmbed.length > 0) {
-      const embeddings = await this.generateBatchEmbeddings(toEmbed.map((s) => s.text));
+      const embeddings = await this.generateBatchEmbeddings(
+        toEmbed.map((s) => s.text),
+      );
 
       for (let i = 0; i < toEmbed.length; i++) {
         const sentence = toEmbed[i];
@@ -84,13 +86,17 @@ export const sentenceService = {
   async processDocument(
     documentId: string,
     documentContent: string,
-    segments: Segment[]
+    segments: Segment[],
   ): Promise<Map<string, SentenceWithEmbedding[]>> {
     const result = new Map<string, SentenceWithEmbedding[]>();
 
     for (const segment of segments) {
       const segmentText = documentContent.slice(segment.start, segment.end);
-      const sentences = await this.processSegment(documentId, segment.id, segmentText);
+      const sentences = await this.processSegment(
+        documentId,
+        segment.id,
+        segmentText,
+      );
       result.set(segment.id, sentences);
     }
 
@@ -104,7 +110,7 @@ export const sentenceService = {
     documentId: string,
     segmentId: string,
     sentence: Sentence,
-    embedding: number[]
+    embedding: number[],
   ): Promise<void> {
     try {
       await db.insert(sentenceEmbeddings).values({
@@ -116,7 +122,10 @@ export const sentenceService = {
         embedding: JSON.stringify(embedding),
       });
     } catch (err) {
-      logger.warn({ documentId, segmentId, error: err }, 'Failed to store sentence embedding');
+      logger.warn(
+        { documentId, segmentId, error: err },
+        'Failed to store sentence embedding',
+      );
     }
   },
 
@@ -124,7 +133,7 @@ export const sentenceService = {
    * Get cached embeddings by content hashes.
    */
   async getCachedByHashes(
-    hashes: string[]
+    hashes: string[],
   ): Promise<Array<{ contentHash: string; embedding: number[] }>> {
     if (hashes.length === 0) return [];
 
@@ -138,14 +147,19 @@ export const sentenceService = {
 
     return rows.map((row) => ({
       contentHash: row.contentHash,
-      embedding: typeof row.embedding === 'string' ? JSON.parse(row.embedding) : row.embedding,
+      embedding:
+        typeof row.embedding === 'string'
+          ? JSON.parse(row.embedding)
+          : row.embedding,
     }));
   },
 
   /**
    * Get all sentence embeddings for a document.
    */
-  async getByDocumentId(documentId: string): Promise<StoredSentenceEmbedding[]> {
+  async getByDocumentId(
+    documentId: string,
+  ): Promise<StoredSentenceEmbedding[]> {
     const rows = await db
       .select()
       .from(sentenceEmbeddings)
@@ -159,7 +173,7 @@ export const sentenceService = {
    */
   async getBySegmentIds(
     documentId: string,
-    segmentIds: string[]
+    segmentIds: string[],
   ): Promise<StoredSentenceEmbedding[]> {
     if (segmentIds.length === 0) return [];
 
@@ -169,8 +183,8 @@ export const sentenceService = {
       .where(
         and(
           eq(sentenceEmbeddings.documentId, documentId),
-          inArray(sentenceEmbeddings.segmentId, segmentIds)
-        )
+          inArray(sentenceEmbeddings.segmentId, segmentIds),
+        ),
       );
 
     return rows.map(rowToStoredSentence);
@@ -183,7 +197,7 @@ export const sentenceService = {
   async findSimilar(
     documentId: string,
     queryEmbedding: number[],
-    limit: number = 10
+    limit: number = 10,
   ): Promise<SentenceSimilarityResult[]> {
     const embeddingStr = `[${queryEmbedding.join(',')}]`;
 
@@ -216,7 +230,7 @@ export const sentenceService = {
   async findSimilarToText(
     documentId: string,
     queryText: string,
-    limit: number = 10
+    limit: number = 10,
   ): Promise<SentenceSimilarityResult[]> {
     const queryEmbedding = await generateEmbedding(queryText);
     return this.findSimilar(documentId, queryEmbedding, limit);
@@ -226,21 +240,28 @@ export const sentenceService = {
    * Delete all sentence embeddings for a document.
    */
   async deleteByDocumentId(documentId: string): Promise<void> {
-    await db.delete(sentenceEmbeddings).where(eq(sentenceEmbeddings.documentId, documentId));
+    await db
+      .delete(sentenceEmbeddings)
+      .where(eq(sentenceEmbeddings.documentId, documentId));
   },
 
   /**
    * Delete sentence embeddings for specific segments.
    */
-  async deleteBySegmentIds(documentId: string, segmentIds: string[]): Promise<void> {
+  async deleteBySegmentIds(
+    documentId: string,
+    segmentIds: string[],
+  ): Promise<void> {
     if (segmentIds.length === 0) return;
 
-    await db.delete(sentenceEmbeddings).where(
-      and(
-        eq(sentenceEmbeddings.documentId, documentId),
-        inArray(sentenceEmbeddings.segmentId, segmentIds)
-      )
-    );
+    await db
+      .delete(sentenceEmbeddings)
+      .where(
+        and(
+          eq(sentenceEmbeddings.documentId, documentId),
+          inArray(sentenceEmbeddings.segmentId, segmentIds),
+        ),
+      );
   },
 
   /**
@@ -297,7 +318,9 @@ export const sentenceService = {
   },
 };
 
-function rowToStoredSentence(row: typeof sentenceEmbeddings.$inferSelect): StoredSentenceEmbedding {
+function rowToStoredSentence(
+  row: typeof sentenceEmbeddings.$inferSelect,
+): StoredSentenceEmbedding {
   return {
     id: row.id,
     documentId: row.documentId,
@@ -305,7 +328,10 @@ function rowToStoredSentence(row: typeof sentenceEmbeddings.$inferSelect): Store
     sentenceStart: row.sentenceStart,
     sentenceEnd: row.sentenceEnd,
     contentHash: row.contentHash,
-    embedding: typeof row.embedding === 'string' ? JSON.parse(row.embedding) : row.embedding,
+    embedding:
+      typeof row.embedding === 'string'
+        ? JSON.parse(row.embedding)
+        : row.embedding,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };

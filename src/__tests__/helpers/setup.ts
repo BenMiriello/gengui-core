@@ -54,7 +54,9 @@ async function computeMigrationHash(): Promise<string> {
   return hash.digest('hex').slice(0, 16);
 }
 
-async function getStoredSchemaVersion(db: ReturnType<typeof drizzle>): Promise<string | null> {
+async function getStoredSchemaVersion(
+  db: ReturnType<typeof drizzle>,
+): Promise<string | null> {
   try {
     const result = await db.execute(sql`
       SELECT version FROM _test_schema_meta LIMIT 1
@@ -65,7 +67,10 @@ async function getStoredSchemaVersion(db: ReturnType<typeof drizzle>): Promise<s
   }
 }
 
-async function setSchemaVersion(db: ReturnType<typeof drizzle>, version: string): Promise<void> {
+async function setSchemaVersion(
+  db: ReturnType<typeof drizzle>,
+  version: string,
+): Promise<void> {
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS _test_schema_meta (
       id INTEGER PRIMARY KEY DEFAULT 1,
@@ -179,7 +184,9 @@ export async function truncateAll() {
   // Truncate each table individually to handle missing tables gracefully
   for (const table of tables) {
     try {
-      await db.execute(sql.raw(`TRUNCATE TABLE ${table} RESTART IDENTITY CASCADE`));
+      await db.execute(
+        sql.raw(`TRUNCATE TABLE ${table} RESTART IDENTITY CASCADE`),
+      );
     } catch {
       // Table might not exist - skip silently
     }
@@ -196,4 +203,9 @@ export async function closeDb() {
 
 export { testDb };
 
-export { clearGraphData, closeGraph, connectGraph, graphQuery } from './graphSetup';
+export {
+  clearGraphData,
+  closeGraph,
+  connectGraph,
+  graphQuery,
+} from './graphSetup';

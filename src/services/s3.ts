@@ -20,9 +20,14 @@ class S3Service {
     const config: any = {
       region: process.env.AWS_REGION || 'us-east-1',
       credentials: {
-        accessKeyId: process.env.AWS_ACCESS_KEY_ID || process.env.MINIO_ACCESS_KEY || 'minioadmin',
+        accessKeyId:
+          process.env.AWS_ACCESS_KEY_ID ||
+          process.env.MINIO_ACCESS_KEY ||
+          'minioadmin',
         secretAccessKey:
-          process.env.AWS_SECRET_ACCESS_KEY || process.env.MINIO_SECRET_KEY || 'minioadmin',
+          process.env.AWS_SECRET_ACCESS_KEY ||
+          process.env.MINIO_SECRET_KEY ||
+          'minioadmin',
       },
     };
 
@@ -38,7 +43,7 @@ class S3Service {
         bucket: this.bucket,
         endpoint: this.endpoint || 'AWS S3',
       },
-      'S3 service initialized'
+      'S3 service initialized',
     );
   }
 
@@ -54,7 +59,10 @@ class S3Service {
     return url;
   }
 
-  async generateDownloadUrl(key: string, expiresIn = PRESIGNED_S3_URL_EXPIRATION): Promise<string> {
+  async generateDownloadUrl(
+    key: string,
+    expiresIn = PRESIGNED_S3_URL_EXPIRATION,
+  ): Promise<string> {
     const command = new GetObjectCommand({
       Bucket: this.bucket,
       Key: key,
@@ -68,7 +76,7 @@ class S3Service {
         expiresIn,
         urlPrefix: url.substring(0, 50),
       },
-      'Generated download URL'
+      'Generated download URL',
     );
     return url;
   }
@@ -86,7 +94,7 @@ class S3Service {
   async uploadBuffer(
     buffer: Buffer,
     key: string,
-    contentType: string = 'application/octet-stream'
+    contentType: string = 'application/octet-stream',
   ): Promise<void> {
     const command = new PutObjectCommand({
       Bucket: this.bucket,
@@ -96,7 +104,10 @@ class S3Service {
     });
 
     await this.client.send(command);
-    logger.info({ key, size: buffer.length, contentType }, 'Uploaded buffer to S3');
+    logger.info(
+      { key, size: buffer.length, contentType },
+      'Uploaded buffer to S3',
+    );
   }
 
   async downloadBuffer(key: string): Promise<Buffer> {

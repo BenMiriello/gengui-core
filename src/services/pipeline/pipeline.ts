@@ -14,43 +14,48 @@ import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { db } from '../../config/database';
 import { documents } from '../../models/schema';
-import type { FacetInput, FacetType, StoryEdgeType, StoryNodeType } from '../../types/storyNodes';
+import type {
+  FacetInput,
+  FacetType,
+  StoryEdgeType,
+  StoryNodeType,
+} from '../../types/storyNodes';
 import { logger } from '../../utils/logger';
 import { generateEmbedding, generateEmbeddings } from '../embeddings';
 import {
+  type EntityCandidate,
+  type ExistingEntity,
+  mapToLegacyDecision,
+  needsLLMRefinement,
+  resolveEntities,
+} from '../entityResolution';
+import {
+  analyzeHigherOrder,
+  extractCrossSegmentRelationships,
   extractEntitiesFromSegment,
   extractRelationshipsFromSegment,
-  extractCrossSegmentRelationships,
-  analyzeHigherOrder,
   type Stage4RelationshipsResult,
   type Stage5HigherOrderResult,
 } from '../gemini/client';
-import {
-  resolveEntities,
-  mapToLegacyDecision,
-  needsLLMRefinement,
-  type EntityCandidate,
-  type ExistingEntity,
-} from '../entityResolution';
 import { graphService } from '../graph/graph.service';
 import { mentionService } from '../mentions';
 import { type Segment, segmentService } from '../segments';
 import { sentenceService } from '../sentences';
+import { sseService } from '../sse';
 import {
   graphStoryNodesRepository,
-  selectEntitiesForContext,
   recomputeEntityEmbeddingWithMentionWeights,
+  selectEntitiesForContext,
 } from '../storyNodes';
-import { sseService } from '../sse';
-import { type AnalysisStage, getStageLabel } from './stages';
 import {
+  clearCheckpoint,
+  isCheckpointValid,
   loadCheckpoint,
   saveCheckpoint,
-  clearCheckpoint,
   shouldRunStage,
-  isCheckpointValid,
 } from './checkpoint';
 import { AnalysisCancelledError, AnalysisPausedError } from './errors';
+import { type AnalysisStage, getStageLabel } from './stages';
 
 /**
  * Check if the analysis has been paused or cancelled.
@@ -132,7 +137,11 @@ export const multiStagePipeline = {
       broadcastProgress = true,
     } = options;
 
-    const broadcast = (stage: AnalysisStage, entityCount?: number, statusHint?: string) => {
+    const broadcast = (
+      stage: AnalysisStage,
+      entityCount?: number,
+      statusHint?: string,
+    ) => {
       if (!broadcastProgress) return;
       sseService.broadcastToDocument(documentId, 'analysis-progress', {
         documentId,
@@ -147,8 +156,12 @@ export const multiStagePipeline = {
     let checkpoint = await loadCheckpoint(documentId);
     if (checkpoint && !isCheckpointValid(checkpoint, versionNumber)) {
       logger.info(
-        { documentId, checkpointVersion: checkpoint.documentVersion, currentVersion: versionNumber },
-        'Document version changed, invalidating checkpoint'
+        {
+          documentId,
+          checkpointVersion: checkpoint.documentVersion,
+          currentVersion: versionNumber,
+        },
+        'Document version changed, invalidating checkpoint',
       );
       await clearCheckpoint(documentId);
       checkpoint = null;
@@ -157,7 +170,7 @@ export const multiStagePipeline = {
     if (checkpoint) {
       logger.info(
         { documentId, lastStageCompleted: checkpoint.lastStageCompleted },
-        'Resuming from checkpoint'
+        'Resuming from checkpoint',
       );
     }
 
@@ -165,9 +178,16 @@ export const multiStagePipeline = {
     if (shouldRunStage(checkpoint, 1)) {
       await checkForInterruption(documentId);
       broadcast(1);
-      logger.info({ documentId, segmentCount: segments.length }, 'Stage 1: Processing segments');
+      logger.info(
+        { documentId, segmentCount: segments.length },
+        'Stage 1: Processing segments',
+      );
 
-      await sentenceService.processDocument(documentId, documentContent, segments);
+      await sentenceService.processDocument(
+        documentId,
+        documentContent,
+        segments,
+      );
 
       await saveCheckpoint(documentId, {
         documentVersion: versionNumber,
@@ -202,19 +222,26 @@ export const multiStagePipeline = {
 
         if (!isInitialExtraction || i > 0) {
           // For incremental or later segments, get context
-          const adjacentIds = segmentService.getAdjacentSegments(segments, [segment.id], 1);
+          const adjacentIds = segmentService.getAdjacentSegments(
+            segments,
+            [segment.id],
+            1,
+          );
 
           // Get average embedding for this segment's sentences
-          const sentenceEmbeddings = await sentenceService.getBySegmentIds(documentId, [segment.id]);
+          const sentenceEmbeddings = await sentenceService.getBySegmentIds(
+            documentId,
+            [segment.id],
+          );
           if (sentenceEmbeddings.length > 0) {
             const avgEmbedding = sentenceService.computeAverageEmbedding(
-              sentenceEmbeddings.map((s) => s.embedding)
+              sentenceEmbeddings.map((s) => s.embedding),
             );
             existingContext = await selectEntitiesForContext(
               documentId,
               userId,
               avgEmbedding,
-              adjacentIds
+              adjacentIds,
             );
           }
         }
@@ -224,14 +251,17 @@ export const multiStagePipeline = {
           segmentText,
           i,
           segments.length,
-          existingContext
+          existingContext,
         );
 
         // Transform flat results to extracted entities
         for (const entity of result.entities) {
           const entityFacets = result.facets
             .filter((f) => f.entityName === entity.name)
-            .map((f) => ({ type: f.facetType as FacetType, content: f.content }));
+            .map((f) => ({
+              type: f.facetType as FacetType,
+              content: f.content,
+            }));
 
           const entityMentions = result.mentions
             .filter((m) => m.entityName === entity.name)
@@ -247,12 +277,16 @@ export const multiStagePipeline = {
           });
         }
 
-        broadcast(2, extractedEntities.length, `Processing segment ${i + 1} of ${segments.length}...`);
+        broadcast(
+          2,
+          extractedEntities.length,
+          `Processing segment ${i + 1} of ${segments.length}...`,
+        );
       }
 
       logger.info(
         { documentId, extractedCount: extractedEntities.length },
-        'Stage 2 complete: Entities extracted'
+        'Stage 2 complete: Entities extracted',
       );
 
       await saveCheckpoint(documentId, {
@@ -263,10 +297,12 @@ export const multiStagePipeline = {
       extractedEntities = checkpoint.stage2Output.extractedEntities;
       logger.info(
         { documentId, cachedCount: extractedEntities.length },
-        'Skipping Stage 2 (using cached entities)'
+        'Skipping Stage 2 (using cached entities)',
       );
     } else {
-      throw new Error('Checkpoint inconsistency: Stage 2 skipped but no cached data');
+      throw new Error(
+        'Checkpoint inconsistency: Stage 2 skipped but no cached data',
+      );
     }
 
     // Stage 3: Text Grounding (algorithmic)
@@ -290,30 +326,42 @@ export const multiStagePipeline = {
     if (shouldRunStage(checkpoint, 4)) {
       await checkForInterruption(documentId);
       broadcast(4, extractedEntities.length);
-      logger.info({ documentId }, 'Stage 4: Resolving entities with multi-signal clustering');
+      logger.info(
+        { documentId },
+        'Stage 4: Resolving entities with multi-signal clustering',
+      );
 
       resolvedEntities = [];
       entityIdByName = new Map<string, string>();
 
       // Get existing entities for resolution
-      const existingNodes = await graphStoryNodesRepository.getActiveNodes(documentId, userId);
+      const existingNodes = await graphStoryNodesRepository.getActiveNodes(
+        documentId,
+        userId,
+      );
 
       // Generate embeddings for all entities in a single batch call
       const entityTexts = extractedEntities.map(
-        (entity) => `${entity.name}: ${entity.facets.map((f) => f.content).join(', ')}`
+        (entity) =>
+          `${entity.name}: ${entity.facets.map((f) => f.content).join(', ')}`,
       );
       const entityEmbeddings = await generateEmbeddings(entityTexts);
 
       // Convert extracted entities to EntityCandidate format
-      const entityCandidates: EntityCandidate[] = extractedEntities.map((entity, i) => ({
-        name: entity.name,
-        type: entity.type,
-        embedding: entityEmbeddings[i],
-        facets: entity.facets,
-        mentions: entity.mentions.map((m) => ({ text: m.text, segmentId: entity.segmentId })),
-        segmentId: entity.segmentId,
-        documentOrder: entity.documentOrder,
-      }));
+      const entityCandidates: EntityCandidate[] = extractedEntities.map(
+        (entity, i) => ({
+          name: entity.name,
+          type: entity.type,
+          embedding: entityEmbeddings[i],
+          facets: entity.facets,
+          mentions: entity.mentions.map((m) => ({
+            text: m.text,
+            segmentId: entity.segmentId,
+          })),
+          segmentId: entity.segmentId,
+          documentOrder: entity.documentOrder,
+        }),
+      );
 
       // Build existing entities with embeddings and facets
       const existingEntities: ExistingEntity[] = [];
@@ -337,7 +385,7 @@ export const multiStagePipeline = {
       const resolutionResults = await resolveEntities(
         entityCandidates,
         existingEntities,
-        { documentId, userId }
+        { documentId, userId },
       );
 
       logger.info(
@@ -348,7 +396,7 @@ export const multiStagePipeline = {
           needsReview: resolutionResults.stats.needsReview,
           created: resolutionResults.stats.created,
         },
-        'Stage 4: Batch clustering complete'
+        'Stage 4: Batch clustering complete',
       );
 
       // Process resolution results
@@ -397,7 +445,7 @@ export const multiStagePipeline = {
               score: result.score,
               confidence: result.confidence,
             },
-            'Stage 4: Cluster needs LLM refinement (skipping for now)'
+            'Stage 4: Cluster needs LLM refinement (skipping for now)',
           );
         }
       }
@@ -407,8 +455,12 @@ export const multiStagePipeline = {
       const uniqueEntityIds = new Set(entityIdByName.values());
 
       logger.info(
-        { documentId, resolvedCount: resolvedEntities.length, uniqueEntities: uniqueEntityIds.size },
-        'Stage 4 complete: Entities resolved'
+        {
+          documentId,
+          resolvedCount: resolvedEntities.length,
+          uniqueEntities: uniqueEntityIds.size,
+        },
+        'Stage 4 complete: Entities resolved',
       );
       broadcast(4, uniqueEntityIds.size, 'Creating entities...');
 
@@ -417,7 +469,7 @@ export const multiStagePipeline = {
       for (const entityId of uniqueEntityIds) {
         // Find ALL resolved entities that map to this entityId (includes aliases)
         const entityInstances = resolvedEntities.filter(
-          (e) => entityIdByName.get(e.name) === entityId
+          (e) => entityIdByName.get(e.name) === entityId,
         );
         if (entityInstances.length === 0) continue;
 
@@ -433,7 +485,9 @@ export const multiStagePipeline = {
             allFacets.push(...instance.facets);
           }
           const uniqueFacets = Array.from(
-            new Map(allFacets.map((f) => [`${f.type}:${f.content}`, f])).values()
+            new Map(
+              allFacets.map((f) => [`${f.type}:${f.content}`, f]),
+            ).values(),
           );
 
           // Create entity (idempotent by ID)
@@ -450,7 +504,7 @@ export const multiStagePipeline = {
               stylePreset: documentStyle?.preset,
               stylePrompt: documentStyle?.prompt,
               existingId: entityId,
-            }
+            },
           );
 
           if (created) {
@@ -494,14 +548,17 @@ export const multiStagePipeline = {
                 versionNumber,
                 segments,
                 'extraction',
-                100
+                100,
               );
             }
           }
         }
 
         // Recompute entity embedding with mention weights
-        if (createdEntityIds.has(entityId) || firstInstance.decision === 'ADD_FACET') {
+        if (
+          createdEntityIds.has(entityId) ||
+          firstInstance.decision === 'ADD_FACET'
+        ) {
           await recomputeEntityEmbeddingWithMentionWeights(entityId);
         }
       }
@@ -512,7 +569,9 @@ export const multiStagePipeline = {
       });
     } else if (checkpoint?.stage4Output) {
       // Reconstruct from checkpoint
-      entityIdByName = new Map(Object.entries(checkpoint.stage4Output.entityIdByName));
+      entityIdByName = new Map(
+        Object.entries(checkpoint.stage4Output.entityIdByName),
+      );
 
       // Reconstruct resolvedEntities from extractedEntities + entityIdByName
       resolvedEntities = extractedEntities
@@ -525,10 +584,12 @@ export const multiStagePipeline = {
 
       logger.info(
         { documentId, cachedEntities: entityIdByName.size },
-        'Skipping Stage 4 (using cached entity mapping)'
+        'Skipping Stage 4 (using cached entity mapping)',
       );
     } else {
-      throw new Error('Checkpoint inconsistency: Stage 4 skipped but no cached data');
+      throw new Error(
+        'Checkpoint inconsistency: Stage 4 skipped but no cached data',
+      );
     }
 
     // Stage 5: Intra-Segment Relationship Extraction (parallel per segment)
@@ -537,18 +598,27 @@ export const multiStagePipeline = {
     if (shouldRunStage(checkpoint, 5)) {
       await checkForInterruption(documentId);
       broadcast(5, entityIdByName.size);
-      logger.info({ documentId }, 'Stage 5: Extracting intra-segment relationships');
+      logger.info(
+        { documentId },
+        'Stage 5: Extracting intra-segment relationships',
+      );
 
       for (let i = 0; i < segments.length; i++) {
         const segment = segments[i];
         const segmentText = documentContent.slice(segment.start, segment.end);
 
-        broadcast(5, entityIdByName.size, `Extracting relationships: segment ${i + 1}/${segments.length}`);
+        broadcast(
+          5,
+          entityIdByName.size,
+          `Extracting relationships: segment ${i + 1}/${segments.length}`,
+        );
 
         // Get resolved entities in this segment
-        const entitiesInSegment = resolvedEntities.filter((e) => e.segmentId === segment.id);
+        const entitiesInSegment = resolvedEntities.filter(
+          (e) => e.segmentId === segment.id,
+        );
         const uniqueEntitiesInSegment = Array.from(
-          new Map(entitiesInSegment.map((e) => [e.id, e])).values()
+          new Map(entitiesInSegment.map((e) => [e.id, e])).values(),
         );
 
         if (uniqueEntitiesInSegment.length < 2) continue;
@@ -561,7 +631,7 @@ export const multiStagePipeline = {
             name: e.name,
             type: e.type,
             keyFacets: e.facets.slice(0, 3).map((f) => f.content),
-          }))
+          })),
         );
 
         allRelationships.push(...result.relationships);
@@ -569,7 +639,7 @@ export const multiStagePipeline = {
 
       logger.info(
         { documentId, relationshipCount: allRelationships.length },
-        'Stage 5 complete: Intra-segment relationships extracted'
+        'Stage 5 complete: Intra-segment relationships extracted',
       );
 
       await saveCheckpoint(documentId, { lastStageCompleted: 5 });
@@ -581,14 +651,18 @@ export const multiStagePipeline = {
     if (shouldRunStage(checkpoint, 6)) {
       await checkForInterruption(documentId);
       broadcast(6, entityIdByName.size);
-      logger.info({ documentId }, 'Stage 6: Extracting cross-segment relationships');
+      logger.info(
+        { documentId },
+        'Stage 6: Extracting cross-segment relationships',
+      );
 
       // Build entity list with segment associations
       const entityWithSegments: EntityWithSegments[] = [];
       for (const [name, id] of entityIdByName) {
         const instances = resolvedEntities.filter((e) => e.name === name);
         const segmentIds = [...new Set(instances.map((e) => e.segmentId))];
-        const keyFacets = instances[0]?.facets.slice(0, 3).map((f) => f.content) || [];
+        const keyFacets =
+          instances[0]?.facets.slice(0, 3).map((f) => f.content) || [];
 
         entityWithSegments.push({
           id,
@@ -600,10 +674,16 @@ export const multiStagePipeline = {
       }
 
       // Only run cross-segment if we have entities in multiple segments
-      const entitiesInMultipleSegments = entityWithSegments.filter((e) => e.segmentIds.length > 1);
+      const entitiesInMultipleSegments = entityWithSegments.filter(
+        (e) => e.segmentIds.length > 1,
+      );
 
       if (entitiesInMultipleSegments.length > 0) {
-        broadcast(6, entityIdByName.size, 'Finding cross-segment connections...');
+        broadcast(
+          6,
+          entityIdByName.size,
+          'Finding cross-segment connections...',
+        );
         const crossSegmentResult = await extractCrossSegmentRelationships(
           documentTitle ? `Document: "${documentTitle}"` : undefined,
           entityWithSegments,
@@ -611,7 +691,7 @@ export const multiStagePipeline = {
             fromId: r.fromId,
             toId: r.toId,
             edgeType: r.edgeType,
-          }))
+          })),
         );
 
         allRelationships.push(...crossSegmentResult.relationships);
@@ -619,7 +699,7 @@ export const multiStagePipeline = {
 
       logger.info(
         { documentId, totalRelationships: allRelationships.length },
-        'Stage 6 complete: Cross-segment relationships extracted'
+        'Stage 6 complete: Cross-segment relationships extracted',
       );
 
       // Create relationships in database (idempotent)
@@ -630,7 +710,7 @@ export const multiStagePipeline = {
             rel.toId,
             rel.edgeType as StoryEdgeType,
             rel.description,
-            { strength: rel.strength }
+            { strength: rel.strength },
           );
         } catch (err: any) {
           if (!err?.message?.includes('would create a cycle')) {
@@ -683,7 +763,9 @@ export const multiStagePipeline = {
           // Get causal edges
           const connections = await graphService.getConnectionsFromNode(id);
           const causalEdges = connections
-            .filter((c) => ['CAUSES', 'ENABLES', 'PREVENTS'].includes(c.edgeType))
+            .filter((c) =>
+              ['CAUSES', 'ENABLES', 'PREVENTS'].includes(c.edgeType),
+            )
             .map((c) => ({
               type: c.edgeType as 'CAUSES' | 'ENABLES' | 'PREVENTS',
               targetId: c.toNodeId,
@@ -691,7 +773,9 @@ export const multiStagePipeline = {
             }));
 
           // Get connected characters
-          const participates = connections.filter((c) => c.edgeType === 'PARTICIPATES_IN');
+          const participates = connections.filter(
+            (c) => c.edgeType === 'PARTICIPATES_IN',
+          );
           const connectedCharacterIds = participates.map((c) => c.fromNodeId);
 
           events.push({
@@ -703,10 +787,15 @@ export const multiStagePipeline = {
           });
         } else if (entityType === 'character') {
           // Get state facets by segment
-          const stateFacetsBySegment: Array<{ segmentIndex: number; states: string[] }> = [];
+          const stateFacetsBySegment: Array<{
+            segmentIndex: number;
+            states: string[];
+          }> = [];
 
           for (const instance of instances) {
-            const segmentIndex = segments.findIndex((s) => s.id === instance.segmentId);
+            const segmentIndex = segments.findIndex(
+              (s) => s.id === instance.segmentId,
+            );
             const states = instance.facets
               .filter((f) => f.type === 'state')
               .map((f) => f.content);
@@ -742,20 +831,21 @@ export const multiStagePipeline = {
           events,
           characters,
           threadCandidates,
-          documentTitle
+          documentTitle,
         );
 
         // Create narrative threads (idempotent)
         for (const thread of higherOrderResult.narrativeThreads) {
-          const { id: threadId, created } = await graphService.createNarrativeThreadIdempotent(
-            documentId,
-            userId,
-            {
-              name: thread.name,
-              isPrimary: thread.isPrimary,
-              eventNames: [],
-            }
-          );
+          const { id: threadId, created } =
+            await graphService.createNarrativeThreadIdempotent(
+              documentId,
+              userId,
+              {
+                name: thread.name,
+                isPrimary: thread.isPrimary,
+                eventNames: [],
+              },
+            );
 
           if (created) {
             for (const [i, eventId] of thread.eventIds.entries()) {
@@ -765,13 +855,16 @@ export const multiStagePipeline = {
         }
 
         // Process character arcs from flattened arcPhases
-        if (higherOrderResult.arcPhases && higherOrderResult.arcPhases.length > 0) {
+        if (
+          higherOrderResult.arcPhases &&
+          higherOrderResult.arcPhases.length > 0
+        ) {
           await processCharacterArcs(
             higherOrderResult.arcPhases,
             documentId,
             userId,
             entityIdByName,
-            events
+            events,
           );
         }
       }
@@ -780,10 +873,12 @@ export const multiStagePipeline = {
         {
           documentId,
           threadCount: higherOrderResult?.narrativeThreads.length || 0,
-          arcCount: new Set((higherOrderResult?.arcPhases || []).map((p) => p.characterId)).size,
+          arcCount: new Set(
+            (higherOrderResult?.arcPhases || []).map((p) => p.characterId),
+          ).size,
           arcPhaseCount: higherOrderResult?.arcPhases?.length || 0,
         },
-        'Stage 7 complete: Higher-order analysis done'
+        'Stage 7 complete: Higher-order analysis done',
       );
 
       // Clear checkpoint on successful completion
@@ -795,7 +890,7 @@ export const multiStagePipeline = {
 
     // Count unique characters with arcs
     const uniqueCharactersWithArcs = new Set(
-      (higherOrderResult?.arcPhases || []).map((p) => p.characterId)
+      (higherOrderResult?.arcPhases || []).map((p) => p.characterId),
     );
 
     return {
@@ -816,7 +911,7 @@ function detectThreadCandidates(
     causalEdges: Array<{ targetId: string }>;
     connectedCharacterIds: string[];
   }>,
-  _characters: Array<{ id: string; participatesInEventIds: string[] }>
+  _characters: Array<{ id: string; participatesInEventIds: string[] }>,
 ): Array<{ eventIds: string[]; characterIds: string[] }> {
   if (events.length === 0) return [];
 
@@ -889,7 +984,7 @@ async function processCharacterArcs(
   documentId: string,
   userId: string,
   _entityIdByName: Map<string, string>,
-  events: Array<{ id: string; documentOrder: number }>
+  events: Array<{ id: string; documentOrder: number }>,
 ): Promise<void> {
   // Group phases by characterId
   const phasesByCharacter = new Map<string, typeof arcPhases>();
@@ -910,9 +1005,14 @@ async function processCharacterArcs(
     const arcType = phases[0].arcType;
 
     // Create the Arc node
-    const arcId = await graphService.createArc(characterId, documentId, userId, {
-      arcType,
-    });
+    const arcId = await graphService.createArc(
+      characterId,
+      documentId,
+      userId,
+      {
+        arcType,
+      },
+    );
 
     // Create CharacterState nodes for each phase
     const stateIds: string[] = [];
@@ -940,7 +1040,7 @@ async function processCharacterArcs(
           phaseIndex: phase.phaseIndex,
           documentOrder,
           causalOrder,
-        }
+        },
       );
 
       stateIds.push(stateId);
@@ -957,8 +1057,9 @@ async function processCharacterArcs(
       const entityFacets = await graphService.getFacetsForEntity(characterId);
       for (const facetContent of phase.stateFacets) {
         const matchingFacet = entityFacets.find(
-          (f) => f.content.toLowerCase().includes(facetContent.toLowerCase()) ||
-                 facetContent.toLowerCase().includes(f.content.toLowerCase())
+          (f) =>
+            f.content.toLowerCase().includes(facetContent.toLowerCase()) ||
+            facetContent.toLowerCase().includes(f.content.toLowerCase()),
         );
         if (matchingFacet) {
           await graphService.linkStateToFacet(stateId, matchingFacet.id);
@@ -973,8 +1074,9 @@ async function processCharacterArcs(
           .map((f) => f.embedding!);
 
         if (embeddings.length > 0) {
-          const sumEmbedding = embeddings[0].map((_, i) =>
-            embeddings.reduce((sum, e) => sum + e[i], 0) / embeddings.length
+          const sumEmbedding = embeddings[0].map(
+            (_, i) =>
+              embeddings.reduce((sum, e) => sum + e[i], 0) / embeddings.length,
           );
           await graphService.setCharacterStateEmbedding(stateId, sumEmbedding);
         }
@@ -995,7 +1097,7 @@ async function processCharacterArcs(
 
     logger.info(
       { characterId, arcId, stateCount: stateIds.length, arcType },
-      'Character arc processed'
+      'Character arc processed',
     );
   }
 }

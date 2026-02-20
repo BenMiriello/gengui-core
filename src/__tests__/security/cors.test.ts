@@ -1,6 +1,18 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from 'bun:test';
 import { closeDb, resetUserCounter, truncateAll } from '../helpers';
-import { clearRedisStore, emailMock, startTestServer, stopTestServer } from '../helpers/testApp';
+import {
+  clearRedisStore,
+  emailMock,
+  startTestServer,
+  stopTestServer,
+} from '../helpers/testApp';
 
 describe('CORS', () => {
   let baseUrl: string;
@@ -57,7 +69,9 @@ describe('CORS', () => {
         headers: { Origin: 'http://localhost:5173' },
       });
 
-      const allowCredentials = response.headers.get('access-control-allow-credentials');
+      const allowCredentials = response.headers.get(
+        'access-control-allow-credentials',
+      );
       expect(allowCredentials).toBe('true');
     });
 
@@ -67,7 +81,9 @@ describe('CORS', () => {
       });
 
       const allowOrigin = response.headers.get('access-control-allow-origin');
-      const allowCredentials = response.headers.get('access-control-allow-credentials');
+      const allowCredentials = response.headers.get(
+        'access-control-allow-credentials',
+      );
 
       if (allowCredentials === 'true') {
         expect(allowOrigin).not.toBe('*');

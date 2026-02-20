@@ -65,7 +65,10 @@ router.post(
   async (req, res, next) => {
     try {
       const validatedData = createGenerationSchema.parse(req.body);
-      const result = await generationsService.create(req.user!.id, validatedData);
+      const result = await generationsService.create(
+        req.user!.id,
+        validatedData,
+      );
 
       res.status(201).json({
         id: result.id,
@@ -79,18 +82,24 @@ router.post(
     } catch (error) {
       if (error instanceof z.ZodError) {
         res.status(400).json({
-          error: { message: 'Invalid request', code: 'VALIDATION_ERROR', details: error.issues },
+          error: {
+            message: 'Invalid request',
+            code: 'VALIDATION_ERROR',
+            details: error.issues,
+          },
         });
         return;
       }
       next(error);
     }
-  }
+  },
 );
 
 router.get('/provider-capabilities', requireAuth, async (_req, res, next) => {
   try {
-    const { getImageProviderName } = await import('../services/image-generation/factory.js');
+    const { getImageProviderName } = await import(
+      '../services/image-generation/factory.js'
+    );
     const providerName = await getImageProviderName();
 
     res.json({
@@ -115,7 +124,10 @@ router.get('/', requireAuth, async (req, res, next) => {
 
 router.get('/:id', requireAuth, async (req, res, next) => {
   try {
-    const generation = await generationsService.getById(req.params.id, req.user!.id);
+    const generation = await generationsService.getById(
+      req.params.id,
+      req.user!.id,
+    );
 
     res.json(generation);
   } catch (error) {
@@ -130,12 +142,16 @@ router.post('/:id/cancel', requireAuth, async (req, res, next) => {
   } catch (error) {
     // Job already completed - return 409 Conflict
     if (error instanceof Error && error.message.includes('already completed')) {
-      res.status(409).json({ error: { message: error.message, code: 'ALREADY_COMPLETED' } });
+      res
+        .status(409)
+        .json({ error: { message: error.message, code: 'ALREADY_COMPLETED' } });
       return;
     }
     // Job already failed - return 409 Conflict
     if (error instanceof Error && error.message.includes('already failed')) {
-      res.status(409).json({ error: { message: error.message, code: 'ALREADY_FAILED' } });
+      res
+        .status(409)
+        .json({ error: { message: error.message, code: 'ALREADY_FAILED' } });
       return;
     }
     next(error);

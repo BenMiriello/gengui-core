@@ -19,7 +19,10 @@ class CacheService {
     return `media:metadata:${mediaId}`;
   }
 
-  async getMediaUrl(mediaId: string, type: MediaUrlType): Promise<string | null> {
+  async getMediaUrl(
+    mediaId: string,
+    type: MediaUrlType,
+  ): Promise<string | null> {
     try {
       const cached = await redis.get(this.urlKey(mediaId, type));
       if (cached) {
@@ -36,7 +39,7 @@ class CacheService {
     mediaId: string,
     type: MediaUrlType,
     url: string,
-    ttl: number = URL_CACHE_TTL
+    ttl: number = URL_CACHE_TTL,
   ): Promise<void> {
     try {
       await redis.set(this.urlKey(mediaId, type), url, ttl);
@@ -63,7 +66,7 @@ class CacheService {
   async setMetadata(
     mediaId: string,
     metadata: MediaMetadata,
-    ttl: number = METADATA_CACHE_TTL
+    ttl: number = METADATA_CACHE_TTL,
   ): Promise<void> {
     try {
       await redis.set(this.metadataKey(mediaId), JSON.stringify(metadata), ttl);

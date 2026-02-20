@@ -5,7 +5,9 @@ config();
 
 const envSchema = z
   .object({
-    NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+    NODE_ENV: z
+      .enum(['development', 'production', 'test'])
+      .default('development'),
     PORT: z.string().default('3000').transform(Number),
     LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).default('info'),
     DB_HOST: z.string().default('localhost'),
@@ -33,7 +35,9 @@ const envSchema = z
 
     // Inference Provider Selection
     TEXT_INFERENCE_PROVIDER: z.enum(['gemini']).default('gemini'),
-    IMAGE_INFERENCE_PROVIDER: z.enum(['local', 'runpod', 'gemini']).default('gemini'),
+    IMAGE_INFERENCE_PROVIDER: z
+      .enum(['local', 'runpod', 'gemini'])
+      .default('gemini'),
     EMBEDDING_PROVIDER: z.enum(['openai']).default('openai'),
 
     // Provider API Keys
@@ -62,7 +66,7 @@ const envSchema = z
     },
     {
       message: 'Missing required API keys for selected inference provider(s)',
-    }
+    },
   );
 
 function validateEnv() {
@@ -70,7 +74,9 @@ function validateEnv() {
     return envSchema.parse(process.env);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      const errors = error.issues.map((err) => `${err.path.join('.')}: ${err.message}`);
+      const errors = error.issues.map(
+        (err) => `${err.path.join('.')}: ${err.message}`,
+      );
       throw new Error(`Environment validation failed:\n${errors.join('\n')}`);
     }
     throw error;

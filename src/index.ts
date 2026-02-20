@@ -16,9 +16,12 @@ import { logger } from './utils/logger';
 
 blocked(
   (time, stack) => {
-    logger.warn({ time, stack: stack.slice(0, 5) }, `[EVENT LOOP BLOCKED] for ${time}ms`);
+    logger.warn(
+      { time, stack: stack.slice(0, 5) },
+      `[EVENT LOOP BLOCKED] for ${time}ms`,
+    );
   },
-  { threshold: 100 }
+  { threshold: 100 },
 );
 
 const app = createApp();

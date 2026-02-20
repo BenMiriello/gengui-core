@@ -37,7 +37,7 @@ class ImageProcessor {
 
       logger.info(
         { size, originalSize: buffer.length, thumbnailSize: thumbnail.length },
-        'Thumbnail created'
+        'Thumbnail created',
       );
 
       return thumbnail;

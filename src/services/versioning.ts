@@ -4,29 +4,42 @@ import { documents, documentVersions } from '../models/schema';
 import { logger } from '../utils/logger';
 
 export class VersioningService {
-  async createVersion(documentId: string, yjsState: string, content: string): Promise<number> {
+  async createVersion(
+    documentId: string,
+    yjsState: string,
+    content: string,
+  ): Promise<number> {
     return await db.transaction(async (tx) => {
       // Lock the document row to prevent race conditions
       const result = await tx.execute(
-        sql`SELECT current_version FROM documents WHERE id = ${documentId} FOR UPDATE`
+        sql`SELECT current_version FROM documents WHERE id = ${documentId} FOR UPDATE`,
       );
       const currentVersion = (result[0]?.current_version as number) ?? 0;
 
       // Skip if content unchanged from previous version
       if (currentVersion > 0) {
         const [latestVersion] = await tx
-          .select({ yjsState: documentVersions.yjsState, content: documentVersions.content })
+          .select({
+            yjsState: documentVersions.yjsState,
+            content: documentVersions.content,
+          })
           .from(documentVersions)
           .where(
             and(
               eq(documentVersions.documentId, documentId),
-              eq(documentVersions.versionNumber, currentVersion)
-            )
+              eq(documentVersions.versionNumber, currentVersion),
+            ),
           )
           .limit(1);
 
-        if (latestVersion?.content === content && latestVersion?.yjsState === yjsState) {
-          logger.debug({ documentId, versionNumber: currentVersion }, 'Skipped duplicate version');
+        if (
+          latestVersion?.content === content &&
+          latestVersion?.yjsState === yjsState
+        ) {
+          logger.debug(
+            { documentId, versionNumber: currentVersion },
+            'Skipped duplicate version',
+          );
           return currentVersion;
         }
       }
@@ -49,7 +62,10 @@ export class VersioningService {
         })
         .where(eq(documents.id, documentId));
 
-      logger.debug({ documentId, versionNumber: newVersionNumber }, 'Version created');
+      logger.debug(
+        { documentId, versionNumber: newVersionNumber },
+        'Version created',
+      );
 
       return newVersionNumber;
     });
@@ -77,8 +93,8 @@ export class VersioningService {
       .where(
         and(
           eq(documentVersions.documentId, documentId),
-          eq(documentVersions.versionNumber, versionNumber)
-        )
+          eq(documentVersions.versionNumber, versionNumber),
+        ),
       )
       .limit(1);
 

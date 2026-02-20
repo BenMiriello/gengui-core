@@ -45,18 +45,21 @@ export abstract class BlockingConsumer {
     this.serviceName = serviceName;
 
     // Create dedicated Redis client with optimized config
-    this.redisClient = new Redis(process.env.REDIS_URL || 'redis://127.0.0.1:6379', {
-      maxRetriesPerRequest: 3,
-      retryStrategy: (times) => Math.min(times * 500, 5000),
-      commandTimeout: 15000,
-      connectTimeout: 10000,
-      enableReadyCheck: true,
-      lazyConnect: false,
-      enableOfflineQueue: true,
-      keepAlive: 0,
-      family: 4,
-      enableAutoPipelining: false,
-    });
+    this.redisClient = new Redis(
+      process.env.REDIS_URL || 'redis://127.0.0.1:6379',
+      {
+        maxRetriesPerRequest: 3,
+        retryStrategy: (times) => Math.min(times * 500, 5000),
+        commandTimeout: 15000,
+        connectTimeout: 10000,
+        enableReadyCheck: true,
+        lazyConnect: false,
+        enableOfflineQueue: true,
+        keepAlive: 0,
+        family: 4,
+        enableAutoPipelining: false,
+      },
+    );
 
     this.redisClient.on('error', (error) => {
       logger.error({ error, service: this.serviceName }, 'Redis client error');
@@ -95,7 +98,7 @@ export abstract class BlockingConsumer {
         setTimeout(() => {
           logger.warn(
             { service: this.serviceName },
-            'Consumer loop did not exit in time, continuing shutdown'
+            'Consumer loop did not exit in time, continuing shutdown',
           );
           resolve();
         }, 3000);

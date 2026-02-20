@@ -24,7 +24,7 @@ class LocalWorkerProvider implements ImageGenerationProvider {
 
     logger.info(
       { mediaId: input.mediaId, prompt: input.prompt },
-      'Generation queued in Redis stream for local worker'
+      'Generation queued in Redis stream for local worker',
     );
   }
 
@@ -33,7 +33,11 @@ class LocalWorkerProvider implements ImageGenerationProvider {
   }
 
   validateDimensions(width: number, height: number): boolean {
-    const constraints = this.getSupportedDimensions() as { min: number; max: number; step: number };
+    const constraints = this.getSupportedDimensions() as {
+      min: number;
+      max: number;
+      step: number;
+    };
 
     if (width < constraints.min || width > constraints.max) return false;
     if (height < constraints.min || height > constraints.max) return false;

@@ -9,7 +9,9 @@ router.post('/tags', devAuth, async (req, res, next) => {
     const { name } = req.body;
 
     if (!name || typeof name !== 'string') {
-      res.status(400).json({ error: { message: 'Name is required', code: 'INVALID_INPUT' } });
+      res.status(400).json({
+        error: { message: 'Name is required', code: 'INVALID_INPUT' },
+      });
       return;
     }
 
@@ -36,11 +38,17 @@ router.post('/media/:id/tags', devAuth, async (req, res, next) => {
     const { tagId } = req.body;
 
     if (!tagId || typeof tagId !== 'string') {
-      res.status(400).json({ error: { message: 'tagId is required', code: 'INVALID_INPUT' } });
+      res.status(400).json({
+        error: { message: 'tagId is required', code: 'INVALID_INPUT' },
+      });
       return;
     }
 
-    const result = await tagService.addToMedia(req.params.id, tagId, req.user!.id);
+    const result = await tagService.addToMedia(
+      req.params.id,
+      tagId,
+      req.user!.id,
+    );
 
     res.status(201).json(result);
   } catch (error) {
@@ -50,7 +58,11 @@ router.post('/media/:id/tags', devAuth, async (req, res, next) => {
 
 router.delete('/media/:id/tags/:tagId', devAuth, async (req, res, next) => {
   try {
-    const result = await tagService.removeFromMedia(req.params.id, req.params.tagId, req.user!.id);
+    const result = await tagService.removeFromMedia(
+      req.params.id,
+      req.params.tagId,
+      req.user!.id,
+    );
 
     res.json({ message: 'Tag removed from media', ...result });
   } catch (error) {

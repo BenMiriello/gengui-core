@@ -11,92 +11,87 @@
  * - Confidence scoring for borderline cases
  */
 
+// Alias patterns
+export {
+  computeAliasPatternScore,
+  ensurePhoneticReady,
+  extractEpithet,
+  extractTitle,
+  generateAliasVariants,
+  getNameTokens,
+  getPhoneticCodes,
+  isLikelyEpithet,
+  isSubstringMatch,
+  normalizeNameForMatching,
+  phoneticMatch,
+  shareTitle,
+  tokenOverlap,
+} from './aliasPatterns';
+// Blocking
+export {
+  type BlockingIndex,
+  buildBlockingIndex,
+  filterByBlocking,
+  getBlockingStats,
+  getCandidateIds,
+} from './blocking';
+// Clustering
+export {
+  clusterAcrossSegments,
+  clusterBySegment,
+  clusterToCandidate,
+  clusterWithinSegment,
+} from './clustering';
+// Main resolver
+export {
+  getResolutionCandidates,
+  mapToLegacyDecision,
+  type ResolveResult,
+  type ResolverOptions,
+  resolveEntities,
+} from './resolver';
+
+// Scoring
+export {
+  computeConfidence,
+  computeSignalBreakdown,
+  computeWeightedScore,
+  cosineSimilarity,
+  type GraphContext,
+  scoreCandidate,
+  scoreCandidates,
+  scoreEmbeddingSimilarity,
+  scoreGraphContext,
+  scoreNameSimilarity,
+  scoreTypeMatch,
+} from './scoring';
+
+// Thresholding
+export {
+  batchResolve,
+  makeDecision,
+  needsLLMRefinement,
+  resolveCluster,
+  resolveFromScores,
+  summarizeDecision,
+} from './thresholding';
 // Types
 export type {
+  ClusterResolutionResult,
   EntityCandidate,
   EntityCluster,
   ExistingEntity,
-  ResolutionResult,
-  ClusterResolutionResult,
-  SignalBreakdown,
-  ScoredCandidate,
   ResolutionConfig,
-  ResolutionThresholds,
-  SignalWeights,
   ResolutionDecision,
+  ResolutionResult,
+  ResolutionThresholds,
+  ScoredCandidate,
+  SignalBreakdown,
+  SignalWeights,
 } from './types';
-
 export {
   DEFAULT_CONFIG,
   DEFAULT_THRESHOLDS,
   DEFAULT_WEIGHTS,
   WEIGHTS_BY_TYPE,
 } from './types';
-
-// Main resolver
-export {
-  resolveEntities,
-  getResolutionCandidates,
-  mapToLegacyDecision,
-  type ResolverOptions,
-  type ResolveResult,
-} from './resolver';
-
-// Clustering
-export {
-  clusterWithinSegment,
-  clusterBySegment,
-  clusterAcrossSegments,
-  clusterToCandidate,
-} from './clustering';
-
-// Scoring
-export {
-  cosineSimilarity,
-  scoreEmbeddingSimilarity,
-  scoreNameSimilarity,
-  scoreTypeMatch,
-  scoreGraphContext,
-  computeSignalBreakdown,
-  computeWeightedScore,
-  computeConfidence,
-  scoreCandidate,
-  scoreCandidates,
-  type GraphContext,
-} from './scoring';
-
-// Thresholding
-export {
-  makeDecision,
-  resolveFromScores,
-  resolveCluster,
-  batchResolve,
-  needsLLMRefinement,
-  summarizeDecision,
-} from './thresholding';
-
-// Alias patterns
-export {
-  normalizeNameForMatching,
-  extractTitle,
-  extractEpithet,
-  getNameTokens,
-  tokenOverlap,
-  isSubstringMatch,
-  shareTitle,
-  isLikelyEpithet,
-  generateAliasVariants,
-  computeAliasPatternScore,
-  phoneticMatch,
-  getPhoneticCodes,
-  ensurePhoneticReady,
-} from './aliasPatterns';
-
-// Blocking
-export {
-  buildBlockingIndex,
-  getCandidateIds,
-  filterByBlocking,
-  getBlockingStats,
-  type BlockingIndex,
-} from './blocking';

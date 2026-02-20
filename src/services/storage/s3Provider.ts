@@ -15,12 +15,18 @@ export class S3StorageProvider implements StorageProvider {
 
   constructor() {
     const accessKeyId =
-      process.env.AWS_ACCESS_KEY_ID || process.env.MINIO_ACCESS_KEY || 'minioadmin';
+      process.env.AWS_ACCESS_KEY_ID ||
+      process.env.MINIO_ACCESS_KEY ||
+      'minioadmin';
     const secretAccessKey =
-      process.env.AWS_SECRET_ACCESS_KEY || process.env.MINIO_SECRET_KEY || 'minioadmin';
+      process.env.AWS_SECRET_ACCESS_KEY ||
+      process.env.MINIO_SECRET_KEY ||
+      'minioadmin';
 
     if (!process.env.AWS_ACCESS_KEY_ID && !process.env.MINIO_ACCESS_KEY) {
-      logger.warn('S3 credentials not properly configured - using fallback minioadmin credentials');
+      logger.warn(
+        'S3 credentials not properly configured - using fallback minioadmin credentials',
+      );
     }
 
     const config: any = {
@@ -43,7 +49,12 @@ export class S3StorageProvider implements StorageProvider {
     logger.debug({ bucket: this.bucket }, 'S3 storage provider initialized');
   }
 
-  async upload(userId: string, mediaId: string, buffer: Buffer, mimeType: string): Promise<string> {
+  async upload(
+    userId: string,
+    mediaId: string,
+    buffer: Buffer,
+    mimeType: string,
+  ): Promise<string> {
     const ext = this.getExtensionFromMimeType(mimeType);
     const key = `users/${userId}/media/${mediaId}${ext}`;
 
@@ -72,7 +83,7 @@ export class S3StorageProvider implements StorageProvider {
 
   async getSignedUrl(
     key: string,
-    expiresIn: number = PRESIGNED_S3_URL_EXPIRATION
+    expiresIn: number = PRESIGNED_S3_URL_EXPIRATION,
   ): Promise<string> {
     return await s3.generateDownloadUrl(key, expiresIn);
   }

@@ -85,7 +85,7 @@ export type SimpleAspectRatio = keyof typeof TARGET_RATIOS;
  */
 export function getDimensionsForAspectRatio(
   ar: SimpleAspectRatio,
-  modelId: ImageModelId
+  modelId: ImageModelId,
 ): { width: number; height: number } {
   const model = IMAGE_MODELS[modelId];
   const targetRatio = TARGET_RATIOS[ar];

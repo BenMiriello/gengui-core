@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from 'bun:test';
 import {
   closeDb,
   createTestDocument,
@@ -71,7 +78,9 @@ describe('Document Update', () => {
 
     test('updates document title', async () => {
       const { user, password } = await createVerifiedUser();
-      const doc = await createTestDocument(user.id, { title: 'Original Title' });
+      const doc = await createTestDocument(user.id, {
+        title: 'Original Title',
+      });
       const sessionId = 'test-session-123';
       setPrimaryEditor(doc.id, sessionId);
 
@@ -145,7 +154,10 @@ describe('Document Update', () => {
           Cookie: cookie,
           'x-tab-id': sessionId,
         },
-        body: JSON.stringify({ narrativeModeEnabled: true, mediaModeEnabled: true }),
+        body: JSON.stringify({
+          narrativeModeEnabled: true,
+          mediaModeEnabled: true,
+        }),
       });
 
       expect(res.status).toBe(200);
@@ -174,7 +186,10 @@ describe('Document Update', () => {
           Cookie: cookie,
           'x-tab-id': sessionId,
         },
-        body: JSON.stringify({ defaultImageWidth: 512, defaultImageHeight: 512 }),
+        body: JSON.stringify({
+          defaultImageWidth: 512,
+          defaultImageHeight: 512,
+        }),
       });
 
       expect(res.status).toBe(200);
@@ -222,7 +237,9 @@ describe('Document Update', () => {
   describe('PATCH /documents/:id/modes', () => {
     test('updates narrative mode without presence check', async () => {
       const { user, password } = await createVerifiedUser();
-      const doc = await createTestDocument(user.id, { narrativeModeEnabled: false });
+      const doc = await createTestDocument(user.id, {
+        narrativeModeEnabled: false,
+      });
 
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
@@ -244,7 +261,9 @@ describe('Document Update', () => {
 
     test('updates media mode', async () => {
       const { user, password } = await createVerifiedUser();
-      const doc = await createTestDocument(user.id, { mediaModeEnabled: false });
+      const doc = await createTestDocument(user.id, {
+        mediaModeEnabled: false,
+      });
 
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
@@ -278,7 +297,10 @@ describe('Document Update', () => {
       const res = await fetch(`${baseUrl}/api/documents/${doc.id}/modes`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Cookie: cookie },
-        body: JSON.stringify({ narrativeModeEnabled: true, mediaModeEnabled: true }),
+        body: JSON.stringify({
+          narrativeModeEnabled: true,
+          mediaModeEnabled: true,
+        }),
       });
 
       expect(res.status).toBe(200);
@@ -303,7 +325,7 @@ describe('Document Update', () => {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json', Cookie: cookie },
           body: JSON.stringify({ narrativeModeEnabled: true }),
-        }
+        },
       );
 
       expect(res.status).toBe(404);

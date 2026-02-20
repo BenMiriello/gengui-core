@@ -30,7 +30,11 @@ export async function clearGraphData(): Promise<void> {
     throw new Error('Graph client not connected. Call connectGraph() first.');
   }
 
-  await graphClient.call('GRAPH.QUERY', GRAPH_NAME, 'MATCH (n) DETACH DELETE n');
+  await graphClient.call(
+    'GRAPH.QUERY',
+    GRAPH_NAME,
+    'MATCH (n) DETACH DELETE n',
+  );
 }
 
 export async function closeGraph(): Promise<void> {

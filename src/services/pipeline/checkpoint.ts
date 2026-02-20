@@ -7,9 +7,9 @@
 import { eq } from 'drizzle-orm';
 import { db } from '../../config/database';
 import { documents } from '../../models/schema';
-import type { AnalysisStage } from './stages';
 import type { FacetType, StoryNodeType } from '../../types/storyNodes';
 import { logger } from '../../utils/logger';
+import type { AnalysisStage } from './stages';
 
 export interface AnalysisCheckpoint {
   version: 1;
@@ -39,7 +39,9 @@ export interface AnalysisCheckpoint {
  * Load checkpoint for a document.
  * Returns null if no checkpoint exists.
  */
-export async function loadCheckpoint(documentId: string): Promise<AnalysisCheckpoint | null> {
+export async function loadCheckpoint(
+  documentId: string,
+): Promise<AnalysisCheckpoint | null> {
   const [doc] = await db
     .select({ analysisCheckpoint: documents.analysisCheckpoint })
     .from(documents)
@@ -54,7 +56,10 @@ export async function loadCheckpoint(documentId: string): Promise<AnalysisCheckp
 
   // Validate version
   if (checkpoint.version !== 1) {
-    logger.warn({ documentId, version: checkpoint.version }, 'Unknown checkpoint version, ignoring');
+    logger.warn(
+      { documentId, version: checkpoint.version },
+      'Unknown checkpoint version, ignoring',
+    );
     return null;
   }
 
@@ -67,15 +72,17 @@ export async function loadCheckpoint(documentId: string): Promise<AnalysisCheckp
  */
 export async function saveCheckpoint(
   documentId: string,
-  update: Partial<Omit<AnalysisCheckpoint, 'version'>>
+  update: Partial<Omit<AnalysisCheckpoint, 'version'>>,
 ): Promise<void> {
   const existing = await loadCheckpoint(documentId);
 
   const checkpoint: AnalysisCheckpoint = {
     version: 1,
     documentVersion: existing?.documentVersion ?? update.documentVersion ?? 0,
-    startedAt: existing?.startedAt ?? update.startedAt ?? new Date().toISOString(),
-    lastStageCompleted: update.lastStageCompleted ?? existing?.lastStageCompleted ?? null,
+    startedAt:
+      existing?.startedAt ?? update.startedAt ?? new Date().toISOString(),
+    lastStageCompleted:
+      update.lastStageCompleted ?? existing?.lastStageCompleted ?? null,
     stage2Output: update.stage2Output ?? existing?.stage2Output,
     stage4Output: update.stage4Output ?? existing?.stage4Output,
   };
@@ -87,7 +94,7 @@ export async function saveCheckpoint(
 
   logger.debug(
     { documentId, lastStageCompleted: checkpoint.lastStageCompleted },
-    'Checkpoint saved'
+    'Checkpoint saved',
   );
 }
 
@@ -109,7 +116,7 @@ export async function clearCheckpoint(documentId: string): Promise<void> {
  */
 export function shouldRunStage(
   checkpoint: AnalysisCheckpoint | null,
-  stage: AnalysisStage
+  stage: AnalysisStage,
 ): boolean {
   if (!checkpoint || checkpoint.lastStageCompleted === null) {
     return true;
@@ -122,7 +129,7 @@ export function shouldRunStage(
  */
 export function isCheckpointValid(
   checkpoint: AnalysisCheckpoint | null,
-  currentVersion: number
+  currentVersion: number,
 ): boolean {
   if (!checkpoint) {
     return false;

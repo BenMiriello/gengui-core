@@ -73,53 +73,80 @@ router.post(
     } catch (error) {
       if (error instanceof z.ZodError) {
         res.status(400).json({
-          error: { message: 'Invalid request', code: 'VALIDATION_ERROR', details: error.issues },
+          error: {
+            message: 'Invalid request',
+            code: 'VALIDATION_ERROR',
+            details: error.issues,
+          },
         });
         return;
       }
       if (error instanceof Error && error.message === 'Node not found') {
-        res.status(404).json({ error: { message: 'Node not found', code: 'NOT_FOUND' } });
+        res
+          .status(404)
+          .json({ error: { message: 'Node not found', code: 'NOT_FOUND' } });
         return;
       }
       next(error);
     }
-  }
+  },
 );
 
 // Set primary media for a node
-router.patch('/nodes/:id/primary-media', requireAuth, async (req, res, next) => {
-  try {
-    const validatedData = setPrimaryMediaSchema.parse(req.body);
-    await characterSheetService.setPrimaryMedia(req.params.id, validatedData.mediaId, req.user!.id);
+router.patch(
+  '/nodes/:id/primary-media',
+  requireAuth,
+  async (req, res, next) => {
+    try {
+      const validatedData = setPrimaryMediaSchema.parse(req.body);
+      await characterSheetService.setPrimaryMedia(
+        req.params.id,
+        validatedData.mediaId,
+        req.user!.id,
+      );
 
-    res.json({ success: true });
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      res.status(400).json({
-        error: { message: 'Invalid request', code: 'VALIDATION_ERROR', details: error.issues },
-      });
-      return;
+      res.json({ success: true });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({
+          error: {
+            message: 'Invalid request',
+            code: 'VALIDATION_ERROR',
+            details: error.issues,
+          },
+        });
+        return;
+      }
+      if (error instanceof Error && error.message === 'Node not found') {
+        res
+          .status(404)
+          .json({ error: { message: 'Node not found', code: 'NOT_FOUND' } });
+        return;
+      }
+      if (error instanceof Error && error.message.includes('not associated')) {
+        res.status(400).json({
+          error: { message: error.message, code: 'INVALID_ASSOCIATION' },
+        });
+        return;
+      }
+      next(error);
     }
-    if (error instanceof Error && error.message === 'Node not found') {
-      res.status(404).json({ error: { message: 'Node not found', code: 'NOT_FOUND' } });
-      return;
-    }
-    if (error instanceof Error && error.message.includes('not associated')) {
-      res.status(400).json({ error: { message: error.message, code: 'INVALID_ASSOCIATION' } });
-      return;
-    }
-    next(error);
-  }
-});
+  },
+);
 
 // Get node with associated media
 router.get('/nodes/:id', requireAuth, async (req, res, next) => {
   try {
-    const result = await characterSheetService.getNodeMedia(req.params.id, req.user!.id);
+    const result = await characterSheetService.getNodeMedia(
+      req.params.id,
+      req.user!.id,
+    );
     res.json(result);
   } catch (error) {
     if (error instanceof Error && error.message === 'Node not found') {
-      res.status(404).json({ error: { message: 'Node not found', code: 'NOT_FOUND' } });
+      res
+        .status(404)
+        .json({ error: { message: 'Node not found', code: 'NOT_FOUND' } });
       return;
     }
     next(error);
@@ -137,7 +164,9 @@ router.get('/nodes/:id/stream', requireAuth, async (req, res, next) => {
     sseService.addClient(clientId, `node:${id}`, res);
   } catch (error) {
     if (error instanceof Error && error.message === 'Node not found') {
-      res.status(404).json({ error: { message: 'Node not found', code: 'NOT_FOUND' } });
+      res
+        .status(404)
+        .json({ error: { message: 'Node not found', code: 'NOT_FOUND' } });
       return;
     }
     next(error);
@@ -154,11 +183,13 @@ router.patch('/nodes/:id/style', requireAuth, async (req, res, next) => {
     const updated = await graphService.updateStoryNodeStyle(
       id,
       validatedData.stylePreset,
-      validatedData.stylePrompt
+      validatedData.stylePrompt,
     );
 
     if (!updated || updated.userId !== req.user?.id) {
-      res.status(404).json({ error: { message: 'Node not found', code: 'NOT_FOUND' } });
+      res
+        .status(404)
+        .json({ error: { message: 'Node not found', code: 'NOT_FOUND' } });
       return;
     }
 
@@ -170,7 +201,11 @@ router.patch('/nodes/:id/style', requireAuth, async (req, res, next) => {
   } catch (error) {
     if (error instanceof z.ZodError) {
       res.status(400).json({
-        error: { message: 'Invalid request', code: 'VALIDATION_ERROR', details: error.issues },
+        error: {
+          message: 'Invalid request',
+          code: 'VALIDATION_ERROR',
+          details: error.issues,
+        },
       });
       return;
     }
@@ -187,7 +222,9 @@ router.patch('/nodes/:id', requireAuth, async (req, res, next) => {
     // Verify ownership first
     const existing = await graphService.getStoryNodeById(id, req.user!.id);
     if (!existing) {
-      res.status(404).json({ error: { message: 'Node not found', code: 'NOT_FOUND' } });
+      res
+        .status(404)
+        .json({ error: { message: 'Node not found', code: 'NOT_FOUND' } });
       return;
     }
 
@@ -201,7 +238,11 @@ router.patch('/nodes/:id', requireAuth, async (req, res, next) => {
   } catch (error) {
     if (error instanceof z.ZodError) {
       res.status(400).json({
-        error: { message: 'Invalid request', code: 'VALIDATION_ERROR', details: error.issues },
+        error: {
+          message: 'Invalid request',
+          code: 'VALIDATION_ERROR',
+          details: error.issues,
+        },
       });
       return;
     }
@@ -242,7 +283,10 @@ function detectChaptersFromContent(contentJson: any): Chapter[] {
   return chapters;
 }
 
-function findChapterForPosition(chapters: Chapter[], position: number): Chapter | null {
+function findChapterForPosition(
+  chapters: Chapter[],
+  position: number,
+): Chapter | null {
   if (chapters.length === 0) return null;
 
   for (let i = chapters.length - 1; i >= 0; i--) {
@@ -261,7 +305,9 @@ router.get('/mentions/:id', requireAuth, async (req, res, next) => {
     const mention = await mentionService.getMentionById(id);
 
     if (!mention) {
-      res.status(404).json({ error: { message: 'Mention not found', code: 'NOT_FOUND' } });
+      res
+        .status(404)
+        .json({ error: { message: 'Mention not found', code: 'NOT_FOUND' } });
       return;
     }
 
@@ -279,7 +325,10 @@ router.get('/nodes/:id/mentions', requireAuth, async (req, res, next) => {
 
     if (!documentId || typeof documentId !== 'string') {
       res.status(400).json({
-        error: { message: 'documentId query parameter required', code: 'VALIDATION_ERROR' },
+        error: {
+          message: 'documentId query parameter required',
+          code: 'VALIDATION_ERROR',
+        },
       });
       return;
     }
@@ -288,7 +337,10 @@ router.get('/nodes/:id/mentions', requireAuth, async (req, res, next) => {
     const segments = await segmentService.getDocumentSegments(documentId);
 
     // Get all event nodes for this document to find context for each mention
-    const allNodes = await graphService.getStoryNodesForDocument(documentId, req.user!.id);
+    const allNodes = await graphService.getStoryNodesForDocument(
+      documentId,
+      req.user!.id,
+    );
     const eventNodes = allNodes.filter((n) => n.type === 'event');
 
     // Build map of event positions with their names and thread info
@@ -304,10 +356,11 @@ router.get('/nodes/:id/mentions', requireAuth, async (req, res, next) => {
 
     const { graphThreads } = await import('../services/graph/graph.threads.js');
     for (const event of eventNodes) {
-      const eventMentions = await mentionService.getByNodeIdWithAbsolutePositions(
-        event.id,
-        segments
-      );
+      const eventMentions =
+        await mentionService.getByNodeIdWithAbsolutePositions(
+          event.id,
+          segments,
+        );
 
       // Get thread info for this event
       const threads = await graphThreads.getThreadsForEvent(event.id);
@@ -325,7 +378,10 @@ router.get('/nodes/:id/mentions', requireAuth, async (req, res, next) => {
         eventName: event.name,
         threadName,
         threadColor,
-        positions: eventMentions.map((m) => ({ start: m.absoluteStart, end: m.absoluteEnd })),
+        positions: eventMentions.map((m) => ({
+          start: m.absoluteStart,
+          end: m.absoluteEnd,
+        })),
       });
     }
 
@@ -336,10 +392,15 @@ router.get('/nodes/:id/mentions', requireAuth, async (req, res, next) => {
       .where(eq(documents.id, documentId))
       .limit(1);
 
-    const chapters = document?.contentJson ? detectChaptersFromContent(document.contentJson) : [];
+    const chapters = document?.contentJson
+      ? detectChaptersFromContent(document.contentJson)
+      : [];
 
     // Get mentions for the target node
-    const mentions = await mentionService.getByNodeIdWithAbsolutePositions(id, segments);
+    const mentions = await mentionService.getByNodeIdWithAbsolutePositions(
+      id,
+      segments,
+    );
 
     // For each mention, find ALL matching events + chapter context
     const mentionsWithContext = mentions.map((m) => {
@@ -353,7 +414,9 @@ router.get('/nodes/:id/mentions', requireAuth, async (req, res, next) => {
       for (const eventData of eventContextMap.values()) {
         for (const eventPos of eventData.positions) {
           // Check if mention overlaps with event range
-          const overlaps = !(m.absoluteEnd < eventPos.start || m.absoluteStart > eventPos.end);
+          const overlaps = !(
+            m.absoluteEnd < eventPos.start || m.absoluteStart > eventPos.end
+          );
 
           if (overlaps) {
             matchingEvents.push({
@@ -390,7 +453,9 @@ router.get('/nodes/:id/mentions', requireAuth, async (req, res, next) => {
     });
   } catch (error) {
     if (error instanceof Error && error.message.includes('not found')) {
-      res.status(404).json({ error: { message: error.message, code: 'NOT_FOUND' } });
+      res
+        .status(404)
+        .json({ error: { message: error.message, code: 'NOT_FOUND' } });
       return;
     }
     next(error);
@@ -398,32 +463,43 @@ router.get('/nodes/:id/mentions', requireAuth, async (req, res, next) => {
 });
 
 // Toggle isKeyPassage for a mention
-router.patch('/mentions/:mentionId/key-passage', requireAuth, async (req, res, next) => {
-  try {
-    const { mentionId } = req.params;
-    const { isKeyPassage } = z.object({ isKeyPassage: z.boolean() }).parse(req.body);
+router.patch(
+  '/mentions/:mentionId/key-passage',
+  requireAuth,
+  async (req, res, next) => {
+    try {
+      const { mentionId } = req.params;
+      const { isKeyPassage } = z
+        .object({ isKeyPassage: z.boolean() })
+        .parse(req.body);
 
-    // Update the mention
-    await mentionService.updateKeyPassage(mentionId, isKeyPassage);
+      // Update the mention
+      await mentionService.updateKeyPassage(mentionId, isKeyPassage);
 
-    res.json({ success: true, isKeyPassage });
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      res.status(400).json({
-        error: { message: 'Invalid request', code: 'VALIDATION_ERROR', details: error.issues },
-      });
-      return;
+      res.json({ success: true, isKeyPassage });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({
+          error: {
+            message: 'Invalid request',
+            code: 'VALIDATION_ERROR',
+            details: error.issues,
+          },
+        });
+        return;
+      }
+      next(error);
     }
-    next(error);
-  }
-});
+  },
+);
 
 // Get all mentions for a document with absolute positions
 router.get('/documents/:id/mentions', requireAuth, async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const mentions = await mentionService.getByDocumentIdWithAbsolutePositions(id);
+    const mentions =
+      await mentionService.getByDocumentIdWithAbsolutePositions(id);
 
     res.json({ mentions });
   } catch (error) {
@@ -439,7 +515,9 @@ router.get('/nodes/:id/facets', requireAuth, async (req, res, next) => {
     // Verify node exists and user has access
     const node = await graphService.getStoryNodeById(id, req.user!.id);
     if (!node) {
-      res.status(404).json({ error: { message: 'Node not found', code: 'NOT_FOUND' } });
+      res
+        .status(404)
+        .json({ error: { message: 'Node not found', code: 'NOT_FOUND' } });
       return;
     }
 
@@ -459,7 +537,9 @@ router.get('/nodes/:id/graph', requireAuth, async (req, res, next) => {
     const graphData = await graphService.getEntityGraph(id, req.user!.id);
 
     if (!graphData) {
-      res.status(404).json({ error: { message: 'Node not found', code: 'NOT_FOUND' } });
+      res
+        .status(404)
+        .json({ error: { message: 'Node not found', code: 'NOT_FOUND' } });
       return;
     }
 
@@ -477,13 +557,18 @@ router.get('/nodes/:id/arc', requireAuth, async (req, res, next) => {
     // Verify node exists and is a character
     const node = await graphService.getStoryNodeById(id, req.user!.id);
     if (!node) {
-      res.status(404).json({ error: { message: 'Node not found', code: 'NOT_FOUND' } });
+      res
+        .status(404)
+        .json({ error: { message: 'Node not found', code: 'NOT_FOUND' } });
       return;
     }
 
     if (node.type !== 'character') {
       res.status(400).json({
-        error: { message: 'Arc data only available for characters', code: 'INVALID_NODE_TYPE' },
+        error: {
+          message: 'Arc data only available for characters',
+          code: 'INVALID_NODE_TYPE',
+        },
       });
       return;
     }
@@ -500,9 +585,13 @@ router.get('/nodes/:id/arc', requireAuth, async (req, res, next) => {
         const facets = await graphService.getFacetsForState(state.id);
         return {
           ...state,
-          facets: facets.map((f) => ({ id: f.id, type: f.type, content: f.content })),
+          facets: facets.map((f) => ({
+            id: f.id,
+            type: f.type,
+            content: f.content,
+          })),
         };
-      })
+      }),
     );
 
     res.json({

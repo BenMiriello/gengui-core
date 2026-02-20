@@ -23,7 +23,13 @@ export interface RunPodJobPolicy {
 // See: https://docs.runpod.io/serverless/references/job-states
 export interface RunPodJobStatusResponse {
   id: string;
-  status: 'IN_QUEUE' | 'IN_PROGRESS' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'TIMED_OUT';
+  status:
+    | 'IN_QUEUE'
+    | 'IN_PROGRESS'
+    | 'COMPLETED'
+    | 'FAILED'
+    | 'CANCELLED'
+    | 'TIMED_OUT';
   delayTime?: number;
   executionTime?: number;
   output?: any;

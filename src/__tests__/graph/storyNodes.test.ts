@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from 'bun:test';
 import { GraphService } from '../../services/graph/graph.service';
 import type { StoryNodeResult } from '../../types/storyNodes';
 
@@ -9,7 +16,10 @@ const isFalkorDBAvailable = process.env.FALKORDB_AVAILABLE === 'true';
 const graphService = new GraphService();
 
 function createNodeInput(
-  overrides: Partial<StoryNodeResult> & { type: StoryNodeResult['type']; name: string }
+  overrides: Partial<StoryNodeResult> & {
+    type: StoryNodeResult['type'];
+    name: string;
+  },
 ): StoryNodeResult {
   return {
     description: '',
@@ -31,7 +41,7 @@ function createNodeInput(
   afterAll(async () => {
     // Clean up all test nodes (including test-specific 'other-user' nodes)
     await graphService.query(
-      `MATCH (n) WHERE n.userId IN ['${testUserId}', 'other-user', 'different-user'] DETACH DELETE n`
+      `MATCH (n) WHERE n.userId IN ['${testUserId}', 'other-user', 'different-user'] DETACH DELETE n`,
     );
     await graphService.disconnect();
   });
@@ -39,7 +49,7 @@ function createNodeInput(
   beforeEach(async () => {
     // Clean up all test nodes before each test
     await graphService.query(
-      `MATCH (n) WHERE n.userId IN ['${testUserId}', 'other-user', 'different-user'] DETACH DELETE n`
+      `MATCH (n) WHERE n.userId IN ['${testUserId}', 'other-user', 'different-user'] DETACH DELETE n`,
     );
   });
 
@@ -52,7 +62,7 @@ function createNodeInput(
           type: 'character',
           name: 'Alice',
           description: 'The protagonist',
-        })
+        }),
       );
 
       expect(nodeId).toBeDefined();
@@ -77,7 +87,7 @@ function createNodeInput(
           createNodeInput({
             type,
             name: `Test ${type}`,
-          })
+          }),
         );
 
         const node = await graphService.getStoryNodeById(nodeId, testUserId);
@@ -93,7 +103,7 @@ function createNodeInput(
           type: 'character',
           name: 'Bob',
           aliases: ['Robert', 'Bobby'],
-        })
+        }),
       );
 
       const node = await graphService.getStoryNodeById(nodeId, testUserId);
@@ -111,7 +121,7 @@ function createNodeInput(
         {
           stylePreset: 'anime',
           stylePrompt: 'detailed shading',
-        }
+        },
       );
 
       const node = await graphService.getStoryNodeById(nodeId, testUserId);
@@ -127,7 +137,7 @@ function createNodeInput(
           type: 'event',
           name: 'First Event',
           documentOrder: 1,
-        })
+        }),
       );
 
       const node = await graphService.getStoryNodeById(nodeId, testUserId);
@@ -137,7 +147,10 @@ function createNodeInput(
 
   describe('getStoryNodeById', () => {
     test('returns null for non-existent node', async () => {
-      const node = await graphService.getStoryNodeById('non-existent-id', testUserId);
+      const node = await graphService.getStoryNodeById(
+        'non-existent-id',
+        testUserId,
+      );
       expect(node).toBeNull();
     });
 
@@ -148,10 +161,13 @@ function createNodeInput(
         createNodeInput({
           type: 'character',
           name: 'Private Node',
-        })
+        }),
       );
 
-      const node = await graphService.getStoryNodeById(nodeId, 'different-user');
+      const node = await graphService.getStoryNodeById(
+        nodeId,
+        'different-user',
+      );
       expect(node).toBeNull();
     });
 
@@ -162,7 +178,7 @@ function createNodeInput(
         createNodeInput({
           type: 'character',
           name: 'Deleted Node',
-        })
+        }),
       );
 
       await graphService.softDeleteStoryNode(nodeId);
@@ -174,7 +190,10 @@ function createNodeInput(
 
   describe('getStoryNodesForDocument', () => {
     test('returns empty array for document with no nodes', async () => {
-      const nodes = await graphService.getStoryNodesForDocument('empty-doc', testUserId);
+      const nodes = await graphService.getStoryNodesForDocument(
+        'empty-doc',
+        testUserId,
+      );
       expect(nodes).toEqual([]);
     });
 
@@ -185,7 +204,7 @@ function createNodeInput(
         createNodeInput({
           type: 'character',
           name: 'Node 1',
-        })
+        }),
       );
       await graphService.createStoryNode(
         testDocumentId,
@@ -193,10 +212,13 @@ function createNodeInput(
         createNodeInput({
           type: 'location',
           name: 'Node 2',
-        })
+        }),
       );
 
-      const nodes = await graphService.getStoryNodesForDocument(testDocumentId, testUserId);
+      const nodes = await graphService.getStoryNodesForDocument(
+        testDocumentId,
+        testUserId,
+      );
       expect(nodes).toHaveLength(2);
       expect(nodes.map((n) => n.name).sort()).toEqual(['Node 1', 'Node 2']);
     });
@@ -208,7 +230,7 @@ function createNodeInput(
         createNodeInput({
           type: 'character',
           name: 'Active Node',
-        })
+        }),
       );
       const nodeId2 = await graphService.createStoryNode(
         testDocumentId,
@@ -216,12 +238,15 @@ function createNodeInput(
         createNodeInput({
           type: 'character',
           name: 'Deleted Node',
-        })
+        }),
       );
 
       await graphService.softDeleteStoryNode(nodeId2);
 
-      const nodes = await graphService.getStoryNodesForDocument(testDocumentId, testUserId);
+      const nodes = await graphService.getStoryNodesForDocument(
+        testDocumentId,
+        testUserId,
+      );
       expect(nodes).toHaveLength(1);
       expect(nodes[0].name).toBe('Active Node');
     });
@@ -233,7 +258,7 @@ function createNodeInput(
         createNodeInput({
           type: 'character',
           name: 'My Node',
-        })
+        }),
       );
       await graphService.createStoryNode(
         testDocumentId,
@@ -241,10 +266,13 @@ function createNodeInput(
         createNodeInput({
           type: 'character',
           name: 'Other Node',
-        })
+        }),
       );
 
-      const nodes = await graphService.getStoryNodesForDocument(testDocumentId, testUserId);
+      const nodes = await graphService.getStoryNodesForDocument(
+        testDocumentId,
+        testUserId,
+      );
       expect(nodes).toHaveLength(1);
       expect(nodes[0].name).toBe('My Node');
     });
@@ -258,7 +286,7 @@ function createNodeInput(
         createNodeInput({
           type: 'character',
           name: 'Original Name',
-        })
+        }),
       );
 
       await graphService.updateStoryNode(nodeId, { name: 'Updated Name' });
@@ -275,10 +303,12 @@ function createNodeInput(
           type: 'character',
           name: 'Test',
           description: 'Original description',
-        })
+        }),
       );
 
-      await graphService.updateStoryNode(nodeId, { description: 'New description' });
+      await graphService.updateStoryNode(nodeId, {
+        description: 'New description',
+      });
 
       const node = await graphService.getStoryNodeById(nodeId, testUserId);
       expect(node?.description).toBe('New description');
@@ -292,10 +322,12 @@ function createNodeInput(
           type: 'character',
           name: 'Test',
           aliases: ['Old Alias'],
-        })
+        }),
       );
 
-      await graphService.updateStoryNode(nodeId, { aliases: ['New Alias 1', 'New Alias 2'] });
+      await graphService.updateStoryNode(nodeId, {
+        aliases: ['New Alias 1', 'New Alias 2'],
+      });
 
       const node = await graphService.getStoryNodeById(nodeId, testUserId);
       expect(node?.aliases).toEqual(['New Alias 1', 'New Alias 2']);
@@ -309,7 +341,7 @@ function createNodeInput(
           type: 'event',
           name: 'Event',
           documentOrder: 1,
-        })
+        }),
       );
 
       await graphService.updateStoryNode(nodeId, { documentOrder: 5 });
@@ -325,7 +357,7 @@ function createNodeInput(
         createNodeInput({
           type: 'character',
           name: 'Test',
-        })
+        }),
       );
 
       const before = await graphService.getStoryNodeById(nodeId, testUserId);
@@ -347,10 +379,14 @@ function createNodeInput(
         createNodeInput({
           type: 'character',
           name: 'Styleable',
-        })
+        }),
       );
 
-      const updated = await graphService.updateStoryNodeStyle(nodeId, 'realistic', 'high detail');
+      const updated = await graphService.updateStoryNodeStyle(
+        nodeId,
+        'realistic',
+        'high detail',
+      );
 
       expect(updated).not.toBeNull();
       expect(updated?.stylePreset).toBe('realistic');
@@ -365,17 +401,25 @@ function createNodeInput(
           type: 'character',
           name: 'Styleable',
         }),
-        { stylePreset: 'anime', stylePrompt: 'detailed' }
+        { stylePreset: 'anime', stylePrompt: 'detailed' },
       );
 
-      const updated = await graphService.updateStoryNodeStyle(nodeId, null, null);
+      const updated = await graphService.updateStoryNodeStyle(
+        nodeId,
+        null,
+        null,
+      );
 
       expect(updated?.stylePreset).toBeNull();
       expect(updated?.stylePrompt).toBeNull();
     });
 
     test('returns null for non-existent node', async () => {
-      const result = await graphService.updateStoryNodeStyle('non-existent', 'anime', 'prompt');
+      const result = await graphService.updateStoryNodeStyle(
+        'non-existent',
+        'anime',
+        'prompt',
+      );
       expect(result).toBeNull();
     });
   });
@@ -388,7 +432,7 @@ function createNodeInput(
         createNodeInput({
           type: 'character',
           name: 'With Media',
-        })
+        }),
       );
 
       await graphService.updateStoryNodePrimaryMedia(nodeId, 'media-123');
@@ -404,7 +448,7 @@ function createNodeInput(
         createNodeInput({
           type: 'character',
           name: 'With Media',
-        })
+        }),
       );
 
       await graphService.updateStoryNodePrimaryMedia(nodeId, 'media-123');
@@ -423,7 +467,7 @@ function createNodeInput(
         createNodeInput({
           type: 'character',
           name: 'To Delete',
-        })
+        }),
       );
 
       await graphService.softDeleteStoryNode(nodeId);
@@ -444,7 +488,7 @@ function createNodeInput(
         createNodeInput({
           type: 'character',
           name: 'Node 1',
-        })
+        }),
       );
       await graphService.createStoryNode(
         testDocumentId,
@@ -452,12 +496,18 @@ function createNodeInput(
         createNodeInput({
           type: 'location',
           name: 'Node 2',
-        })
+        }),
       );
 
-      await graphService.deleteAllStoryNodesForDocument(testDocumentId, testUserId);
+      await graphService.deleteAllStoryNodesForDocument(
+        testDocumentId,
+        testUserId,
+      );
 
-      const nodes = await graphService.getStoryNodesForDocument(testDocumentId, testUserId);
+      const nodes = await graphService.getStoryNodesForDocument(
+        testDocumentId,
+        testUserId,
+      );
       expect(nodes).toEqual([]);
     });
 
@@ -468,7 +518,7 @@ function createNodeInput(
         createNodeInput({
           type: 'character',
           name: 'Target Doc Node',
-        })
+        }),
       );
       await graphService.createStoryNode(
         'other-doc',
@@ -476,12 +526,18 @@ function createNodeInput(
         createNodeInput({
           type: 'character',
           name: 'Other Doc Node',
-        })
+        }),
       );
 
-      await graphService.deleteAllStoryNodesForDocument(testDocumentId, testUserId);
+      await graphService.deleteAllStoryNodesForDocument(
+        testDocumentId,
+        testUserId,
+      );
 
-      const otherNodes = await graphService.getStoryNodesForDocument('other-doc', testUserId);
+      const otherNodes = await graphService.getStoryNodesForDocument(
+        'other-doc',
+        testUserId,
+      );
       expect(otherNodes).toHaveLength(1);
       expect(otherNodes[0].name).toBe('Other Doc Node');
     });
@@ -493,7 +549,7 @@ function createNodeInput(
         createNodeInput({
           type: 'character',
           name: 'My Node',
-        })
+        }),
       );
       await graphService.createStoryNode(
         testDocumentId,
@@ -501,12 +557,18 @@ function createNodeInput(
         createNodeInput({
           type: 'character',
           name: 'Other User Node',
-        })
+        }),
       );
 
-      await graphService.deleteAllStoryNodesForDocument(testDocumentId, testUserId);
+      await graphService.deleteAllStoryNodesForDocument(
+        testDocumentId,
+        testUserId,
+      );
 
-      const otherNodes = await graphService.getStoryNodesForDocument(testDocumentId, 'other-user');
+      const otherNodes = await graphService.getStoryNodesForDocument(
+        testDocumentId,
+        'other-user',
+      );
       expect(otherNodes).toHaveLength(1);
       expect(otherNodes[0].name).toBe('Other User Node');
     });

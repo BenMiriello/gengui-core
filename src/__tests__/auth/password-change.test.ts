@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from 'bun:test';
 import {
   closeDb,
   createSession,
@@ -7,7 +14,12 @@ import {
   resetUserCounter,
   truncateAll,
 } from '../helpers';
-import { clearRedisStore, emailMock, startTestServer, stopTestServer } from '../helpers/testApp';
+import {
+  clearRedisStore,
+  emailMock,
+  startTestServer,
+  stopTestServer,
+} from '../helpers/testApp';
 
 describe('Password Change', () => {
   let baseUrl: string;
@@ -83,7 +95,10 @@ describe('Password Change', () => {
       const newLoginResponse = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: user.email, password: newPassword }),
+        body: JSON.stringify({
+          emailOrUsername: user.email,
+          password: newPassword,
+        }),
       });
 
       expect(newLoginResponse.status).toBe(200);
@@ -111,11 +126,14 @@ describe('Password Change', () => {
         }),
       });
 
-      const oldPasswordLoginResponse = await fetch(`${baseUrl}/api/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: user.email, password }),
-      });
+      const oldPasswordLoginResponse = await fetch(
+        `${baseUrl}/api/auth/login`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ emailOrUsername: user.email, password }),
+        },
+      );
 
       expect(oldPasswordLoginResponse.status).toBe(401);
     });
@@ -286,7 +304,9 @@ describe('Password Change', () => {
       });
 
       expect(emailMock.sendPasswordChangedEmail).toHaveBeenCalled();
-      expect(emailMock.sendPasswordChangedEmail).toHaveBeenCalledWith(user.email);
+      expect(emailMock.sendPasswordChangedEmail).toHaveBeenCalledWith(
+        user.email,
+      );
     });
 
     test('requires authentication (returns 401 without cookie)', async () => {

@@ -4,14 +4,23 @@
 
 import { and, eq, isNull } from 'drizzle-orm';
 import { db } from '../config/database';
-import { getDimensionsForAspectRatio, getModelIdForProvider } from '../config/models';
+import {
+  getDimensionsForAspectRatio,
+  getModelIdForProvider,
+} from '../config/models';
 import { media, nodeMedia } from '../models/schema';
-import type { AspectRatio, CharacterSheetSettings } from '../types/generationSettings';
+import type {
+  AspectRatio,
+  CharacterSheetSettings,
+} from '../types/generationSettings';
 import { GENERATION_SETTINGS_SCHEMA_VERSION } from '../types/generationSettings';
 import { logger } from '../utils/logger';
 import { graphService, type StoredStoryNode } from './graph/graph.service';
 import type { StoredFacet } from './graph/graph.types';
-import { getImageProvider, getImageProviderName } from './image-generation/factory';
+import {
+  getImageProvider,
+  getImageProviderName,
+} from './image-generation/factory';
 import { mentionService } from './mentions';
 import { segmentService } from './segments';
 
@@ -47,7 +56,11 @@ export const characterSheetService = {
 
     // Determine aspect ratio: explicit param > settings > default based on node type
     const defaultAR: AspectRatio =
-      node.type === 'character' ? 'portrait' : node.type === 'location' ? 'landscape' : 'square';
+      node.type === 'character'
+        ? 'portrait'
+        : node.type === 'location'
+          ? 'landscape'
+          : 'square';
     const finalAR = aspectRatio ?? settings.aspectRatio ?? defaultAR;
 
     // Get dimensions for the current provider
@@ -56,14 +69,25 @@ export const characterSheetService = {
     const { width, height } = getDimensionsForAspectRatio(finalAR, modelId);
 
     // Use provided style or fall back to node's style
-    const finalStylePreset = stylePreset !== undefined ? stylePreset : node.stylePreset;
-    const finalStylePrompt = stylePrompt !== undefined ? stylePrompt : node.stylePrompt;
+    const finalStylePreset =
+      stylePreset !== undefined ? stylePreset : node.stylePreset;
+    const finalStylePrompt =
+      stylePrompt !== undefined ? stylePrompt : node.stylePrompt;
 
     // Get position-relevant facets if available
-    const facets = await this.getPositionRelevantFacets(nodeId, node.documentId, cursorPosition);
+    const facets = await this.getPositionRelevantFacets(
+      nodeId,
+      node.documentId,
+      cursorPosition,
+    );
 
     // Build prompt from node + settings + style + facets
-    const prompt = this.buildPromptWithFacets(node, settings, finalStylePrompt, facets);
+    const prompt = this.buildPromptWithFacets(
+      node,
+      settings,
+      finalStylePrompt,
+      facets,
+    );
 
     // Create media record
     const [newMedia] = await db
@@ -105,7 +129,7 @@ export const characterSheetService = {
 
     logger.info(
       { mediaId: newMedia.id, nodeId, aspectRatio: finalAR, width, height },
-      'Character sheet generation queued'
+      'Character sheet generation queued',
     );
 
     return newMedia;
@@ -118,7 +142,7 @@ export const characterSheetService = {
   buildPrompt(
     node: { type: string; name: string; description: string | null },
     settings: CharacterSheetSettings,
-    stylePrompt?: string | null
+    stylePrompt?: string | null,
   ): string {
     const parts: string[] = [];
 
@@ -150,16 +174,23 @@ export const characterSheetService = {
         parts.push('Exterior view, seen from outside.');
       } else if (settings.perspective === 'interior') {
         parts.push('Interior view, seen from inside.');
-      } else if (settings.perspective === 'custom' && settings.perspectiveCustom) {
+      } else if (
+        settings.perspective === 'custom' &&
+        settings.perspectiveCustom
+      ) {
         parts.push(settings.perspectiveCustom);
       }
     }
 
     // Add background
     if (settings.background === 'white') {
-      parts.push('Plain white background, no other elements, isolated subject.');
+      parts.push(
+        'Plain white background, no other elements, isolated subject.',
+      );
     } else if (settings.background === 'black') {
-      parts.push('Plain black background, no other elements, isolated subject.');
+      parts.push(
+        'Plain black background, no other elements, isolated subject.',
+      );
     } else if (settings.background === 'transparent') {
       parts.push('Transparent background, isolated subject, no environment.');
     } else if (settings.background === 'custom' && settings.backgroundCustom) {
@@ -170,7 +201,9 @@ export const characterSheetService = {
     if (stylePrompt) {
       parts.push('Clear lighting, detailed, high quality.');
     } else {
-      parts.push('Reference sheet style, clear lighting, detailed, high quality.');
+      parts.push(
+        'Reference sheet style, clear lighting, detailed, high quality.',
+      );
     }
 
     return parts.join(' ');
@@ -184,7 +217,7 @@ export const characterSheetService = {
     node: StoredStoryNode,
     settings: CharacterSheetSettings,
     stylePrompt: string | null | undefined,
-    facets: StoredFacet[]
+    facets: StoredFacet[],
   ): string {
     // If no facets, fall back to legacy buildPrompt
     if (!facets || facets.length === 0) {
@@ -209,7 +242,9 @@ export const characterSheetService = {
 
       // Character with appearance
       if (appearanceFacets.length > 0) {
-        const appearanceDesc = appearanceFacets.map((f) => f.content).join(', ');
+        const appearanceDesc = appearanceFacets
+          .map((f) => f.content)
+          .join(', ');
         parts.push(`${node.name}: ${appearanceDesc}`);
       } else {
         // Fall back to node description
@@ -218,7 +253,10 @@ export const characterSheetService = {
 
       // Add relevant traits
       if (traitFacets.length > 0 && node.type === 'character') {
-        const traitDesc = traitFacets.slice(0, 3).map((f) => f.content).join(', ');
+        const traitDesc = traitFacets
+          .slice(0, 3)
+          .map((f) => f.content)
+          .join(', ');
         parts.push(`Expression and demeanor conveying: ${traitDesc}`);
       }
 
@@ -244,16 +282,23 @@ export const characterSheetService = {
         parts.push('Exterior view, seen from outside.');
       } else if (settings.perspective === 'interior') {
         parts.push('Interior view, seen from inside.');
-      } else if (settings.perspective === 'custom' && settings.perspectiveCustom) {
+      } else if (
+        settings.perspective === 'custom' &&
+        settings.perspectiveCustom
+      ) {
         parts.push(settings.perspectiveCustom);
       }
     }
 
     // Add background
     if (settings.background === 'white') {
-      parts.push('Plain white background, no other elements, isolated subject.');
+      parts.push(
+        'Plain white background, no other elements, isolated subject.',
+      );
     } else if (settings.background === 'black') {
-      parts.push('Plain black background, no other elements, isolated subject.');
+      parts.push(
+        'Plain black background, no other elements, isolated subject.',
+      );
     } else if (settings.background === 'transparent') {
       parts.push('Transparent background, isolated subject, no environment.');
     } else if (settings.background === 'custom' && settings.backgroundCustom) {
@@ -264,7 +309,9 @@ export const characterSheetService = {
     if (stylePrompt) {
       parts.push('Clear lighting, detailed, high quality.');
     } else {
-      parts.push('Reference sheet style, clear lighting, detailed, high quality.');
+      parts.push(
+        'Reference sheet style, clear lighting, detailed, high quality.',
+      );
     }
 
     return parts.join(' ');
@@ -277,30 +324,39 @@ export const characterSheetService = {
   async getPositionRelevantFacets(
     nodeId: string,
     documentId: string,
-    cursorPosition?: number
+    cursorPosition?: number,
   ): Promise<StoredFacet[]> {
     // Get all facets for the entity
     const allFacets = await graphService.getFacetsForEntity(nodeId);
 
     if (!cursorPosition) {
       // No position context - return all appearance/trait facets
-      return allFacets.filter((f) => f.type === 'appearance' || f.type === 'trait');
+      return allFacets.filter(
+        (f) => f.type === 'appearance' || f.type === 'trait',
+      );
     }
 
     // Get segments for position mapping
     const segments = await segmentService.getDocumentSegments(documentId);
-    const segmentAtPosition = segmentService.findSegmentAtPosition(segments, cursorPosition);
+    const segmentAtPosition = segmentService.findSegmentAtPosition(
+      segments,
+      cursorPosition,
+    );
 
     if (!segmentAtPosition) {
       // Position not in valid segment - return all appearance/trait
-      return allFacets.filter((f) => f.type === 'appearance' || f.type === 'trait');
+      return allFacets.filter(
+        (f) => f.type === 'appearance' || f.type === 'trait',
+      );
     }
 
     // Find adjacent segment IDs (current + 1 before + 1 after)
     const relevantSegmentIds = new Set<string>();
     relevantSegmentIds.add(segmentAtPosition.segmentId);
 
-    const segmentIndex = segments.findIndex((s) => s.id === segmentAtPosition.segmentId);
+    const segmentIndex = segments.findIndex(
+      (s) => s.id === segmentAtPosition.segmentId,
+    );
     if (segmentIndex > 0) {
       relevantSegmentIds.add(segments[segmentIndex - 1].id);
     }
@@ -313,7 +369,7 @@ export const characterSheetService = {
     const nearbyMentionIds = new Set(
       mentions
         .filter((m) => relevantSegmentIds.has(m.segmentId))
-        .map((m) => m.id)
+        .map((m) => m.id),
     );
 
     // TODO: When mentions are linked to facets via facet_id,
@@ -354,8 +410,8 @@ export const characterSheetService = {
         and(
           eq(nodeMedia.nodeId, nodeId),
           eq(nodeMedia.mediaId, mediaId),
-          isNull(nodeMedia.deletedAt)
-        )
+          isNull(nodeMedia.deletedAt),
+        ),
       )
       .limit(1);
 
@@ -397,7 +453,11 @@ export const characterSheetService = {
       .from(nodeMedia)
       .innerJoin(media, eq(nodeMedia.mediaId, media.id))
       .where(
-        and(eq(nodeMedia.nodeId, nodeId), isNull(nodeMedia.deletedAt), isNull(media.deletedAt))
+        and(
+          eq(nodeMedia.nodeId, nodeId),
+          isNull(nodeMedia.deletedAt),
+          isNull(media.deletedAt),
+        ),
       )
       .orderBy(media.createdAt);
 

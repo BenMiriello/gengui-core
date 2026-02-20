@@ -4,7 +4,11 @@ import { authService } from '../services/auth';
 import { UnauthorizedError } from '../utils/errors';
 import { logger } from '../utils/logger';
 
-export async function requireAuth(req: Request, _res: Response, next: NextFunction) {
+export async function requireAuth(
+  req: Request,
+  _res: Response,
+  next: NextFunction,
+) {
   try {
     const token = req.cookies.sessionToken;
 

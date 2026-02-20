@@ -1,4 +1,9 @@
-import { type NextFunction, type Request, type Response, Router } from 'express';
+import {
+  type NextFunction,
+  type Request,
+  type Response,
+  Router,
+} from 'express';
 import { env } from '../config/env';
 import { requireAuth } from '../middleware/auth';
 import {
@@ -22,15 +27,23 @@ router.post(
 
       if (!email || !username || !password) {
         res.status(400).json({
-          error: { message: 'Email, username, and password are required', code: 'INVALID_INPUT' },
+          error: {
+            message: 'Email, username, and password are required',
+            code: 'INVALID_INPUT',
+          },
         });
         return;
       }
 
       const user = await authService.signup(email, username, password);
-      const ipAddress = req.ip || (req.headers['x-forwarded-for'] as string) || undefined;
+      const ipAddress =
+        req.ip || (req.headers['x-forwarded-for'] as string) || undefined;
       const userAgent = req.headers['user-agent'];
-      const session = await authService.createSession(user.id, ipAddress, userAgent);
+      const session = await authService.createSession(
+        user.id,
+        ipAddress,
+        userAgent,
+      );
 
       res.cookie('sessionToken', session.token, {
         httpOnly: true,
@@ -43,7 +56,7 @@ router.post(
     } catch (error) {
       return next(error);
     }
-  }
+  },
 );
 
 router.post(
@@ -55,15 +68,23 @@ router.post(
 
       if (!emailOrUsername || !password) {
         res.status(400).json({
-          error: { message: 'Email/username and password are required', code: 'INVALID_INPUT' },
+          error: {
+            message: 'Email/username and password are required',
+            code: 'INVALID_INPUT',
+          },
         });
         return;
       }
 
       const user = await authService.login(emailOrUsername, password);
-      const ipAddress = req.ip || (req.headers['x-forwarded-for'] as string) || undefined;
+      const ipAddress =
+        req.ip || (req.headers['x-forwarded-for'] as string) || undefined;
       const userAgent = req.headers['user-agent'];
-      const session = await authService.createSession(user.id, ipAddress, userAgent);
+      const session = await authService.createSession(
+        user.id,
+        ipAddress,
+        userAgent,
+      );
 
       res.cookie('sessionToken', session.token, {
         httpOnly: true,
@@ -76,34 +97,41 @@ router.post(
     } catch (error) {
       return next(error);
     }
-  }
+  },
 );
 
-router.post('/auth/logout', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const token = req.cookies.sessionToken;
+router.post(
+  '/auth/logout',
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const token = req.cookies.sessionToken;
 
-    if (token) {
-      await authService.deleteSession(token);
+      if (token) {
+        await authService.deleteSession(token);
+      }
+
+      res.clearCookie('sessionToken');
+      res.json({ success: true });
+    } catch (error) {
+      return next(error);
     }
+  },
+);
 
-    res.clearCookie('sessionToken');
-    res.json({ success: true });
-  } catch (error) {
-    return next(error);
-  }
-});
-
-router.get('/auth/me', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    res.json({
-      user: req.user,
-      sessionId: req.sessionId,
-    });
-  } catch (error) {
-    return next(error);
-  }
-});
+router.get(
+  '/auth/me',
+  requireAuth,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      res.json({
+        user: req.user,
+        sessionId: req.sessionId,
+      });
+    } catch (error) {
+      return next(error);
+    }
+  },
+);
 
 router.patch(
   '/auth/username',
@@ -115,17 +143,24 @@ router.patch(
 
       if (!username || !password) {
         res.status(400).json({
-          error: { message: 'Username and password are required', code: 'INVALID_INPUT' },
+          error: {
+            message: 'Username and password are required',
+            code: 'INVALID_INPUT',
+          },
         });
         return;
       }
 
-      const user = await authService.updateUsernameWithPassword(userId, username, password);
+      const user = await authService.updateUsernameWithPassword(
+        userId,
+        username,
+        password,
+      );
       res.json({ user });
     } catch (error) {
       return next(error);
     }
-  }
+  },
 );
 
 router.post(
@@ -139,17 +174,24 @@ router.post(
 
       if (!email || !password) {
         res.status(400).json({
-          error: { message: 'Email and password are required', code: 'INVALID_INPUT' },
+          error: {
+            message: 'Email and password are required',
+            code: 'INVALID_INPUT',
+          },
         });
         return;
       }
 
-      const result = await authService.initiateEmailChange(userId, email, password);
+      const result = await authService.initiateEmailChange(
+        userId,
+        email,
+        password,
+      );
       res.json(result);
     } catch (error) {
       return next(error);
     }
-  }
+  },
 );
 
 router.post(
@@ -170,26 +212,29 @@ router.post(
     } catch (error) {
       return next(error);
     }
-  }
+  },
 );
 
-router.post('/auth/verify-email', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const { token } = req.body;
+router.post(
+  '/auth/verify-email',
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { token } = req.body;
 
-    if (!token) {
-      res.status(400).json({
-        error: { message: 'Token is required', code: 'INVALID_INPUT' },
-      });
-      return;
+      if (!token) {
+        res.status(400).json({
+          error: { message: 'Token is required', code: 'INVALID_INPUT' },
+        });
+        return;
+      }
+
+      const user = await authService.verifyEmail(token);
+      res.json({ user });
+    } catch (error) {
+      return next(error);
     }
-
-    const user = await authService.verifyEmail(token);
-    res.json({ user });
-  } catch (error) {
-    return next(error);
-  }
-});
+  },
+);
 
 router.post(
   '/auth/resend-verification',
@@ -202,7 +247,7 @@ router.post(
     } catch (error) {
       next(error);
     }
-  }
+  },
 );
 
 router.patch(
@@ -228,7 +273,7 @@ router.patch(
     } catch (error) {
       return next(error);
     }
-  }
+  },
 );
 
 router.get(
@@ -242,7 +287,7 @@ router.get(
     } catch (error) {
       return next(error);
     }
-  }
+  },
 );
 
 router.patch(
@@ -271,7 +316,7 @@ router.patch(
     } catch (error) {
       return next(error);
     }
-  }
+  },
 );
 
 router.post(
@@ -291,7 +336,7 @@ router.post(
     } catch (error) {
       return next(error);
     }
-  }
+  },
 );
 
 router.post(
@@ -301,7 +346,9 @@ router.post(
       const { token, password } = req.body;
 
       if (!token || !password) {
-        return res.status(400).json({ error: 'Token and password are required' });
+        return res
+          .status(400)
+          .json({ error: 'Token and password are required' });
       }
 
       await authService.resetPassword(token, password);
@@ -310,7 +357,7 @@ router.post(
     } catch (error) {
       return next(error);
     }
-  }
+  },
 );
 
 export default router;

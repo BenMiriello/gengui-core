@@ -22,7 +22,8 @@ export function startCleanupJob(): ScheduledTask {
 
     try {
       // Clean up custom style prompts
-      const stylePromptsCount = await customStylePromptsService.cleanupDeleted();
+      const stylePromptsCount =
+        await customStylePromptsService.cleanupDeleted();
       if (stylePromptsCount > 0) results.stylePrompts = stylePromptsCount;
 
       // Clean up node_media associations (still in Postgres)
@@ -30,12 +31,14 @@ export function startCleanupJob(): ScheduledTask {
         .delete(nodeMedia)
         .where(lt(nodeMedia.deletedAt, threshold))
         .returning({ id: nodeMedia.id });
-      if (deletedNodeMedia.length > 0) results.nodeMedia = deletedNodeMedia.length;
+      if (deletedNodeMedia.length > 0)
+        results.nodeMedia = deletedNodeMedia.length;
 
       // Clean up story nodes and connections from FalkorDB
       const graphCleanup = await graphService.cleanupSoftDeleted(threshold);
       if (graphCleanup.nodes > 0) results.nodes = graphCleanup.nodes;
-      if (graphCleanup.connections > 0) results.connections = graphCleanup.connections;
+      if (graphCleanup.connections > 0)
+        results.connections = graphCleanup.connections;
 
       if (Object.keys(results).length > 0) {
         logger.info({ results }, 'Soft delete cleanup job completed');

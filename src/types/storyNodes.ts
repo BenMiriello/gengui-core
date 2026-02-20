@@ -3,9 +3,21 @@
  * Used by Gemini client, text analysis service, and repositories.
  */
 
-export type StoryNodeType = 'character' | 'location' | 'event' | 'concept' | 'other' | 'character_state' | 'arc';
+export type StoryNodeType =
+  | 'character'
+  | 'location'
+  | 'event'
+  | 'concept'
+  | 'other'
+  | 'character_state'
+  | 'arc';
 
-export type ArcType = 'transformation' | 'growth' | 'fall' | 'revelation' | 'static';
+export type ArcType =
+  | 'transformation'
+  | 'growth'
+  | 'fall'
+  | 'revelation'
+  | 'static';
 
 export type StoryEdgeType =
   // Layer 2 (causal/temporal)
@@ -117,7 +129,11 @@ export interface NodeUpdatesResult {
   narrativeThreads?: NarrativeThreadResult[];
 }
 
-export type EntityResolutionMatch = 'exact_name' | 'alias' | 'embedding' | 'new';
+export type EntityResolutionMatch =
+  | 'exact_name'
+  | 'alias'
+  | 'embedding'
+  | 'new';
 
 export interface ResolvedEntity {
   candidateName: string;

@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from 'bun:test';
 import {
   closeDb,
   createCancelledGeneration,
@@ -51,10 +58,13 @@ describe('Generations Cancel', () => {
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
-      const res = await fetch(`${baseUrl}/api/generations/${generation.id}/cancel`, {
-        method: 'POST',
-        headers: { Cookie: cookie },
-      });
+      const res = await fetch(
+        `${baseUrl}/api/generations/${generation.id}/cancel`,
+        {
+          method: 'POST',
+          headers: { Cookie: cookie },
+        },
+      );
 
       expect(res.status).toBe(200);
       const body = await res.json();
@@ -77,10 +87,13 @@ describe('Generations Cancel', () => {
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
-      const res = await fetch(`${baseUrl}/api/generations/${generation.id}/cancel`, {
-        method: 'POST',
-        headers: { Cookie: cookie },
-      });
+      const res = await fetch(
+        `${baseUrl}/api/generations/${generation.id}/cancel`,
+        {
+          method: 'POST',
+          headers: { Cookie: cookie },
+        },
+      );
 
       expect(res.status).toBe(409);
       const body = await res.json();
@@ -98,10 +111,13 @@ describe('Generations Cancel', () => {
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
-      const res = await fetch(`${baseUrl}/api/generations/${generation.id}/cancel`, {
-        method: 'POST',
-        headers: { Cookie: cookie },
-      });
+      const res = await fetch(
+        `${baseUrl}/api/generations/${generation.id}/cancel`,
+        {
+          method: 'POST',
+          headers: { Cookie: cookie },
+        },
+      );
 
       expect(res.status).toBe(409);
       const body = await res.json();
@@ -119,10 +135,13 @@ describe('Generations Cancel', () => {
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
-      const res = await fetch(`${baseUrl}/api/generations/${generation.id}/cancel`, {
-        method: 'POST',
-        headers: { Cookie: cookie },
-      });
+      const res = await fetch(
+        `${baseUrl}/api/generations/${generation.id}/cancel`,
+        {
+          method: 'POST',
+          headers: { Cookie: cookie },
+        },
+      );
 
       expect(res.status).toBe(200);
       const body = await res.json();
@@ -145,7 +164,7 @@ describe('Generations Cancel', () => {
         {
           method: 'POST',
           headers: { Cookie: cookie },
-        }
+        },
       );
 
       expect(res.status).toBe(404);

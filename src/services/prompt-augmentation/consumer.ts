@@ -62,11 +62,17 @@ class PromptAugmentationConsumer extends PubSubConsumer {
     const settings: PromptEnhancementSettings = JSON.parse(jobData.settings);
 
     if (!mediaId || !userId || !documentId) {
-      logger.error({ data: message.data }, 'Augmentation request missing required fields');
+      logger.error(
+        { data: message.data },
+        'Augmentation request missing required fields',
+      );
       return;
     }
 
-    logger.info({ mediaId, documentId, userId }, 'Processing prompt augmentation request');
+    logger.info(
+      { mediaId, documentId, userId },
+      'Processing prompt augmentation request',
+    );
 
     try {
       // Fetch document
@@ -90,7 +96,9 @@ class PromptAugmentationConsumer extends PubSubConsumer {
       let referenceImages: ReferenceImage[] | undefined;
 
       if (entityRefs) {
-        const { getImageProviderName } = await import('../image-generation/factory.js');
+        const { getImageProviderName } = await import(
+          '../image-generation/factory.js'
+        );
         const providerName = await getImageProviderName();
         const providerSupportsImages = providerName === 'gemini-pro-image';
 
@@ -98,10 +106,14 @@ class PromptAugmentationConsumer extends PubSubConsumer {
           documentId,
           userId,
           entityRefs,
-          selectedText
+          selectedText,
         );
 
-        if (entityRefs.useImages && providerSupportsImages && entityData.images.length > 0) {
+        if (
+          entityRefs.useImages &&
+          providerSupportsImages &&
+          entityData.images.length > 0
+        ) {
           referenceImages = entityData.images;
           logger.info(
             {
@@ -109,7 +121,7 @@ class PromptAugmentationConsumer extends PubSubConsumer {
               referenceCount: referenceImages.length,
               entityNames: referenceImages.map((r) => r.nodeName),
             },
-            'Entity reference images prepared'
+            'Entity reference images prepared',
           );
         }
 
@@ -121,7 +133,7 @@ class PromptAugmentationConsumer extends PubSubConsumer {
               descriptionCount: entityDescriptions.length,
               entityNames: entityDescriptions.map((d) => d.name),
             },
-            'Entity descriptions prepared for Gemini augmentation'
+            'Entity descriptions prepared for Gemini augmentation',
           );
         }
       }
@@ -134,7 +146,7 @@ class PromptAugmentationConsumer extends PubSubConsumer {
         selectedText,
         startChar,
         endChar,
-        settings
+        settings,
       );
       context.entityDescriptions = entityDescriptions;
 
@@ -142,15 +154,24 @@ class PromptAugmentationConsumer extends PubSubConsumer {
       const geminiPrompt = buildGeminiPrompt(context, settings);
 
       // Call Gemini API
-      logger.info({ mediaId, documentId }, 'Calling Gemini API for prompt augmentation');
+      logger.info(
+        { mediaId, documentId },
+        'Calling Gemini API for prompt augmentation',
+      );
       const augmentedPrompt = await this.augmentPrompt(geminiPrompt);
 
       // Combine style prompt with augmented prompt
-      const finalPrompt = stylePrompt ? `${stylePrompt}\n\n${augmentedPrompt}` : augmentedPrompt;
+      const finalPrompt = stylePrompt
+        ? `${stylePrompt}\n\n${augmentedPrompt}`
+        : augmentedPrompt;
 
       logger.info(
-        { mediaId, originalLength: selectedText.length, augmentedLength: finalPrompt.length },
-        'Prompt augmented successfully'
+        {
+          mediaId,
+          originalLength: selectedText.length,
+          augmentedLength: finalPrompt.length,
+        },
+        'Prompt augmented successfully',
       );
 
       // Update media status to queued
@@ -185,11 +206,15 @@ class PromptAugmentationConsumer extends PubSubConsumer {
 
       logger.info(
         { mediaId, provider: provider.name },
-        'Generation submitted to provider after successful augmentation'
+        'Generation submitted to provider after successful augmentation',
       );
     } catch (error: any) {
-      const errorMessage = error?.message || 'Augmentation failed. Please try again.';
-      logger.error({ error, mediaId, documentId, errorMessage }, 'Prompt augmentation failed');
+      const errorMessage =
+        error?.message || 'Augmentation failed. Please try again.';
+      logger.error(
+        { error, mediaId, documentId, errorMessage },
+        'Prompt augmentation failed',
+      );
 
       await this.failAugmentation(mediaId, documentId, errorMessage);
     }
@@ -198,7 +223,9 @@ class PromptAugmentationConsumer extends PubSubConsumer {
   private async augmentPrompt(geminiPrompt: string): Promise<string> {
     const client = await getGeminiClient();
     if (!client) {
-      throw new Error('Gemini API client not initialized - GEMINI_API_KEY missing');
+      throw new Error(
+        'Gemini API client not initialized - GEMINI_API_KEY missing',
+      );
     }
 
     try {
@@ -217,11 +244,11 @@ class PromptAugmentationConsumer extends PubSubConsumer {
         if (blockReason) {
           logger.error({ blockReason }, 'Content was blocked');
           throw new Error(
-            'Unable to augment prompt. The content may contain inappropriate material.'
+            'Unable to augment prompt. The content may contain inappropriate material.',
           );
         }
         throw new Error(
-          'Unable to augment prompt. The content may have been filtered. Please try again.'
+          'Unable to augment prompt. The content may have been filtered. Please try again.',
         );
       }
 
@@ -242,11 +269,15 @@ class PromptAugmentationConsumer extends PubSubConsumer {
       }
 
       if (error?.message?.includes('rate limit')) {
-        throw new Error('Rate limit exceeded. Please wait a moment and try again.');
+        throw new Error(
+          'Rate limit exceeded. Please wait a moment and try again.',
+        );
       }
 
       if (error?.message?.includes('404')) {
-        throw new Error('Augmentation service not available. Please contact support.');
+        throw new Error(
+          'Augmentation service not available. Please contact support.',
+        );
       }
 
       // Re-throw if it's already a formatted error message
@@ -260,12 +291,14 @@ class PromptAugmentationConsumer extends PubSubConsumer {
       }
 
       throw new Error(
-        `Augmentation failed: ${error?.message || 'Unknown error'}. Please try again.`
+        `Augmentation failed: ${error?.message || 'Unknown error'}. Please try again.`,
       );
     }
   }
 
-  private normalizeEntityReferences(settings: PromptEnhancementSettings): EntityReferences | null {
+  private normalizeEntityReferences(
+    settings: PromptEnhancementSettings,
+  ): EntityReferences | null {
     if (settings.entityReferences) {
       return settings.entityReferences;
     }
@@ -283,7 +316,11 @@ class PromptAugmentationConsumer extends PubSubConsumer {
     return null;
   }
 
-  private async failAugmentation(mediaId: string, documentId: string, errorMessage: string) {
+  private async failAugmentation(
+    mediaId: string,
+    documentId: string,
+    errorMessage: string,
+  ) {
     // Update media status to failed
     await db
       .update(media)
@@ -302,7 +339,10 @@ class PromptAugmentationConsumer extends PubSubConsumer {
       timestamp: new Date().toISOString(),
     });
 
-    logger.error({ mediaId, documentId, errorMessage }, 'Augmentation marked as failed');
+    logger.error(
+      { mediaId, documentId, errorMessage },
+      'Augmentation marked as failed',
+    );
   }
 }
 

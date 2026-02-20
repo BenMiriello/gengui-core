@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from 'bun:test';
 import {
   closeDb,
   createExpiredSession,
@@ -7,7 +14,11 @@ import {
   resetUserCounter,
   truncateAll,
 } from '../helpers';
-import { clearRedisStore, startTestServer, stopTestServer } from '../helpers/testApp';
+import {
+  clearRedisStore,
+  startTestServer,
+  stopTestServer,
+} from '../helpers/testApp';
 
 describe('Session Lifecycle', () => {
   let baseUrl: string;
@@ -171,7 +182,9 @@ describe('Session Lifecycle', () => {
       expect(response.status).toBe(401);
 
       const sessions = await getSessionsForUser(user.id);
-      const validSessions = sessions.filter((s) => new Date(s.expires_at) > new Date());
+      const validSessions = sessions.filter(
+        (s) => new Date(s.expires_at) > new Date(),
+      );
       expect(validSessions.length).toBe(0);
     });
 

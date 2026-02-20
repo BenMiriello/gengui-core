@@ -1,6 +1,7 @@
+import type { AnyColumn } from 'drizzle-orm';
 import { type SQL, sql } from 'drizzle-orm';
 
-export function buildActiveRecordsFilter(deletedAtColumn: any): SQL {
+export function buildActiveRecordsFilter(deletedAtColumn: AnyColumn): SQL {
   return sql`${deletedAtColumn} IS NULL`;
 }
 

@@ -5,12 +5,17 @@ import { requireAuth } from '../middleware/auth';
 import { mediaService } from '../services/mediaService';
 
 const router = Router();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 },
+});
 
 router.post('/', requireAuth, upload.single('file'), async (req, res, next) => {
   try {
     if (!req.file) {
-      res.status(400).json({ error: { message: 'No file provided', code: 'NO_FILE' } });
+      res
+        .status(400)
+        .json({ error: { message: 'No file provided', code: 'NO_FILE' } });
       return;
     }
 
@@ -32,9 +37,13 @@ router.get('/', requireAuth, async (req, res, next) => {
   try {
     const limit = parseInt(req.query.limit as string, 10) || 50;
     const excludeRolesParam = req.query.excludeRoles as string | undefined;
-    const excludeRoles = excludeRolesParam ? excludeRolesParam.split(',') : undefined;
+    const excludeRoles = excludeRolesParam
+      ? excludeRolesParam.split(',')
+      : undefined;
 
-    const results = await mediaService.list(req.user!.id, limit, { excludeRoles });
+    const results = await mediaService.list(req.user!.id, limit, {
+      excludeRoles,
+    });
 
     res.json({ media: results, count: results.length });
   } catch (error) {
@@ -54,9 +63,16 @@ router.get('/:id', requireAuth, async (req, res, next) => {
 
 router.get('/:id/url', requireAuth, async (req, res, next) => {
   try {
-    const expiresIn = parseInt(req.query.expiresIn as string, 10) || PRESIGNED_S3_URL_EXPIRATION;
+    const expiresIn =
+      parseInt(req.query.expiresIn as string, 10) ||
+      PRESIGNED_S3_URL_EXPIRATION;
     const type = (req.query.type as string) === 'thumb' ? 'thumb' : 'full';
-    const url = await mediaService.getSignedUrl(req.params.id, req.user!.id, expiresIn, type);
+    const url = await mediaService.getSignedUrl(
+      req.params.id,
+      req.user!.id,
+      expiresIn,
+      type,
+    );
 
     res.json({ url, expiresIn });
   } catch (error) {
@@ -69,9 +85,15 @@ router.get('/:id/documents', requireAuth, async (req, res, next) => {
     const userId = (req as any).user.id;
     const { id } = req.params;
 
-    const fields = req.query.fields ? (req.query.fields as string).split(',') : undefined;
+    const fields = req.query.fields
+      ? (req.query.fields as string).split(',')
+      : undefined;
 
-    const documents = await mediaService.getDocumentsByMediaId(id, userId, fields);
+    const documents = await mediaService.getDocumentsByMediaId(
+      id,
+      userId,
+      fields,
+    );
     res.json({ documents });
   } catch (error) {
     next(error);

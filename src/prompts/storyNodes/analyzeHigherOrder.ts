@@ -43,49 +43,59 @@ interface AnalyzeHigherOrderInput {
 /**
  * Stage 5 prompt for narrative thread and character arc detection.
  */
-export const analyzeHigherOrderPrompt: PromptDefinition<AnalyzeHigherOrderInput> = {
-  id: 'stage5-analyze-higher-order',
-  version: 1,
-  model: 'gemini-2.5-flash',
-  description: 'Stage 5: Identify narrative threads and character arcs',
+export const analyzeHigherOrderPrompt: PromptDefinition<AnalyzeHigherOrderInput> =
+  {
+    id: 'stage5-analyze-higher-order',
+    version: 1,
+    model: 'gemini-2.5-flash',
+    description: 'Stage 5: Identify narrative threads and character arcs',
 
-  build: ({ events, characters, threadCandidates, documentSummary }) => {
-    const eventsSection = events.map((e) => {
-      const causalStr = e.causalEdges.length > 0
-        ? `  Causal: ${e.causalEdges.map((c) => `${c.type}(${c.strength}) -> ${c.targetId}`).join(', ')}`
-        : '';
-      return `[${e.id}] #${e.documentOrder}: "${e.name}"
+    build: ({ events, characters, threadCandidates, documentSummary }) => {
+      const eventsSection = events
+        .map((e) => {
+          const causalStr =
+            e.causalEdges.length > 0
+              ? `  Causal: ${e.causalEdges.map((c) => `${c.type}(${c.strength}) -> ${c.targetId}`).join(', ')}`
+              : '';
+          return `[${e.id}] #${e.documentOrder}: "${e.name}"
   Characters: ${e.connectedCharacterIds.join(', ') || 'none'}${causalStr}`;
-    }).join('\n');
+        })
+        .join('\n');
 
-    const charactersSection = characters.map((c) => {
-      const statesStr = c.stateFacetsBySegment.map((s) =>
-        `Seg ${s.segmentIndex}: ${s.states.join(', ')}`
-      ).join(' | ');
-      return `[${c.id}] "${c.name}"
+      const charactersSection = characters
+        .map((c) => {
+          const statesStr = c.stateFacetsBySegment
+            .map((s) => `Seg ${s.segmentIndex}: ${s.states.join(', ')}`)
+            .join(' | ');
+          return `[${c.id}] "${c.name}"
   Events: ${c.participatesInEventIds.join(', ') || 'none'}
   States: ${statesStr || 'no state changes'}`;
-    }).join('\n\n');
+        })
+        .join('\n\n');
 
-    const candidatesSection = threadCandidates.length > 0
-      ? `
+      const candidatesSection =
+        threadCandidates.length > 0
+          ? `
 THREAD CANDIDATES (algorithmically detected connected components):
-${threadCandidates.map((t, i) =>
-  `  Candidate ${i + 1}: Events [${t.eventIds.join(', ')}], Characters [${t.characterIds.join(', ')}]`
-).join('\n')}
+${threadCandidates
+  .map(
+    (t, i) =>
+      `  Candidate ${i + 1}: Events [${t.eventIds.join(', ')}], Characters [${t.characterIds.join(', ')}]`,
+  )
+  .join('\n')}
 `
-      : '';
+          : '';
 
-    const summarySection = documentSummary
-      ? `
+      const summarySection = documentSummary
+        ? `
 DOCUMENT OVERVIEW:
 """
 ${documentSummary}
 """
 `
-      : '';
+        : '';
 
-    return `Analyze the narrative structure of this document.
+      return `Analyze the narrative structure of this document.
 
 ${summarySection}
 EVENTS (in document order):
@@ -165,8 +175,8 @@ ARC TYPES:
 - fall: Negative arc, corruption or loss
 - revelation: Character's true nature revealed
 - static: Character remains unchanged (anchor for others)`;
-  },
-};
+    },
+  };
 
 interface RefineThreadsInput {
   algorithmicThreads: Array<{
@@ -187,10 +197,12 @@ export const refineThreadsPrompt: PromptDefinition<RefineThreadsInput> = {
   description: 'Stage 5: Name and refine algorithmically detected threads',
 
   build: ({ algorithmicThreads, documentTitle }) => {
-    const threadsSection = algorithmicThreads.map((t, i) => {
-      return `Thread ${i + 1}:
+    const threadsSection = algorithmicThreads
+      .map((t, i) => {
+        return `Thread ${i + 1}:
   Events: ${t.eventNames.map((n, j) => `"${n}" [${t.eventIds[j]}]`).join(', ')}`;
-    }).join('\n\n');
+      })
+      .join('\n\n');
 
     return `Name these narrative threads detected in "${documentTitle || 'the document'}".
 

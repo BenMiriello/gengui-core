@@ -15,7 +15,10 @@ let cachedProviderName: string | null = null;
  */
 export async function getImageProvider(): Promise<ImageGenerationProvider> {
   const gb = await getGrowthBook();
-  const providerName = gb.getFeatureValue('image_provider', env.IMAGE_INFERENCE_PROVIDER);
+  const providerName = gb.getFeatureValue(
+    'image_provider',
+    env.IMAGE_INFERENCE_PROVIDER,
+  );
 
   // Return cached if provider hasn't changed
   if (cachedProvider && cachedProviderName === providerName) {

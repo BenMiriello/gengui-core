@@ -1,6 +1,23 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
-import { closeDb, createVerifiedUser, resetUserCounter, truncateAll } from '../helpers';
-import { clearRedisStore, emailMock, startTestServer, stopTestServer } from '../helpers/testApp';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from 'bun:test';
+import {
+  closeDb,
+  createVerifiedUser,
+  resetUserCounter,
+  truncateAll,
+} from '../helpers';
+import {
+  clearRedisStore,
+  emailMock,
+  startTestServer,
+  stopTestServer,
+} from '../helpers/testApp';
 
 describe('User Preferences', () => {
   let baseUrl: string;
@@ -220,14 +237,20 @@ describe('User Preferences', () => {
       const login1Response = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: user1.email, password: password1 }),
+        body: JSON.stringify({
+          emailOrUsername: user1.email,
+          password: password1,
+        }),
       });
       const cookie1 = login1Response.headers.get('set-cookie') ?? '';
 
       const login2Response = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: user2.email, password: password2 }),
+        body: JSON.stringify({
+          emailOrUsername: user2.email,
+          password: password2,
+        }),
       });
       const cookie2 = login2Response.headers.get('set-cookie') ?? '';
 

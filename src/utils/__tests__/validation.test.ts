@@ -51,7 +51,22 @@ describe('validatePassword', () => {
   });
 
   test('handles various special characters', () => {
-    const specialChars = ['!', '@', '#', '$', '%', '^', '&', '*', '(', ')', '-', '_', '=', '+'];
+    const specialChars = [
+      '!',
+      '@',
+      '#',
+      '$',
+      '%',
+      '^',
+      '&',
+      '*',
+      '(',
+      ')',
+      '-',
+      '_',
+      '=',
+      '+',
+    ];
     for (const char of specialChars) {
       const result = validatePassword(`Abcdefg${char}`);
       expect(result.valid).toBe(true);
@@ -173,7 +188,9 @@ describe('validateOwnership', () => {
 
   test('throws ForbiddenError when userId differs', () => {
     const resource = { userId: 'user-123' };
-    expect(() => validateOwnership(resource, 'user-456')).toThrow(ForbiddenError);
+    expect(() => validateOwnership(resource, 'user-456')).toThrow(
+      ForbiddenError,
+    );
   });
 
   test('throws ForbiddenError when resource is null', () => {
@@ -181,7 +198,9 @@ describe('validateOwnership', () => {
   });
 
   test('throws ForbiddenError when resource is undefined', () => {
-    expect(() => validateOwnership(undefined, 'user-123')).toThrow(ForbiddenError);
+    expect(() => validateOwnership(undefined, 'user-123')).toThrow(
+      ForbiddenError,
+    );
   });
 
   test('includes resource name in error message for null resource', () => {

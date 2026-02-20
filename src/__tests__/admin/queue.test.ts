@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from 'bun:test';
 import {
   closeDb,
   createAdminUser,
@@ -40,7 +47,10 @@ describe('Admin Queue', () => {
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: admin.email, password: adminPassword }),
+        body: JSON.stringify({
+          emailOrUsername: admin.email,
+          password: adminPassword,
+        }),
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
@@ -62,7 +72,10 @@ describe('Admin Queue', () => {
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: admin.email, password: adminPassword }),
+        body: JSON.stringify({
+          emailOrUsername: admin.email,
+          password: adminPassword,
+        }),
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 

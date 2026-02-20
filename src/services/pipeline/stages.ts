@@ -12,7 +12,10 @@
 
 export type AnalysisStage = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
-export const STAGE_LABELS: Record<AnalysisStage, { generic: string; technical: string }> = {
+export const STAGE_LABELS: Record<
+  AnalysisStage,
+  { generic: string; technical: string }
+> = {
   1: {
     generic: 'Reading through your document...',
     technical: 'Stage 1: Segmentation + Sentence Embeddings',
@@ -44,5 +47,7 @@ export const STAGE_LABELS: Record<AnalysisStage, { generic: string; technical: s
 };
 
 export function getStageLabel(stage: AnalysisStage, technical = false): string {
-  return technical ? STAGE_LABELS[stage].technical : STAGE_LABELS[stage].generic;
+  return technical
+    ? STAGE_LABELS[stage].technical
+    : STAGE_LABELS[stage].generic;
 }

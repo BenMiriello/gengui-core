@@ -30,7 +30,8 @@ try {
 
 import { mock } from 'bun:test';
 
-const noOpRateLimiter = (_req: unknown, _res: unknown, next: () => void) => next();
+const noOpRateLimiter = (_req: unknown, _res: unknown, next: () => void) =>
+  next();
 
 mock.module('../../../src/middleware/rateLimiter', () => ({
   authRateLimiter: noOpRateLimiter,

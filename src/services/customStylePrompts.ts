@@ -1,7 +1,11 @@
 import { and, eq, isNull, lt } from 'drizzle-orm';
 import { db } from '../config/database';
 import { documents, media, userStylePrompts, users } from '../models/schema';
-import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/errors';
+import {
+  BadRequestError,
+  ForbiddenError,
+  NotFoundError,
+} from '../utils/errors';
 import { logger } from '../utils/logger';
 import { buildSoftDeleteUpdate, getDaysAgo } from '../utils/softDelete';
 
@@ -16,7 +20,12 @@ export class CustomStylePromptsService {
         updatedAt: userStylePrompts.updatedAt,
       })
       .from(userStylePrompts)
-      .where(and(eq(userStylePrompts.userId, userId), isNull(userStylePrompts.deletedAt)))
+      .where(
+        and(
+          eq(userStylePrompts.userId, userId),
+          isNull(userStylePrompts.deletedAt),
+        ),
+      )
       .orderBy(userStylePrompts.createdAt);
 
     return prompts;
@@ -38,7 +47,12 @@ export class CustomStylePromptsService {
     const existingCount = await db
       .select({ count: userStylePrompts.id })
       .from(userStylePrompts)
-      .where(and(eq(userStylePrompts.userId, userId), isNull(userStylePrompts.deletedAt)));
+      .where(
+        and(
+          eq(userStylePrompts.userId, userId),
+          isNull(userStylePrompts.deletedAt),
+        ),
+      );
 
     if (existingCount.length >= 100) {
       throw new BadRequestError('Maximum 100 custom prompts allowed');
@@ -49,17 +63,26 @@ export class CustomStylePromptsService {
       .values({ userId, name: name.trim(), prompt: prompt.trim() })
       .returning();
 
-    logger.info({ userId, promptId: customPrompt.id }, 'Custom style prompt created');
+    logger.info(
+      { userId, promptId: customPrompt.id },
+      'Custom style prompt created',
+    );
     return customPrompt;
   }
 
-  async update(promptId: string, userId: string, name?: string, prompt?: string) {
+  async update(
+    promptId: string,
+    userId: string,
+    name?: string,
+    prompt?: string,
+  ) {
     await this.get(promptId, userId);
 
     const updates: any = { updatedAt: new Date() };
     if (name !== undefined) {
       if (!name.trim()) throw new BadRequestError('Name cannot be empty');
-      if (name.length > 100) throw new BadRequestError('Name must be 100 characters or less');
+      if (name.length > 100)
+        throw new BadRequestError('Name must be 100 characters or less');
       updates.name = name.trim();
     }
     if (prompt !== undefined) {
@@ -88,7 +111,12 @@ export class CustomStylePromptsService {
     await db
       .update(documents)
       .set({ defaultStylePreset: 'none', defaultStylePrompt: null })
-      .where(and(eq(documents.userId, userId), eq(documents.defaultStylePreset, promptId)));
+      .where(
+        and(
+          eq(documents.userId, userId),
+          eq(documents.defaultStylePreset, promptId),
+        ),
+      );
 
     await db
       .update(media)
@@ -102,7 +130,10 @@ export class CustomStylePromptsService {
       .limit(1);
 
     if (user?.defaultStylePreset === promptId) {
-      await db.update(users).set({ defaultStylePreset: 'none' }).where(eq(users.id, userId));
+      await db
+        .update(users)
+        .set({ defaultStylePreset: 'none' })
+        .where(eq(users.id, userId));
     }
 
     logger.info({ userId, promptId }, 'Custom style prompt soft deleted');
@@ -116,7 +147,12 @@ export class CustomStylePromptsService {
     const [prompt] = await db
       .select()
       .from(userStylePrompts)
-      .where(and(eq(userStylePrompts.id, promptId), isNull(userStylePrompts.deletedAt)))
+      .where(
+        and(
+          eq(userStylePrompts.id, promptId),
+          isNull(userStylePrompts.deletedAt),
+        ),
+      )
       .limit(1);
 
     if (!prompt) {
@@ -138,7 +174,10 @@ export class CustomStylePromptsService {
       .where(and(lt(userStylePrompts.deletedAt, thirtyOneDaysAgo)))
       .returning({ id: userStylePrompts.id });
 
-    logger.info({ count: deleted.length }, 'Cleaned up deleted custom style prompts');
+    logger.info(
+      { count: deleted.length },
+      'Cleaned up deleted custom style prompts',
+    );
     return deleted.length;
   }
 }

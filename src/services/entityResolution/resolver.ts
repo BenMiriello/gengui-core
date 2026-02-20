@@ -5,25 +5,29 @@
  * Coordinates clustering, scoring, and thresholding.
  */
 
-import type {
-  EntityCandidate,
-  EntityCluster,
-  ExistingEntity,
-  ResolutionConfig,
-  ClusterResolutionResult,
-  ScoredCandidate,
-} from './types';
-import { DEFAULT_CONFIG } from './types';
-import { clusterAcrossSegments, clusterToCandidate } from './clustering';
-import { scoreCandidates, type GraphContext } from './scoring';
-import { resolveCluster, needsLLMRefinement, summarizeDecision } from './thresholding';
+import { logger } from '../../utils/logger';
 import { ensurePhoneticReady } from './aliasPatterns';
 import {
   buildBlockingIndex,
   filterByBlocking,
   getBlockingStats,
 } from './blocking';
-import { logger } from '../../utils/logger';
+import { clusterAcrossSegments, clusterToCandidate } from './clustering';
+import { type GraphContext, scoreCandidates } from './scoring';
+import {
+  needsLLMRefinement,
+  resolveCluster,
+  summarizeDecision,
+} from './thresholding';
+import type {
+  ClusterResolutionResult,
+  EntityCandidate,
+  EntityCluster,
+  ExistingEntity,
+  ResolutionConfig,
+  ScoredCandidate,
+} from './types';
+import { DEFAULT_CONFIG } from './types';
 
 export interface ResolverOptions {
   documentId: string;
@@ -54,7 +58,7 @@ export async function resolveEntities(
   extractedEntities: EntityCandidate[],
   existingEntities: ExistingEntity[],
   options: ResolverOptions,
-  getGraphContext?: (entityId: string) => GraphContext | undefined
+  getGraphContext?: (entityId: string) => GraphContext | undefined,
 ): Promise<ResolveResult> {
   const config: ResolutionConfig = {
     ...DEFAULT_CONFIG,
@@ -67,7 +71,7 @@ export async function resolveEntities(
       extractedCount: extractedEntities.length,
       existingCount: existingEntities.length,
     },
-    'Entity resolution: Starting batch clustering'
+    'Entity resolution: Starting batch clustering',
   );
 
   // Load phonetic matching library (async ESM import)
@@ -82,7 +86,7 @@ export async function resolveEntities(
       clusterCount: clusters.length,
       originalCount: extractedEntities.length,
     },
-    'Entity resolution: Clustering complete'
+    'Entity resolution: Clustering complete',
   );
 
   // Step 2: Build blocking index for efficient candidate filtering
@@ -94,7 +98,7 @@ export async function resolveEntities(
       documentId: options.documentId,
       ...blockingStats,
     },
-    'Entity resolution: Blocking index built'
+    'Entity resolution: Blocking index built',
   );
 
   // Step 3: Score each cluster against blocked candidates
@@ -115,14 +119,14 @@ export async function resolveEntities(
     const blockedCandidates = filterByBlocking(
       cluster,
       existingEntities,
-      blockingIndex
+      blockingIndex,
     );
 
     // Score only blocked candidates
     const scoredCandidates = scoreCandidates(
       candidate,
       blockedCandidates,
-      getGraphContext
+      getGraphContext,
     );
 
     // Apply thresholds
@@ -149,7 +153,7 @@ export async function resolveEntities(
         clusterName: cluster.primaryName,
         decision: summarizeDecision(result),
       },
-      'Entity resolution: Cluster resolved'
+      'Entity resolution: Cluster resolved',
     );
 
     results.push(result);
@@ -160,7 +164,7 @@ export async function resolveEntities(
       documentId: options.documentId,
       ...stats,
     },
-    'Entity resolution: Complete'
+    'Entity resolution: Complete',
   );
 
   return { results, stats };
@@ -173,12 +177,12 @@ export async function resolveEntities(
 export function getResolutionCandidates(
   cluster: EntityCluster,
   existingEntities: ExistingEntity[],
-  getGraphContext?: (entityId: string) => GraphContext | undefined
+  getGraphContext?: (entityId: string) => GraphContext | undefined,
 ): ScoredCandidate[] {
   const candidate = clusterToCandidate(cluster);
 
   const typeFilteredExisting = existingEntities.filter(
-    (e) => e.type === candidate.type
+    (e) => e.type === candidate.type,
   );
 
   return scoreCandidates(candidate, typeFilteredExisting, getGraphContext);
@@ -189,7 +193,7 @@ export function getResolutionCandidates(
  * For backwards compatibility with existing code.
  */
 export function mapToLegacyDecision(
-  result: ClusterResolutionResult
+  result: ClusterResolutionResult,
 ): 'MERGE' | 'UPDATE' | 'ADD_FACET' | 'NEW' {
   switch (result.decision) {
     case 'MERGE':

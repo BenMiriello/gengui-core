@@ -30,7 +30,10 @@ interface Candidate {
  * Find text in document using two-stage fuzzy matching.
  * Returns null if no match found with confidence >= 0.5
  */
-export function fuzzyFindText(content: string, input: FuzzyMatchInput): FuzzyMatchResult | null {
+export function fuzzyFindText(
+  content: string,
+  input: FuzzyMatchInput,
+): FuzzyMatchResult | null {
   const { sourceText, originalStart, originalEnd } = input;
 
   if (!sourceText) return null;
@@ -63,7 +66,7 @@ export function fuzzyFindTextInSegment(
   content: string,
   input: FuzzyMatchInput,
   segments: Segment[],
-  segmentId: string
+  segmentId: string,
 ): FuzzyMatchResult | null {
   const segment = segmentService.getSegmentById(segments, segmentId);
 
@@ -89,7 +92,10 @@ export function fuzzyFindTextInSegment(
   return fuzzyFindText(content, input);
 }
 
-function findWithTwoStage(content: string, input: FuzzyMatchInput): FuzzyMatchResult | null {
+function findWithTwoStage(
+  content: string,
+  input: FuzzyMatchInput,
+): FuzzyMatchResult | null {
   const { sourceText, originalStart } = input;
   const anchorLength = sourceText.length;
 
@@ -104,7 +110,11 @@ function findWithTwoStage(content: string, input: FuzzyMatchInput): FuzzyMatchRe
   // Stage 1: Filter candidates
   const candidates: Candidate[] = [];
 
-  for (let position = 0; position < content.length - anchorLength / 2; position += stride) {
+  for (
+    let position = 0;
+    position < content.length - anchorLength / 2;
+    position += stride
+  ) {
     const windowEnd = Math.min(content.length, position + windowSize);
     const windowText = content.substring(position, windowEnd);
 
@@ -134,7 +144,10 @@ function findWithTwoStage(content: string, input: FuzzyMatchInput): FuzzyMatchRe
 
   for (const candidate of candidates) {
     const candidateText = candidate.windowText.substring(0, anchorLength);
-    const levenshteinScore = calculateLevenshteinSimilarity(sourceText, candidateText);
+    const levenshteinScore = calculateLevenshteinSimilarity(
+      sourceText,
+      candidateText,
+    );
 
     if (levenshteinScore >= 1.0) {
       return {
@@ -171,8 +184,14 @@ function findWithTwoStage(content: string, input: FuzzyMatchInput): FuzzyMatchRe
 
       for (const candidate of viableCandidates) {
         const candidateText = candidate.windowText.substring(0, anchorLength);
-        const levenshteinScore = calculateLevenshteinSimilarity(sourceText, candidateText);
-        const proximityScore = calculateProximityScore(candidate.position, originalStart);
+        const levenshteinScore = calculateLevenshteinSimilarity(
+          sourceText,
+          candidateText,
+        );
+        const proximityScore = calculateProximityScore(
+          candidate.position,
+          originalStart,
+        );
 
         // 70% Levenshtein, 30% proximity (simplified from frontend version)
         const finalScore = levenshteinScore * 0.7 + proximityScore * 0.3;
@@ -199,7 +218,7 @@ function extractWords(text: string): Set<string> {
     text
       .toLowerCase()
       .split(/\s+/)
-      .filter((w) => w.length > 0)
+      .filter((w) => w.length > 0),
   );
 }
 
@@ -217,12 +236,15 @@ function extractTrigrams(text: string): Set<string> {
   return trigrams;
 }
 
-function calculateWordOverlap(anchorWords: Set<string>, windowText: string): number {
+function calculateWordOverlap(
+  anchorWords: Set<string>,
+  windowText: string,
+): number {
   const windowWords = new Set(
     windowText
       .toLowerCase()
       .split(/\s+/)
-      .filter((w) => w.length > 0)
+      .filter((w) => w.length > 0),
   );
 
   let matchCount = 0;
@@ -235,7 +257,10 @@ function calculateWordOverlap(anchorWords: Set<string>, windowText: string): num
   return anchorWords.size > 0 ? matchCount / anchorWords.size : 0;
 }
 
-function calculateTrigramOverlap(anchorTrigrams: Set<string>, windowText: string): number {
+function calculateTrigramOverlap(
+  anchorTrigrams: Set<string>,
+  windowText: string,
+): number {
   if (anchorTrigrams.size === 0) return 1.0;
 
   const windowTrigrams = extractTrigrams(windowText);
@@ -256,7 +281,10 @@ function calculateLevenshteinSimilarity(str1: string, str2: string): number {
   return maxLen > 0 ? 1 - dist / maxLen : 1.0;
 }
 
-function calculateProximityScore(currentPosition: number, originalPosition: number): number {
+function calculateProximityScore(
+  currentPosition: number,
+  originalPosition: number,
+): number {
   const distance = Math.abs(currentPosition - originalPosition);
   return Math.exp(-distance / 1000);
 }

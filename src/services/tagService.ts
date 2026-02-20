@@ -6,7 +6,10 @@ import { ConflictError, NotFoundError } from '../utils/errors';
 import { logger } from '../utils/logger';
 
 export class TagService {
-  async create(userId: string, name: string): Promise<{ id: string; name: string }> {
+  async create(
+    userId: string,
+    name: string,
+  ): Promise<{ id: string; name: string }> {
     const [tag] = await db.insert(tags).values({ userId, name }).returning();
 
     logger.info({ tagId: tag.id, name }, 'Tag created');
@@ -14,7 +17,11 @@ export class TagService {
   }
 
   async list(userId: string) {
-    const userTags = await db.select().from(tags).where(eq(tags.userId, userId)).orderBy(tags.name);
+    const userTags = await db
+      .select()
+      .from(tags)
+      .where(eq(tags.userId, userId))
+      .orderBy(tags.name);
 
     return userTags;
   }
@@ -23,7 +30,13 @@ export class TagService {
     const mediaItem = await db
       .select()
       .from(media)
-      .where(and(eq(media.id, mediaId), eq(media.userId, userId), notDeleted(media.deletedAt)))
+      .where(
+        and(
+          eq(media.id, mediaId),
+          eq(media.userId, userId),
+          notDeleted(media.deletedAt),
+        ),
+      )
       .limit(1);
 
     if (mediaItem.length === 0) {
@@ -60,7 +73,13 @@ export class TagService {
     const mediaItem = await db
       .select()
       .from(media)
-      .where(and(eq(media.id, mediaId), eq(media.userId, userId), notDeleted(media.deletedAt)))
+      .where(
+        and(
+          eq(media.id, mediaId),
+          eq(media.userId, userId),
+          notDeleted(media.deletedAt),
+        ),
+      )
       .limit(1);
 
     if (mediaItem.length === 0) {

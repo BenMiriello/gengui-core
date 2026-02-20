@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from 'bun:test';
 import {
   closeDb,
   createAdminUser,
@@ -48,7 +55,10 @@ describe('Admin Users', () => {
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: admin.email, password: adminPassword }),
+        body: JSON.stringify({
+          emailOrUsername: admin.email,
+          password: adminPassword,
+        }),
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
@@ -70,7 +80,10 @@ describe('Admin Users', () => {
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: admin.email, password: adminPassword }),
+        body: JSON.stringify({
+          emailOrUsername: admin.email,
+          password: adminPassword,
+        }),
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
@@ -92,7 +105,10 @@ describe('Admin Users', () => {
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: admin.email, password: adminPassword }),
+        body: JSON.stringify({
+          emailOrUsername: admin.email,
+          password: adminPassword,
+        }),
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
@@ -113,17 +129,25 @@ describe('Admin Users', () => {
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: admin.email, password: adminPassword }),
+        body: JSON.stringify({
+          emailOrUsername: admin.email,
+          password: adminPassword,
+        }),
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
-      const res = await fetch(`${baseUrl}/api/admin/users?emailVerified=false`, {
-        headers: { Cookie: cookie },
-      });
+      const res = await fetch(
+        `${baseUrl}/api/admin/users?emailVerified=false`,
+        {
+          headers: { Cookie: cookie },
+        },
+      );
 
       expect(res.status).toBe(200);
       const body = await res.json();
-      expect(body.users.every((u: any) => u.emailVerified === false)).toBe(true);
+      expect(body.users.every((u: any) => u.emailVerified === false)).toBe(
+        true,
+      );
     });
 
     test('pagination with limit and offset', async () => {
@@ -135,7 +159,10 @@ describe('Admin Users', () => {
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: admin.email, password: adminPassword }),
+        body: JSON.stringify({
+          emailOrUsername: admin.email,
+          password: adminPassword,
+        }),
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
@@ -162,7 +189,10 @@ describe('Admin Users', () => {
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: admin.email, password: adminPassword }),
+        body: JSON.stringify({
+          emailOrUsername: admin.email,
+          password: adminPassword,
+        }),
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
@@ -212,7 +242,10 @@ describe('Admin Users', () => {
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: admin.email, password: adminPassword }),
+        body: JSON.stringify({
+          emailOrUsername: admin.email,
+          password: adminPassword,
+        }),
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
@@ -236,13 +269,19 @@ describe('Admin Users', () => {
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrUsername: admin.email, password: adminPassword }),
+        body: JSON.stringify({
+          emailOrUsername: admin.email,
+          password: adminPassword,
+        }),
       });
       const cookie = loginRes.headers.get('set-cookie')!;
 
-      const res = await fetch(`${baseUrl}/api/admin/users/00000000-0000-0000-0000-000000000000`, {
-        headers: { Cookie: cookie },
-      });
+      const res = await fetch(
+        `${baseUrl}/api/admin/users/00000000-0000-0000-0000-000000000000`,
+        {
+          headers: { Cookie: cookie },
+        },
+      );
 
       expect(res.status).toBe(404);
     });
