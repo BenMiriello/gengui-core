@@ -193,34 +193,55 @@ function handleApiError(error: any, operation: string): Error {
 // Multi-Stage Pipeline Functions
 // =============================================================================
 
-/** Entity context for Stage 1 */
-interface Stage1EntityContext {
+/** Entity registry entry for Stage 1 extraction */
+export interface EntityRegistryEntry {
+  registryIndex: number;
   id: string;
   name: string;
   type: string;
-  facets: Array<{ type: string; content: string }>;
-  mentionCount: number;
+  aliases?: string[];
+  summary?: string;
 }
 
-/** Stage 1 extraction result */
+
+/** Existing match from LLM merge detection */
+export interface ExistingMatch {
+  registryIndex: number;
+  confidence: 'high' | 'medium' | 'low';
+  reason: string;
+}
+
+/** Merge signal for uncertain matches */
+export interface MergeSignal {
+  extractedEntityName: string;
+  registryIndex: number;
+  confidence: 'high' | 'medium' | 'low';
+  evidence: string;
+}
+
+/** Stage 1 extraction result with LLM-first merge detection */
 export interface Stage1ExtractionResult {
   entities: Array<{
     name: string;
     type: StoryNodeType;
     documentOrder?: number;
+    existingMatch?: ExistingMatch;
   }>;
   facets: Array<{ entityName: string; facetType: FacetType; content: string }>;
   mentions: Array<{ entityName: string; text: string }>;
+  mergeSignals?: MergeSignal[];
 }
 
 /**
  * Stage 1: Extract entities, facets, and mentions from a single segment.
+ * Uses entity registry for LLM-first merge detection.
  */
 export async function extractEntitiesFromSegment(
   segmentText: string,
   segmentIndex: number,
   totalSegments: number,
-  existingContext?: Stage1EntityContext[],
+  entityRegistry?: EntityRegistryEntry[],
+  previousSegmentText?: string,
 ): Promise<Stage1ExtractionResult> {
   const client = await getGeminiClient();
   if (!client) {
@@ -233,7 +254,8 @@ export async function extractEntitiesFromSegment(
     segmentText,
     segmentIndex,
     totalSegments,
-    existingContext,
+    entityRegistry,
+    previousSegmentText,
   });
 
   let lastError: Error | null = null;
@@ -254,14 +276,19 @@ export async function extractEntitiesFromSegment(
         'extractEntitiesFromSegment',
       );
 
+      const matchCount = parsed.entities.filter((e) => e.existingMatch).length;
+      const signalCount = parsed.mergeSignals?.length ?? 0;
+
       logger.info(
         {
           segmentIndex,
           entitiesCount: parsed.entities.length,
           facetsCount: parsed.facets.length,
           mentionsCount: parsed.mentions.length,
+          matchCount,
+          signalCount,
         },
-        'Stage 1: Entities extracted from segment',
+        'Stage 1: Entities extracted with merge detection',
       );
 
       return parsed;

@@ -11,6 +11,22 @@ import type { FacetType, StoryNodeType } from '../../types/storyNodes';
 import { logger } from '../../utils/logger';
 import type { AnalysisStage } from './stages';
 
+/** Existing match from LLM merge detection */
+interface ExistingMatchCheckpoint {
+  registryIndex: number;
+  confidence: 'high' | 'medium' | 'low';
+  reason: string;
+}
+
+/** Merge signal for uncertain matches */
+interface MergeSignalCheckpoint {
+  extractedEntityName: string;
+  registryIndex: number;
+  confidence: 'high' | 'medium' | 'low';
+  evidence: string;
+  segmentIndex: number;
+}
+
 export interface AnalysisCheckpoint {
   version: 1;
   documentVersion: number;
@@ -26,7 +42,11 @@ export interface AnalysisCheckpoint {
       documentOrder?: number;
       facets: Array<{ type: FacetType; content: string }>;
       mentions: Array<{ text: string }>;
+      existingMatch?: ExistingMatchCheckpoint;
     }>;
+    // LLM-first merge detection additions
+    entityIdByName?: Record<string, string>;
+    mergeSignals?: MergeSignalCheckpoint[];
   };
 
   // Stage 4 output (needed for stages 5-7)

@@ -89,6 +89,19 @@ const narrativeThreadSchema = {
  * Uses parallel arrays with name-based foreign keys instead of nesting.
  * Max depth: 3 (root -> array -> object with primitives)
  */
+const existingMatchSchema = {
+  type: GeminiType.OBJECT,
+  properties: {
+    registryIndex: { type: GeminiType.INTEGER },
+    confidence: {
+      type: GeminiType.STRING,
+      enum: ['high', 'medium', 'low'],
+    },
+    reason: { type: GeminiType.STRING },
+  },
+  required: ['registryIndex', 'confidence', 'reason'],
+};
+
 const entityBaseSchema = {
   type: GeminiType.OBJECT,
   properties: {
@@ -98,8 +111,23 @@ const entityBaseSchema = {
       enum: ['character', 'location', 'event', 'concept', 'other'],
     },
     documentOrder: { type: GeminiType.INTEGER, nullable: true },
+    existingMatch: { ...existingMatchSchema, nullable: true },
   },
   required: ['name', 'type'],
+};
+
+const mergeSignalSchema = {
+  type: GeminiType.OBJECT,
+  properties: {
+    extractedEntityName: { type: GeminiType.STRING },
+    registryIndex: { type: GeminiType.INTEGER },
+    confidence: {
+      type: GeminiType.STRING,
+      enum: ['high', 'medium', 'low'],
+    },
+    evidence: { type: GeminiType.STRING },
+  },
+  required: ['extractedEntityName', 'registryIndex', 'confidence', 'evidence'],
 };
 
 const facetFlatSchema = {
@@ -203,6 +231,7 @@ export const updateNodesResponseSchema = {
 /**
  * Stage 1: Entity + Facet Extraction (per segment)
  * Flat parallel arrays for Gemini depth compliance.
+ * Includes LLM-first merge detection fields.
  */
 export const stage1ExtractEntitiesSchema = {
   type: GeminiType.OBJECT,
@@ -218,6 +247,11 @@ export const stage1ExtractEntitiesSchema = {
     mentions: {
       type: GeminiType.ARRAY,
       items: mentionFlatSchema,
+    },
+    mergeSignals: {
+      type: GeminiType.ARRAY,
+      items: mergeSignalSchema,
+      nullable: true,
     },
   },
   required: ['entities', 'facets', 'mentions'],

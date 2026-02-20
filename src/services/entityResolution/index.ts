@@ -1,14 +1,14 @@
 /**
  * Entity Resolution Service
  *
- * Multi-signal batch clustering for entity resolution.
- * Replaces per-entity LLM calls with algorithmic clustering.
+ * NOTE: As of v2, the pipeline uses LLM-first merge detection.
+ * This module is now primarily used for:
+ * - Embedding similarity calculation (for candidate selection)
+ * - Incremental updates (non-pipeline entity resolution)
+ * - Legacy support for older code paths
  *
- * Key features:
- * - Multi-signal scoring (embedding, name, type, graph context)
- * - Within-segment clustering (merge aliases before graph resolution)
- * - Three-tier thresholding (auto-merge, review, create)
- * - Confidence scoring for borderline cases
+ * For new extraction, see pipeline.ts Stage 2 which uses
+ * LLM merge detection via extractEntitiesFromSegment().
  */
 
 // Alias patterns

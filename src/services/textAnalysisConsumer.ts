@@ -46,7 +46,7 @@ class TextAnalysisConsumer extends PubSubConsumer {
    * Re-queues documents that have an active checkpoint and were analyzing.
    */
   private async recoverInterruptedAnalyses(): Promise<void> {
-    const staleThreshold = new Date(Date.now() - 60 * 60 * 1000); // 1 hour
+    const staleThreshold = new Date(Date.now() - 60 * 60 * 1000).toISOString(); // 1 hour
 
     const interrupted = await db
       .select({

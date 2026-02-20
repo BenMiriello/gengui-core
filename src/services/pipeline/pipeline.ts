@@ -23,29 +23,24 @@ import type {
 import { logger } from '../../utils/logger';
 import { generateEmbedding, generateEmbeddings } from '../embeddings';
 import {
-  type EntityCandidate,
-  type ExistingEntity,
-  mapToLegacyDecision,
-  needsLLMRefinement,
-  resolveEntities,
-} from '../entityResolution';
-import {
   analyzeHigherOrder,
+  type EntityRegistryEntry,
   extractCrossSegmentRelationships,
   extractEntitiesFromSegment,
   extractRelationshipsFromSegment,
+  type ExistingMatch,
+  type MergeSignal,
   type Stage4RelationshipsResult,
   type Stage5HigherOrderResult,
 } from '../gemini/client';
 import { graphService } from '../graph/graph.service';
 import { mentionService } from '../mentions';
-import { type Segment, segmentService } from '../segments';
+import type { Segment } from '../segments';
 import { sentenceService } from '../sentences';
 import { sseService } from '../sse';
 import {
   graphStoryNodesRepository,
   recomputeEntityEmbeddingWithMentionWeights,
-  selectEntitiesForContext,
 } from '../storyNodes';
 import {
   clearCheckpoint,
@@ -104,6 +99,13 @@ interface ExtractedEntity {
   documentOrder?: number;
   facets: FacetInput[];
   mentions: Array<{ text: string }>;
+  existingMatch?: ExistingMatch;
+}
+
+/** Accumulated merge signal for post-extraction review */
+interface AccumulatedMergeSignal extends MergeSignal {
+  segmentIndex: number;
+  extractedEntityId?: string;
 }
 
 interface ResolvedEntity extends ExtractedEntity {
@@ -118,6 +120,92 @@ interface EntityWithSegments {
   type: string;
   segmentIds: string[];
   keyFacets: string[];
+}
+
+/** Runtime entity registry used during extraction */
+interface RuntimeEntityRegistry {
+  entries: Map<string, RuntimeEntityEntry>;
+  nextIndex: number;
+}
+
+interface RuntimeEntityEntry {
+  registryIndex: number;
+  id: string;
+  name: string;
+  type: string;
+  aliases: string[];
+  facets: FacetInput[];
+  mentionCount: number;
+  embedding?: number[];
+}
+
+/**
+ * Build entity registry for prompt inclusion.
+ * Sorted by mention count (most relevant first).
+ */
+function buildEntityRegistryForPrompt(
+  registry: RuntimeEntityRegistry,
+  maxEntries = 50,
+): EntityRegistryEntry[] {
+  const entries = Array.from(registry.entries.values())
+    .sort((a, b) => b.mentionCount - a.mentionCount)
+    .slice(0, maxEntries);
+
+  return entries.map((e) => {
+    const nameFacets = e.facets
+      .filter((f) => f.type === 'name')
+      .map((f) => f.content);
+    const traitFacets = e.facets
+      .filter((f) => f.type === 'trait' || f.type === 'appearance')
+      .slice(0, 3)
+      .map((f) => f.content);
+
+    return {
+      registryIndex: e.registryIndex,
+      id: e.id,
+      name: e.name,
+      type: e.type,
+      aliases:
+        [...e.aliases, ...nameFacets].length > 0
+          ? [...new Set([...e.aliases, ...nameFacets])]
+          : undefined,
+      summary: traitFacets.length > 0 ? traitFacets.join('; ') : undefined,
+    };
+  });
+}
+
+/**
+ * Add or update entity in the runtime registry.
+ */
+function updateEntityRegistry(
+  registry: RuntimeEntityRegistry,
+  entity: ExtractedEntity,
+  entityId: string,
+): void {
+  const existing = registry.entries.get(entityId);
+
+  if (existing) {
+    existing.mentionCount += entity.mentions.length;
+    for (const facet of entity.facets) {
+      const key = `${facet.type}:${facet.content}`;
+      if (!existing.facets.some((f) => `${f.type}:${f.content}` === key)) {
+        existing.facets.push(facet);
+      }
+    }
+    if (entity.name !== existing.name && !existing.aliases.includes(entity.name)) {
+      existing.aliases.push(entity.name);
+    }
+  } else {
+    registry.entries.set(entityId, {
+      registryIndex: registry.nextIndex++,
+      id: entityId,
+      name: entity.name,
+      type: entity.type,
+      aliases: [],
+      facets: [...entity.facets],
+      mentionCount: entity.mentions.length,
+    });
+  }
 }
 
 export const multiStagePipeline = {
@@ -197,64 +285,76 @@ export const multiStagePipeline = {
       logger.info({ documentId }, 'Skipping Stage 1 (already completed)');
     }
 
-    // Stage 2: Entity + Facet Extraction (parallel per segment)
+    // Stage 2: Entity + Facet Extraction with LLM-First Merge Detection
     let extractedEntities: ExtractedEntity[];
+    let entityIdByName: Map<string, string>;
+    let accumulatedMergeSignals: AccumulatedMergeSignal[];
 
     if (shouldRunStage(checkpoint, 2)) {
       await checkForInterruption(documentId);
       broadcast(2);
-      logger.info({ documentId }, 'Stage 2: Extracting entities from segments');
+      logger.info({ documentId }, 'Stage 2: Extracting entities with LLM-first merge detection');
 
       extractedEntities = [];
+      entityIdByName = new Map<string, string>();
+      accumulatedMergeSignals = [];
+
+      // Runtime registry tracks entities as they're extracted
+      const runtimeRegistry: RuntimeEntityRegistry = {
+        entries: new Map(),
+        nextIndex: 0,
+      };
+
+      // Load existing entities into registry if incremental
+      if (!isInitialExtraction) {
+        const existingNodes = await graphStoryNodesRepository.getActiveNodes(
+          documentId,
+          userId,
+        );
+        for (const node of existingNodes) {
+          const facets = await graphService.getFacetsForEntity(node.id);
+          const mentionCount = await mentionService.getMentionCount(node.id);
+          const embedding = await graphService.getNodeEmbedding(node.id);
+
+          runtimeRegistry.entries.set(node.id, {
+            registryIndex: runtimeRegistry.nextIndex++,
+            id: node.id,
+            name: node.name,
+            type: node.type,
+            aliases: node.aliases || [],
+            facets: facets.map((f) => ({ type: f.type as FacetType, content: f.content })),
+            mentionCount,
+            embedding: embedding || undefined,
+          });
+          entityIdByName.set(node.name, node.id);
+        }
+      }
 
       for (let i = 0; i < segments.length; i++) {
+        await checkForInterruption(documentId);
         const segment = segments[i];
         const segmentText = documentContent.slice(segment.start, segment.end);
 
-        // Get context for this segment
-        let existingContext: Array<{
-          id: string;
-          name: string;
-          type: string;
-          facets: Array<{ type: string; content: string }>;
-          mentionCount: number;
-        }> = [];
-
-        if (!isInitialExtraction || i > 0) {
-          // For incremental or later segments, get context
-          const adjacentIds = segmentService.getAdjacentSegments(
-            segments,
-            [segment.id],
-            1,
-          );
-
-          // Get average embedding for this segment's sentences
-          const sentenceEmbeddings = await sentenceService.getBySegmentIds(
-            documentId,
-            [segment.id],
-          );
-          if (sentenceEmbeddings.length > 0) {
-            const avgEmbedding = sentenceService.computeAverageEmbedding(
-              sentenceEmbeddings.map((s) => s.embedding),
-            );
-            existingContext = await selectEntitiesForContext(
-              documentId,
-              userId,
-              avgEmbedding,
-              adjacentIds,
-            );
-          }
+        // Get previous segment text for context (1-segment overlap)
+        let previousSegmentText: string | undefined;
+        if (i > 0) {
+          const prevSegment = segments[i - 1];
+          previousSegmentText = documentContent.slice(prevSegment.start, prevSegment.end);
         }
 
-        // Extract from this segment
+        // Build entity registry for this segment's prompt
+        const entityRegistry = buildEntityRegistryForPrompt(runtimeRegistry);
+
+        // Extract from this segment with merge detection
         const result = await extractEntitiesFromSegment(
           segmentText,
           i,
           segments.length,
-          existingContext,
+          entityRegistry,
+          previousSegmentText,
         );
 
-        // Transform flat results to extracted entities
+        // Process extracted entities
         for (const entity of result.entities) {
           const entityFacets = result.facets
             .filter((f) => f.entityName === entity.name)
@@ -267,34 +367,94 @@ export const multiStagePipeline = {
             .filter((m) => m.entityName === entity.name)
             .map((m) => ({ text: m.text }));
 
-          extractedEntities.push({
+          // Determine entity ID based on LLM's existingMatch
+          let entityId: string;
+          if (entity.existingMatch && entity.existingMatch.confidence !== 'low') {
+            // LLM identified a match - resolve via registry index
+            const matchedEntry = entityRegistry[entity.existingMatch.registryIndex];
+            if (matchedEntry) {
+              entityId = matchedEntry.id;
+              logger.info(
+                {
+                  entityName: entity.name,
+                  matchedName: matchedEntry.name,
+                  confidence: entity.existingMatch.confidence,
+                  reason: entity.existingMatch.reason,
+                },
+                'LLM matched entity to existing',
+              );
+            } else {
+              entityId = randomUUID();
+              logger.warn(
+                { entityName: entity.name, registryIndex: entity.existingMatch.registryIndex },
+                'Invalid registry index in existingMatch, creating new entity',
+              );
+            }
+          } else {
+            // New entity
+            entityId = randomUUID();
+          }
+
+          const extracted: ExtractedEntity = {
             segmentId: segment.id,
             name: entity.name,
             type: entity.type as StoryNodeType,
             documentOrder: entity.documentOrder,
             facets: entityFacets,
             mentions: entityMentions,
-          });
+            existingMatch: entity.existingMatch,
+          };
+
+          extractedEntities.push(extracted);
+
+          // Update runtime registry for next segment
+          entityIdByName.set(entity.name, entityId);
+          updateEntityRegistry(runtimeRegistry, extracted, entityId);
+        }
+
+        // Accumulate merge signals for post-extraction review
+        if (result.mergeSignals && result.mergeSignals.length > 0) {
+          for (const signal of result.mergeSignals) {
+            accumulatedMergeSignals.push({
+              ...signal,
+              segmentIndex: i,
+            });
+          }
+          logger.info(
+            { segmentIndex: i, signalCount: result.mergeSignals.length },
+            'Accumulated merge signals for review',
+          );
         }
 
         broadcast(
           2,
-          extractedEntities.length,
+          runtimeRegistry.entries.size,
           `Processing segment ${i + 1} of ${segments.length}...`,
         );
       }
 
       logger.info(
-        { documentId, extractedCount: extractedEntities.length },
-        'Stage 2 complete: Entities extracted',
+        {
+          documentId,
+          extractedCount: extractedEntities.length,
+          uniqueEntities: runtimeRegistry.entries.size,
+          mergeSignals: accumulatedMergeSignals.length,
+        },
+        'Stage 2 complete: Entities extracted with merge detection',
       );
 
       await saveCheckpoint(documentId, {
         lastStageCompleted: 2,
-        stage2Output: { extractedEntities },
+        stage2Output: {
+          extractedEntities,
+          entityIdByName: Object.fromEntries(entityIdByName),
+          mergeSignals: accumulatedMergeSignals,
+        },
       });
     } else if (checkpoint?.stage2Output) {
       extractedEntities = checkpoint.stage2Output.extractedEntities;
+      entityIdByName = new Map(Object.entries(checkpoint.stage2Output.entityIdByName || {}));
+      accumulatedMergeSignals = checkpoint.stage2Output.mergeSignals || [];
       logger.info(
         { documentId, cachedCount: extractedEntities.length },
         'Skipping Stage 2 (using cached entities)',
@@ -311,7 +471,7 @@ export const multiStagePipeline = {
       broadcast(3, extractedEntities.length);
       logger.info({ documentId }, 'Stage 3: Grounding entities to text');
 
-      // Text grounding is done inline during entity resolution
+      // Text grounding is done inline during entity creation
       // This stage primarily validates and prepares grounding data
 
       await saveCheckpoint(documentId, { lastStageCompleted: 3 });
@@ -319,178 +479,113 @@ export const multiStagePipeline = {
       logger.info({ documentId }, 'Skipping Stage 3 (already completed)');
     }
 
-    // Stage 4: Entity Resolution (batch clustering)
+    // Stage 4: Entity Creation with LLM-Determined Merges
+    // Merges were already determined by LLM in Stage 2 via existingMatch
     let resolvedEntities: ResolvedEntity[];
-    let entityIdByName: Map<string, string>;
 
     if (shouldRunStage(checkpoint, 4)) {
       await checkForInterruption(documentId);
       broadcast(4, extractedEntities.length);
       logger.info(
         { documentId },
-        'Stage 4: Resolving entities with multi-signal clustering',
+        'Stage 4: Creating entities with LLM-determined merges',
       );
 
       resolvedEntities = [];
-      entityIdByName = new Map<string, string>();
 
-      // Get existing entities for resolution
-      const existingNodes = await graphStoryNodesRepository.getActiveNodes(
-        documentId,
-        userId,
+      // Generate embeddings for entities that need them
+      const entitiesNeedingEmbeddings = extractedEntities.filter(
+        (e) => !e.existingMatch || e.existingMatch.confidence === 'low',
       );
-
-      // Generate embeddings for all entities in a single batch call
-      const entityTexts = extractedEntities.map(
+      const entityTexts = entitiesNeedingEmbeddings.map(
         (entity) =>
           `${entity.name}: ${entity.facets.map((f) => f.content).join(', ')}`,
       );
-      const entityEmbeddings = await generateEmbeddings(entityTexts);
+      const entityEmbeddings =
+        entityTexts.length > 0 ? await generateEmbeddings(entityTexts) : [];
+      const embeddingByName = new Map<string, number[]>();
+      entitiesNeedingEmbeddings.forEach((e, i) => {
+        embeddingByName.set(e.name, entityEmbeddings[i]);
+      });
 
-      // Convert extracted entities to EntityCandidate format
-      const entityCandidates: EntityCandidate[] = extractedEntities.map(
-        (entity, i) => ({
-          name: entity.name,
-          type: entity.type,
-          embedding: entityEmbeddings[i],
-          facets: entity.facets,
-          mentions: entity.mentions.map((m) => ({
-            text: m.text,
-            segmentId: entity.segmentId,
-          })),
-          segmentId: entity.segmentId,
-          documentOrder: entity.documentOrder,
-        }),
-      );
-
-      // Build existing entities with embeddings and facets
-      const existingEntities: ExistingEntity[] = [];
-      for (const node of existingNodes) {
-        const facets = await graphService.getFacetsForEntity(node.id);
-        const mentionCount = await mentionService.getMentionCount(node.id);
-        const embedding = await graphService.getNodeEmbedding(node.id);
-
-        existingEntities.push({
-          id: node.id,
-          name: node.name,
-          type: node.type,
-          embedding: embedding || undefined,
-          aliases: node.aliases || undefined,
-          facets: facets.map((f) => ({ type: f.type, content: f.content })),
-          mentionCount,
-        });
-      }
-
-      // Run batch entity resolution
-      const resolutionResults = await resolveEntities(
-        entityCandidates,
-        existingEntities,
-        { documentId, userId },
-      );
-
-      logger.info(
-        {
-          documentId,
-          clusters: resolutionResults.stats.totalClusters,
-          autoMerged: resolutionResults.stats.autoMerged,
-          needsReview: resolutionResults.stats.needsReview,
-          created: resolutionResults.stats.created,
-        },
-        'Stage 4: Batch clustering complete',
-      );
-
-      // Process resolution results
-      for (const result of resolutionResults.results) {
-        const { cluster, decision, targetId, newFacets } = result;
-        const legacyDecision = mapToLegacyDecision(result);
-
-        // Determine entity ID
-        let entityId: string;
-        if (decision === 'MERGE' && targetId) {
-          entityId = targetId;
-        } else {
-          entityId = randomUUID();
-        }
-
-        // Map cluster primary name to entity ID
-        entityIdByName.set(cluster.primaryName, entityId);
-
-        // Also map all aliases to the same entity ID
-        for (const alias of cluster.aliases) {
-          if (alias !== cluster.primaryName) {
-            entityIdByName.set(alias, entityId);
-          }
-        }
-
-        // Track resolved entities for later stages
-        for (const member of cluster.members) {
-          resolvedEntities.push({
-            segmentId: member.segmentId,
-            name: member.name,
-            type: member.type,
-            documentOrder: member.documentOrder,
-            facets: newFacets || member.facets,
-            mentions: member.mentions.map((m) => ({ text: m.text })),
-            id: entityId,
-            decision: legacyDecision,
-            targetEntityId: targetId,
-          });
-        }
-
-        // Handle REVIEW decisions that need LLM refinement
-        if (needsLLMRefinement(result)) {
+      // Process accumulated merge signals
+      if (accumulatedMergeSignals.length > 0) {
+        logger.info(
+          { documentId, signalCount: accumulatedMergeSignals.length },
+          'Processing accumulated merge signals',
+        );
+        // For now, log signals for analysis (future: LLM review pass)
+        for (const signal of accumulatedMergeSignals) {
           logger.debug(
             {
-              clusterName: cluster.primaryName,
-              score: result.score,
-              confidence: result.confidence,
+              extractedName: signal.extractedEntityName,
+              registryIndex: signal.registryIndex,
+              confidence: signal.confidence,
+              evidence: signal.evidence,
             },
-            'Stage 4: Cluster needs LLM refinement (skipping for now)',
+            'Merge signal for future review',
           );
         }
       }
 
       // Create entities and facets in the database
-      // Iterate over unique entity IDs, not name→id mappings (which include aliases)
       const uniqueEntityIds = new Set(entityIdByName.values());
+      const createdEntityIds = new Set<string>();
 
       logger.info(
         {
           documentId,
-          resolvedCount: resolvedEntities.length,
+          extractedCount: extractedEntities.length,
           uniqueEntities: uniqueEntityIds.size,
         },
-        'Stage 4 complete: Entities resolved',
+        'Stage 4: Creating entities in database',
       );
       broadcast(4, uniqueEntityIds.size, 'Creating entities...');
 
-      const createdEntityIds = new Set<string>();
-
       for (const entityId of uniqueEntityIds) {
-        // Find ALL resolved entities that map to this entityId (includes aliases)
-        const entityInstances = resolvedEntities.filter(
+        // Find ALL extracted entities that map to this entityId
+        const entityInstances = extractedEntities.filter(
           (e) => entityIdByName.get(e.name) === entityId,
         );
         if (entityInstances.length === 0) continue;
 
         const firstInstance = entityInstances[0];
 
-        // Pick the primary name (first instance, or could enhance to pick most common)
+        // Determine if this is a new entity or merging into existing
+        const isExistingEntity = firstInstance.existingMatch &&
+          firstInstance.existingMatch.confidence !== 'low';
+
+        // Pick the primary name (first instance with no match, or most mentions)
         const primaryName = firstInstance.name;
 
-        if (firstInstance.decision === 'NEW') {
-          // Merge all facets from ALL instances (across different name variations)
-          const allFacets: FacetInput[] = [];
-          for (const instance of entityInstances) {
-            allFacets.push(...instance.facets);
-          }
-          const uniqueFacets = Array.from(
-            new Map(
-              allFacets.map((f) => [`${f.type}:${f.content}`, f]),
-            ).values(),
-          );
+        // Merge all facets from ALL instances
+        const allFacets: FacetInput[] = [];
+        for (const instance of entityInstances) {
+          allFacets.push(...instance.facets);
+        }
+        const uniqueFacets = Array.from(
+          new Map(
+            allFacets.map((f) => [`${f.type}:${f.content}`, f]),
+          ).values(),
+        );
 
-          // Create entity (idempotent by ID)
+        // Build resolved entity for each instance
+        for (const instance of entityInstances) {
+          resolvedEntities.push({
+            segmentId: instance.segmentId,
+            name: instance.name,
+            type: instance.type,
+            documentOrder: instance.documentOrder,
+            facets: instance.facets,
+            mentions: instance.mentions,
+            id: entityId,
+            decision: isExistingEntity ? 'ADD_FACET' : 'NEW',
+            targetEntityId: isExistingEntity ? entityId : undefined,
+          });
+        }
+
+        if (!isExistingEntity) {
+          // Create new entity
           const { created } = await graphService.createStoryNodeIdempotent(
             documentId,
             userId,
@@ -508,27 +603,36 @@ export const multiStagePipeline = {
           );
 
           if (created) {
-            // Create facets only for newly created entities
+            // Create facets for newly created entity
             for (const facet of uniqueFacets) {
               const facetEmbedding = await generateEmbedding(facet.content);
               await graphService.createFacet(entityId, facet, facetEmbedding);
             }
             createdEntityIds.add(entityId);
-          }
-        } else if (firstInstance.decision === 'ADD_FACET') {
-          // Add new facets to existing entity
-          const allNewFacets: FacetInput[] = [];
-          for (const instance of entityInstances) {
-            if (instance.facets) allNewFacets.push(...instance.facets);
-          }
 
-          for (const facet of allNewFacets) {
-            const facetEmbedding = await generateEmbedding(facet.content);
-            await graphService.createFacet(entityId, facet, facetEmbedding);
+            // Set entity embedding
+            const embedding = embeddingByName.get(primaryName);
+            if (embedding) {
+              await graphService.setNodeEmbedding(entityId, embedding);
+            }
+          }
+        } else {
+          // Add new facets to existing entity
+          const existingFacets = await graphService.getFacetsForEntity(entityId);
+          const existingFacetKeys = new Set(
+            existingFacets.map((f) => `${f.type}:${f.content}`),
+          );
+
+          for (const facet of uniqueFacets) {
+            const key = `${facet.type}:${facet.content}`;
+            if (!existingFacetKeys.has(key)) {
+              const facetEmbedding = await generateEmbedding(facet.content);
+              await graphService.createFacet(entityId, facet, facetEmbedding);
+            }
           }
         }
 
-        // Create mentions for all instances (covers all name variations)
+        // Create mentions for all instances
         for (const instance of entityInstances) {
           const segment = segments.find((s) => s.id === instance.segmentId);
           if (!segment) continue;
@@ -555,30 +659,35 @@ export const multiStagePipeline = {
         }
 
         // Recompute entity embedding with mention weights
-        if (
-          createdEntityIds.has(entityId) ||
-          firstInstance.decision === 'ADD_FACET'
-        ) {
+        if (createdEntityIds.has(entityId) || isExistingEntity) {
           await recomputeEntityEmbeddingWithMentionWeights(entityId);
         }
       }
+
+      logger.info(
+        {
+          documentId,
+          resolvedCount: resolvedEntities.length,
+          createdCount: createdEntityIds.size,
+          mergedCount: uniqueEntityIds.size - createdEntityIds.size,
+        },
+        'Stage 4 complete: Entities created',
+      );
 
       await saveCheckpoint(documentId, {
         lastStageCompleted: 4,
         stage4Output: { entityIdByName: Object.fromEntries(entityIdByName) },
       });
     } else if (checkpoint?.stage4Output) {
-      // Reconstruct from checkpoint
-      entityIdByName = new Map(
-        Object.entries(checkpoint.stage4Output.entityIdByName),
-      );
-
+      // Reconstruct from checkpoint - entityIdByName already loaded from Stage 2
       // Reconstruct resolvedEntities from extractedEntities + entityIdByName
       resolvedEntities = extractedEntities
         .map((e) => ({
           ...e,
           id: entityIdByName.get(e.name) || '',
-          decision: 'NEW' as const,
+          decision: (e.existingMatch && e.existingMatch.confidence !== 'low'
+            ? 'ADD_FACET'
+            : 'NEW') as 'NEW' | 'ADD_FACET',
         }))
         .filter((e) => e.id);
 
