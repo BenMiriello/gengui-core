@@ -3,51 +3,36 @@
  * Thin wrapper handling API calls, retries, and error handling.
  */
 
-import { analyzeTextPrompt, updateNodesPrompt } from '../../prompts/storyNodes';
-import type { AnalysisResult, ExistingNode, NodeUpdatesResult } from '../../types/storyNodes';
+import {
+  updateNodesPrompt,
+  extractEntitiesPrompt,
+  resolveEntityPrompt,
+  batchResolveEntitiesPrompt,
+  extractRelationshipsPrompt,
+  extractCrossSegmentRelationshipsPrompt,
+  analyzeHigherOrderPrompt,
+  refineThreadsPrompt,
+} from '../../prompts/storyNodes';
+import type {
+  ExistingNode,
+  FacetType,
+  NodeUpdatesResult,
+  StoryNodeType,
+} from '../../types/storyNodes';
 import { logger } from '../../utils/logger';
 import { getGeminiClient } from './core';
-import { analyzeResponseSchema, updateNodesResponseSchema } from './schemas/storyNodes';
+import {
+  updateNodesResponseSchema,
+  stage1ExtractEntitiesSchema,
+  stage3ResolveEntitySchema,
+  stage3BatchResolveSchema,
+  stage4ExtractRelationshipsSchema,
+  stage5HigherOrderSchema,
+  stage5RefineThreadsSchema,
+} from './schemas/storyNodes';
 
 const MAX_RETRIES = 3;
 const RETRY_DELAYS = [1000, 2000, 4000];
-
-/**
- * Analyze narrative text and extract story elements.
- */
-export async function analyzeText(content: string): Promise<AnalysisResult> {
-  const client = await getGeminiClient();
-  if (!client) {
-    throw new Error('Gemini API client not initialized - GEMINI_API_KEY missing');
-  }
-
-  const prompt = analyzeTextPrompt.build({ content });
-
-  try {
-    const result = await client.models.generateContent({
-      model: analyzeTextPrompt.model,
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-        responseJsonSchema: analyzeResponseSchema,
-      },
-    });
-
-    const parsed = parseResponse<AnalysisResult>(result, 'analyzeText');
-
-    logger.info(
-      {
-        nodesCount: parsed.nodes.length,
-        connectionsCount: parsed.connections.length,
-      },
-      'Story elements extracted'
-    );
-
-    return parsed;
-  } catch (error) {
-    throw handleApiError(error, 'Analysis');
-  }
-}
 
 /**
  * Analyze document for incremental changes to existing nodes.
@@ -183,4 +168,486 @@ function handleApiError(error: any, operation: string): Error {
   }
 
   return new Error(`${operation} failed: ${message || 'Unknown error'}. Please try again.`);
+}
+
+// =============================================================================
+// Multi-Stage Pipeline Functions
+// =============================================================================
+
+/** Entity context for Stage 1 */
+interface Stage1EntityContext {
+  id: string;
+  name: string;
+  type: string;
+  facets: Array<{ type: string; content: string }>;
+  mentionCount: number;
+}
+
+/** Stage 1 extraction result */
+export interface Stage1ExtractionResult {
+  entities: Array<{ name: string; type: StoryNodeType; documentOrder?: number }>;
+  facets: Array<{ entityName: string; facetType: FacetType; content: string }>;
+  mentions: Array<{ entityName: string; text: string }>;
+}
+
+/**
+ * Stage 1: Extract entities, facets, and mentions from a single segment.
+ */
+export async function extractEntitiesFromSegment(
+  segmentText: string,
+  segmentIndex: number,
+  totalSegments: number,
+  existingContext?: Stage1EntityContext[]
+): Promise<Stage1ExtractionResult> {
+  const client = await getGeminiClient();
+  if (!client) {
+    throw new Error('Gemini API client not initialized - GEMINI_API_KEY missing');
+  }
+
+  const prompt = extractEntitiesPrompt.build({
+    segmentText,
+    segmentIndex,
+    totalSegments,
+    existingContext,
+  });
+
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      const result = await client.models.generateContent({
+        model: extractEntitiesPrompt.model,
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          responseJsonSchema: stage1ExtractEntitiesSchema,
+        },
+      });
+
+      const parsed = parseResponse<Stage1ExtractionResult>(result, 'extractEntitiesFromSegment');
+
+      logger.info(
+        {
+          segmentIndex,
+          entitiesCount: parsed.entities.length,
+          facetsCount: parsed.facets.length,
+          mentionsCount: parsed.mentions.length,
+        },
+        'Stage 1: Entities extracted from segment'
+      );
+
+      return parsed;
+    } catch (error: any) {
+      lastError = error;
+      logger.warn(
+        {
+          segmentIndex,
+          attempt: attempt + 1,
+          maxRetries: MAX_RETRIES,
+          error: error?.message,
+        },
+        'Stage 1 extraction attempt failed, retrying'
+      );
+
+      if (attempt < MAX_RETRIES - 1) {
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS[attempt]));
+      }
+    }
+  }
+
+  throw handleApiError(lastError, 'Stage 1 extraction');
+}
+
+/** Stage 3 resolution input */
+interface Stage3ResolutionInput {
+  extractedEntity: {
+    name: string;
+    type: string;
+    facets: Array<{ type: string; content: string }>;
+    mentions: Array<{ text: string }>;
+  };
+  candidates: Array<{
+    id: string;
+    name: string;
+    type: string;
+    facets: Array<{ type: string; content: string }>;
+    mentionCount: number;
+    similarityScore: number;
+  }>;
+  documentContext?: string;
+}
+
+/** Stage 3 resolution result */
+export interface Stage3ResolutionResult {
+  decision: 'MERGE' | 'UPDATE' | 'ADD_FACET' | 'NEW';
+  targetEntityId?: string;
+  newFacets?: Array<{ type: FacetType; content: string }>;
+  reason: string;
+}
+
+/**
+ * Stage 3: Resolve a single extracted entity against candidates.
+ */
+export async function resolveEntity(
+  input: Stage3ResolutionInput
+): Promise<Stage3ResolutionResult> {
+  const client = await getGeminiClient();
+  if (!client) {
+    throw new Error('Gemini API client not initialized - GEMINI_API_KEY missing');
+  }
+
+  const prompt = resolveEntityPrompt.build(input);
+
+  try {
+    const result = await client.models.generateContent({
+      model: resolveEntityPrompt.model,
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        responseJsonSchema: stage3ResolveEntitySchema,
+      },
+    });
+
+    const parsed = parseResponse<Stage3ResolutionResult>(result, 'resolveEntity');
+
+    logger.info(
+      {
+        entityName: input.extractedEntity.name,
+        decision: parsed.decision,
+        targetId: parsed.targetEntityId,
+      },
+      'Stage 3: Entity resolution completed'
+    );
+
+    return parsed;
+  } catch (error) {
+    throw handleApiError(error, 'Stage 3 resolution');
+  }
+}
+
+/** Stage 3 batch resolution result */
+export interface Stage3BatchResolutionResult {
+  resolutions: Array<{
+    extractedIndex: number;
+    decision: 'MERGE' | 'UPDATE' | 'ADD_FACET' | 'NEW';
+    targetEntityId?: string;
+    newFacets?: Array<{ type: FacetType; content: string }>;
+    reason: string;
+  }>;
+}
+
+/**
+ * Stage 3: Batch resolve multiple entities.
+ */
+export async function batchResolveEntities(
+  extractedEntities: Array<{
+    name: string;
+    type: string;
+    facets: Array<{ type: string; content: string }>;
+    mentions: Array<{ text: string }>;
+    candidateIds: string[];
+  }>,
+  allCandidates: Array<{
+    id: string;
+    name: string;
+    type: string;
+    facets: Array<{ type: string; content: string }>;
+    mentionCount: number;
+  }>,
+  documentContext?: string
+): Promise<Stage3BatchResolutionResult> {
+  const client = await getGeminiClient();
+  if (!client) {
+    throw new Error('Gemini API client not initialized - GEMINI_API_KEY missing');
+  }
+
+  const prompt = batchResolveEntitiesPrompt.build({
+    extractedEntities,
+    allCandidates,
+    documentContext,
+  });
+
+  try {
+    const result = await client.models.generateContent({
+      model: batchResolveEntitiesPrompt.model,
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        responseJsonSchema: stage3BatchResolveSchema,
+      },
+    });
+
+    const parsed = parseResponse<Stage3BatchResolutionResult>(result, 'batchResolveEntities');
+
+    logger.info(
+      {
+        entitiesCount: extractedEntities.length,
+        resolutionsCount: parsed.resolutions.length,
+      },
+      'Stage 3: Batch entity resolution completed'
+    );
+
+    return parsed;
+  } catch (error) {
+    throw handleApiError(error, 'Stage 3 batch resolution');
+  }
+}
+
+/** Stage 4 relationship extraction result */
+export interface Stage4RelationshipsResult {
+  relationships: Array<{
+    fromId: string;
+    toId: string;
+    edgeType: string;
+    description: string;
+    strength?: number;
+  }>;
+}
+
+/**
+ * Stage 4: Extract relationships between entities in a segment.
+ */
+export async function extractRelationshipsFromSegment(
+  segmentText: string,
+  segmentIndex: number,
+  resolvedEntities: Array<{
+    id: string;
+    name: string;
+    type: string;
+    keyFacets: string[];
+  }>
+): Promise<Stage4RelationshipsResult> {
+  const client = await getGeminiClient();
+  if (!client) {
+    throw new Error('Gemini API client not initialized - GEMINI_API_KEY missing');
+  }
+
+  const prompt = extractRelationshipsPrompt.build({
+    segmentText,
+    segmentIndex,
+    resolvedEntities,
+  });
+
+  try {
+    const result = await client.models.generateContent({
+      model: extractRelationshipsPrompt.model,
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        responseJsonSchema: stage4ExtractRelationshipsSchema,
+      },
+    });
+
+    const parsed = parseResponse<Stage4RelationshipsResult>(result, 'extractRelationshipsFromSegment');
+
+    logger.info(
+      {
+        segmentIndex,
+        relationshipsCount: parsed.relationships.length,
+      },
+      'Stage 4: Relationships extracted from segment'
+    );
+
+    return parsed;
+  } catch (error) {
+    throw handleApiError(error, 'Stage 4 relationship extraction');
+  }
+}
+
+/**
+ * Stage 4b: Extract cross-segment relationships.
+ */
+export async function extractCrossSegmentRelationships(
+  documentSummary: string | undefined,
+  allEntities: Array<{
+    id: string;
+    name: string;
+    type: string;
+    segmentIds: string[];
+    keyFacets: string[];
+  }>,
+  existingRelationships: Array<{
+    fromId: string;
+    toId: string;
+    edgeType: string;
+  }>
+): Promise<Stage4RelationshipsResult> {
+  const client = await getGeminiClient();
+  if (!client) {
+    throw new Error('Gemini API client not initialized - GEMINI_API_KEY missing');
+  }
+
+  const prompt = extractCrossSegmentRelationshipsPrompt.build({
+    documentSummary,
+    allEntities,
+    existingRelationships,
+  });
+
+  try {
+    const result = await client.models.generateContent({
+      model: extractCrossSegmentRelationshipsPrompt.model,
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        responseJsonSchema: stage4ExtractRelationshipsSchema,
+      },
+    });
+
+    const parsed = parseResponse<Stage4RelationshipsResult>(result, 'extractCrossSegmentRelationships');
+
+    logger.info(
+      {
+        entitiesCount: allEntities.length,
+        newRelationshipsCount: parsed.relationships.length,
+      },
+      'Stage 4b: Cross-segment relationships extracted'
+    );
+
+    return parsed;
+  } catch (error) {
+    throw handleApiError(error, 'Stage 4b cross-segment relationships');
+  }
+}
+
+/** Stage 5 higher-order analysis result */
+export interface Stage5HigherOrderResult {
+  narrativeThreads: Array<{
+    name: string;
+    isPrimary: boolean;
+    eventIds: string[];
+    description?: string;
+  }>;
+  /** Flattened arc phases - grouped by characterId + phaseIndex */
+  arcPhases: Array<{
+    characterId: string;
+    phaseIndex: number;
+    phaseName: string;
+    arcType: 'transformation' | 'growth' | 'fall' | 'revelation' | 'static';
+    triggerEventId: string | null;
+    stateFacets: string[];
+  }>;
+}
+
+/**
+ * Stage 5: Analyze higher-order narrative structure.
+ */
+export async function analyzeHigherOrder(
+  events: Array<{
+    id: string;
+    name: string;
+    documentOrder: number;
+    connectedCharacterIds: string[];
+    causalEdges: Array<{
+      type: 'CAUSES' | 'ENABLES' | 'PREVENTS';
+      targetId: string;
+      strength: number;
+    }>;
+  }>,
+  characters: Array<{
+    id: string;
+    name: string;
+    participatesInEventIds: string[];
+    stateFacetsBySegment: Array<{
+      segmentIndex: number;
+      states: string[];
+    }>;
+  }>,
+  threadCandidates: Array<{
+    eventIds: string[];
+    characterIds: string[];
+  }>,
+  documentSummary?: string
+): Promise<Stage5HigherOrderResult> {
+  const client = await getGeminiClient();
+  if (!client) {
+    throw new Error('Gemini API client not initialized - GEMINI_API_KEY missing');
+  }
+
+  const prompt = analyzeHigherOrderPrompt.build({
+    events,
+    characters,
+    threadCandidates,
+    documentSummary,
+  });
+
+  try {
+    const result = await client.models.generateContent({
+      model: analyzeHigherOrderPrompt.model,
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        responseJsonSchema: stage5HigherOrderSchema,
+      },
+    });
+
+    const parsed = parseResponse<Stage5HigherOrderResult>(result, 'analyzeHigherOrder');
+
+    logger.info(
+      {
+        threadsCount: parsed.narrativeThreads.length,
+        arcPhasesCount: parsed.arcPhases?.length || 0,
+      },
+      'Stage 5: Higher-order analysis completed'
+    );
+
+    return parsed;
+  } catch (error) {
+    throw handleApiError(error, 'Stage 5 higher-order analysis');
+  }
+}
+
+/** Stage 5 thread refinement result */
+export interface Stage5ThreadRefinementResult {
+  threads: Array<{
+    index: number;
+    name: string;
+    isPrimary: boolean;
+    description: string;
+  }>;
+}
+
+/**
+ * Stage 5: Refine algorithmically detected threads.
+ */
+export async function refineThreads(
+  algorithmicThreads: Array<{
+    eventIds: string[];
+    eventNames: string[];
+  }>,
+  documentTitle?: string
+): Promise<Stage5ThreadRefinementResult> {
+  const client = await getGeminiClient();
+  if (!client) {
+    throw new Error('Gemini API client not initialized - GEMINI_API_KEY missing');
+  }
+
+  const prompt = refineThreadsPrompt.build({
+    algorithmicThreads,
+    documentTitle,
+  });
+
+  try {
+    const result = await client.models.generateContent({
+      model: refineThreadsPrompt.model,
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        responseJsonSchema: stage5RefineThreadsSchema,
+      },
+    });
+
+    const parsed = parseResponse<Stage5ThreadRefinementResult>(result, 'refineThreads');
+
+    logger.info(
+      {
+        inputThreads: algorithmicThreads.length,
+        refinedThreads: parsed.threads.length,
+      },
+      'Stage 5: Thread refinement completed'
+    );
+
+    return parsed;
+  } catch (error) {
+    throw handleApiError(error, 'Stage 5 thread refinement');
+  }
 }

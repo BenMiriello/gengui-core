@@ -247,6 +247,49 @@ router.get(
   }
 );
 
+router.get(
+  '/documents/:id/analysis-status',
+  requireAuth,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = (req as any).user.id;
+      const { id } = req.params;
+
+      const document = await documentsService.get(id, userId);
+      const nodes = await graphStoryNodesRepository.getActiveNodes(id, userId);
+
+      const hasAnalysis = nodes.length > 0;
+      const lastAnalyzedVersion = document.lastAnalyzedVersion ?? null;
+      const currentVersion = document.currentVersion;
+      const hasChanges = lastAnalyzedVersion !== null && lastAnalyzedVersion < currentVersion;
+
+      // Detect stale analysis (started > 10 min ago, likely crashed)
+      let analysisStatus = document.analysisStatus;
+      const analysisStartedAt = document.analysisStartedAt;
+      const STALE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
+
+      if (analysisStatus === 'analyzing' && analysisStartedAt) {
+        const elapsed = Date.now() - new Date(analysisStartedAt).getTime();
+        if (elapsed > STALE_THRESHOLD_MS) {
+          analysisStatus = 'stale';
+        }
+      }
+
+      res.json({
+        hasAnalysis,
+        lastAnalyzedVersion,
+        currentVersion,
+        hasChanges,
+        nodeCount: nodes.length,
+        analysisStatus,
+        analysisStartedAt,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
 router.post(
   '/documents/:id/analyze',
   requireAuth,

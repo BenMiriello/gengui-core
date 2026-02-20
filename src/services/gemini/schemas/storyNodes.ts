@@ -71,18 +71,6 @@ const nodeSchema = {
   required: ['type', 'name', 'description', 'mentions'],
 };
 
-const connectionSchema = {
-  type: GeminiType.OBJECT,
-  properties: {
-    fromName: { type: GeminiType.STRING },
-    toName: { type: GeminiType.STRING },
-    edgeType: { type: GeminiType.STRING, enum: EDGE_TYPE_ENUM },
-    description: { type: GeminiType.STRING },
-    strength: { type: GeminiType.NUMBER, nullable: true },
-  },
-  required: ['fromName', 'toName', 'edgeType', 'description'],
-};
-
 const narrativeThreadSchema = {
   type: GeminiType.OBJECT,
   properties: {
@@ -96,25 +84,45 @@ const narrativeThreadSchema = {
   required: ['name', 'isPrimary', 'eventNames'],
 };
 
-/** Schema for fresh text analysis */
-export const analyzeResponseSchema = {
+/**
+ * Schema for facet-first extraction (flattened for Gemini depth limit).
+ * Uses parallel arrays with name-based foreign keys instead of nesting.
+ * Max depth: 3 (root -> array -> object with primitives)
+ */
+const entityBaseSchema = {
   type: GeminiType.OBJECT,
   properties: {
-    nodes: {
-      type: GeminiType.ARRAY,
-      items: nodeSchema,
+    name: { type: GeminiType.STRING },
+    type: {
+      type: GeminiType.STRING,
+      enum: ['character', 'location', 'event', 'concept', 'other'],
     },
-    connections: {
-      type: GeminiType.ARRAY,
-      items: connectionSchema,
-    },
-    narrativeThreads: {
-      type: GeminiType.ARRAY,
-      items: narrativeThreadSchema,
-      nullable: true,
-    },
+    documentOrder: { type: GeminiType.INTEGER, nullable: true },
   },
-  required: ['nodes', 'connections'],
+  required: ['name', 'type'],
+};
+
+const facetFlatSchema = {
+  type: GeminiType.OBJECT,
+  properties: {
+    entityName: { type: GeminiType.STRING },
+    facetType: {
+      type: GeminiType.STRING,
+      enum: ['name', 'appearance', 'trait', 'state'],
+    },
+    content: { type: GeminiType.STRING },
+  },
+  required: ['entityName', 'facetType', 'content'],
+};
+
+const mentionFlatSchema = {
+  type: GeminiType.OBJECT,
+  properties: {
+    entityName: { type: GeminiType.STRING },
+    text: { type: GeminiType.STRING },
+    context: { type: GeminiType.STRING, nullable: true },
+  },
+  required: ['entityName', 'text'],
 };
 
 /** Schema for incremental node updates */
@@ -186,4 +194,201 @@ export const updateNodesResponseSchema = {
     },
   },
   required: ['add', 'update', 'delete', 'connectionUpdates'],
+};
+
+// =============================================================================
+// Multi-Stage Pipeline Schemas
+// =============================================================================
+
+/**
+ * Stage 1: Entity + Facet Extraction (per segment)
+ * Flat parallel arrays for Gemini depth compliance.
+ */
+export const stage1ExtractEntitiesSchema = {
+  type: GeminiType.OBJECT,
+  properties: {
+    entities: {
+      type: GeminiType.ARRAY,
+      items: entityBaseSchema,
+    },
+    facets: {
+      type: GeminiType.ARRAY,
+      items: facetFlatSchema,
+    },
+    mentions: {
+      type: GeminiType.ARRAY,
+      items: mentionFlatSchema,
+    },
+  },
+  required: ['entities', 'facets', 'mentions'],
+};
+
+/**
+ * Stage 3: Entity Resolution
+ * Decision for single entity resolution.
+ */
+const resolutionFacetSchema = {
+  type: GeminiType.OBJECT,
+  properties: {
+    type: { type: GeminiType.STRING, enum: ['name', 'appearance', 'trait', 'state'] },
+    content: { type: GeminiType.STRING },
+  },
+  required: ['type', 'content'],
+};
+
+export const stage3ResolveEntitySchema = {
+  type: GeminiType.OBJECT,
+  properties: {
+    decision: {
+      type: GeminiType.STRING,
+      enum: ['MERGE', 'UPDATE', 'ADD_FACET', 'NEW'],
+    },
+    targetEntityId: { type: GeminiType.STRING, nullable: true },
+    newFacets: {
+      type: GeminiType.ARRAY,
+      items: resolutionFacetSchema,
+      nullable: true,
+    },
+    reason: { type: GeminiType.STRING },
+  },
+  required: ['decision', 'reason'],
+};
+
+/**
+ * Stage 3: Batch Entity Resolution
+ */
+const batchResolutionItemSchema = {
+  type: GeminiType.OBJECT,
+  properties: {
+    extractedIndex: { type: GeminiType.INTEGER },
+    decision: {
+      type: GeminiType.STRING,
+      enum: ['MERGE', 'UPDATE', 'ADD_FACET', 'NEW'],
+    },
+    targetEntityId: { type: GeminiType.STRING, nullable: true },
+    newFacets: {
+      type: GeminiType.ARRAY,
+      items: resolutionFacetSchema,
+      nullable: true,
+    },
+    reason: { type: GeminiType.STRING },
+  },
+  required: ['extractedIndex', 'decision', 'reason'],
+};
+
+export const stage3BatchResolveSchema = {
+  type: GeminiType.OBJECT,
+  properties: {
+    resolutions: {
+      type: GeminiType.ARRAY,
+      items: batchResolutionItemSchema,
+    },
+  },
+  required: ['resolutions'],
+};
+
+/**
+ * Stage 4: Relationship Extraction
+ */
+const relationshipSchema = {
+  type: GeminiType.OBJECT,
+  properties: {
+    fromId: { type: GeminiType.STRING },
+    toId: { type: GeminiType.STRING },
+    edgeType: { type: GeminiType.STRING, enum: EDGE_TYPE_ENUM },
+    description: { type: GeminiType.STRING },
+    strength: { type: GeminiType.NUMBER, nullable: true },
+  },
+  required: ['fromId', 'toId', 'edgeType', 'description'],
+};
+
+export const stage4ExtractRelationshipsSchema = {
+  type: GeminiType.OBJECT,
+  properties: {
+    relationships: {
+      type: GeminiType.ARRAY,
+      items: relationshipSchema,
+    },
+  },
+  required: ['relationships'],
+};
+
+/**
+ * Stage 5: Higher-Order Analysis
+ */
+const narrativeThreadOutputSchema = {
+  type: GeminiType.OBJECT,
+  properties: {
+    name: { type: GeminiType.STRING },
+    isPrimary: { type: GeminiType.BOOLEAN },
+    eventIds: {
+      type: GeminiType.ARRAY,
+      items: { type: GeminiType.STRING },
+    },
+    description: { type: GeminiType.STRING, nullable: true },
+  },
+  required: ['name', 'isPrimary', 'eventIds'],
+};
+
+/**
+ * Flattened arc phase schema to avoid Gemini depth limits.
+ * Uses characterId + phaseIndex as composite key.
+ */
+const arcPhaseSchema = {
+  type: GeminiType.OBJECT,
+  properties: {
+    characterId: { type: GeminiType.STRING },
+    phaseIndex: { type: GeminiType.INTEGER },
+    phaseName: { type: GeminiType.STRING },
+    arcType: {
+      type: GeminiType.STRING,
+      enum: ['transformation', 'growth', 'fall', 'revelation', 'static'],
+    },
+    triggerEventId: { type: GeminiType.STRING, nullable: true },
+    stateFacets: {
+      type: GeminiType.ARRAY,
+      items: { type: GeminiType.STRING },
+    },
+  },
+  required: ['characterId', 'phaseIndex', 'phaseName', 'arcType', 'stateFacets'],
+};
+
+export const stage5HigherOrderSchema = {
+  type: GeminiType.OBJECT,
+  properties: {
+    narrativeThreads: {
+      type: GeminiType.ARRAY,
+      items: narrativeThreadOutputSchema,
+    },
+    arcPhases: {
+      type: GeminiType.ARRAY,
+      items: arcPhaseSchema,
+    },
+  },
+  required: ['narrativeThreads', 'arcPhases'],
+};
+
+/**
+ * Stage 5: Thread Refinement (simpler)
+ */
+const refinedThreadSchema = {
+  type: GeminiType.OBJECT,
+  properties: {
+    index: { type: GeminiType.INTEGER },
+    name: { type: GeminiType.STRING },
+    isPrimary: { type: GeminiType.BOOLEAN },
+    description: { type: GeminiType.STRING },
+  },
+  required: ['index', 'name', 'isPrimary', 'description'],
+};
+
+export const stage5RefineThreadsSchema = {
+  type: GeminiType.OBJECT,
+  properties: {
+    threads: {
+      type: GeminiType.ARRAY,
+      items: refinedThreadSchema,
+    },
+  },
+  required: ['threads'],
 };

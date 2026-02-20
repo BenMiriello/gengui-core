@@ -1,4 +1,4 @@
-import type { StoryEdgeType, StoryNodeType } from '../../types/storyNodes';
+import type { FacetType, StoryEdgeType, StoryNodeType, ArcType } from '../../types/storyNodes';
 
 export interface NodeProperties {
   [key: string]: string | number | boolean | null;
@@ -73,6 +73,49 @@ export const CAUSAL_EDGE_TYPES: StoryEdgeType[] = [
   'PREVENTS',
   'HAPPENS_BEFORE',
 ];
+
+export interface StoredFacet {
+  id: string;
+  entityId: string;
+  type: FacetType;
+  content: string;
+  embedding?: number[];
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
+// ========== Character Arc Types ==========
+
+export interface StoredCharacterState {
+  id: string;
+  characterId: string;
+  name: string;
+  phaseIndex: number;
+  documentOrder: number;
+  causalOrder: number;
+  embedding: number[] | null;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
+export interface StoredArc {
+  id: string;
+  characterId: string;
+  name: string;
+  arcType: ArcType;
+  summary: string | null;
+  embedding: number[] | null;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
+export interface ChangesToEdgeProps {
+  triggerEventId: string | null;
+  gapDetected: boolean;
+}
 
 /**
  * Generate Cypher edge pattern for causal relationship types.

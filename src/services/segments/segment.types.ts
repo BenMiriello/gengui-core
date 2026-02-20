@@ -8,6 +8,7 @@ export interface Segment {
   id: string;
   start: number;
   end: number;
+  hash?: string;
 }
 
 export interface SegmentBoundary {

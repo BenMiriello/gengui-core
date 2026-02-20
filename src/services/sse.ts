@@ -7,8 +7,17 @@ interface SSEClient {
   res: Response;
 }
 
+interface BufferedEvent {
+  event: string;
+  data: any;
+  timestamp: number;
+}
+
 class SSEService {
   private clients: Map<string, SSEClient> = new Map();
+  private eventBuffer: Map<string, BufferedEvent[]> = new Map();
+  private readonly BUFFER_SIZE = 10;
+  private readonly BUFFER_TTL_MS = 60000; // 1 minute
 
   /**
    * Add an SSE client subscribed to a channel
@@ -27,6 +36,9 @@ class SSEService {
     this.clients.set(clientId, { id: clientId, channel, res });
 
     res.write(`data: ${JSON.stringify({ type: 'connected' })}\n\n`);
+
+    // Replay buffered events for this channel
+    this.replayBufferedEvents(channel, res);
 
     logger.debug({ clientId, channel, totalClients: this.clients.size }, 'SSE client connected');
 
@@ -50,14 +62,65 @@ class SSEService {
   }
 
   /**
+   * Replay buffered events to a newly connected client
+   */
+  private replayBufferedEvents(channel: string, res: Response) {
+    const buffer = this.eventBuffer.get(channel);
+    if (!buffer || buffer.length === 0) return;
+
+    const now = Date.now();
+    const validEvents = buffer.filter((e) => now - e.timestamp < this.BUFFER_TTL_MS);
+
+    if (validEvents.length === 0) {
+      this.eventBuffer.delete(channel);
+      return;
+    }
+
+    logger.debug({ channel, eventCount: validEvents.length }, 'Replaying buffered SSE events');
+
+    for (const bufferedEvent of validEvents) {
+      try {
+        const message = `event: ${bufferedEvent.event}\ndata: ${JSON.stringify(bufferedEvent.data)}\n\n`;
+        res.write(message);
+      } catch (error) {
+        logger.error({ error, channel }, 'Failed to replay buffered SSE event');
+        break;
+      }
+    }
+  }
+
+  /**
+   * Buffer an event for later replay to new clients
+   */
+  private bufferEvent(channel: string, event: string, data: any) {
+    if (!this.eventBuffer.has(channel)) {
+      this.eventBuffer.set(channel, []);
+    }
+
+    const buffer = this.eventBuffer.get(channel)!;
+    buffer.push({ event, data, timestamp: Date.now() });
+
+    // Trim to buffer size
+    if (buffer.length > this.BUFFER_SIZE) {
+      buffer.shift();
+    }
+  }
+
+  /**
    * Broadcast an event to all clients subscribed to a channel
    */
   broadcast(channel: string, event: string, data: any) {
+    // Always buffer the event for late-joining clients
+    this.bufferEvent(channel, event, data);
+
     const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 
     const channelClients = Array.from(this.clients.values()).filter((c) => c.channel === channel);
 
-    if (channelClients.length === 0) return;
+    if (channelClients.length === 0) {
+      logger.warn({ event, channel }, 'SSE event buffered but no active subscribers');
+      return;
+    }
 
     logger.debug({ event, channel, clientCount: channelClients.length }, 'Broadcasting SSE event');
 
@@ -109,6 +172,17 @@ class SSEService {
   }
 
   /**
+   * Clear event buffer for a channel (e.g., when analysis completes)
+   */
+  clearBuffer(channel: string): void {
+    this.eventBuffer.delete(channel);
+  }
+
+  clearDocumentBuffer(documentId: string): void {
+    this.clearBuffer(`document:${documentId}`);
+  }
+
+  /**
    * Force-close all SSE connections during shutdown
    */
   closeAll(): void {
@@ -128,6 +202,7 @@ class SSEService {
     }
 
     this.clients.clear();
+    this.eventBuffer.clear();
   }
 }
 

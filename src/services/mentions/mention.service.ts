@@ -4,7 +4,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '../../config/database';
 import { mentions } from '../../models/schema';
 import type { Segment } from '../segments';
@@ -26,7 +26,8 @@ export const mentionService = {
     versionNumber: number,
     segments: Segment[],
     source: CreateMentionInput['source'] = 'extraction',
-    confidence = 100
+    confidence = 100,
+    facetId?: string | null
   ): Promise<Mention | null> {
     const relative = segmentService.toRelativePosition(segments, absoluteStart, absoluteEnd);
     if (!relative) {
@@ -37,6 +38,7 @@ export const mentionService = {
       nodeId,
       documentId,
       segmentId: relative.segmentId,
+      facetId: facetId ?? null,
       relativeStart: relative.relativeStart,
       relativeEnd: relative.relativeEnd,
       originalText,
@@ -59,6 +61,7 @@ export const mentionService = {
         nodeId: input.nodeId,
         documentId: input.documentId,
         segmentId: input.segmentId,
+        facetId: input.facetId ?? null,
         relativeStart: input.relativeStart,
         relativeEnd: input.relativeEnd,
         originalText: input.originalText,
@@ -83,6 +86,7 @@ export const mentionService = {
       nodeId: input.nodeId,
       documentId: input.documentId,
       segmentId: input.segmentId,
+      facetId: input.facetId ?? null,
       relativeStart: input.relativeStart,
       relativeEnd: input.relativeEnd,
       originalText: input.originalText,
@@ -294,6 +298,76 @@ export const mentionService = {
   },
 
   /**
+   * Get mention counts grouped by facet ID for a node.
+   * Used for weighting entity embeddings by mention frequency.
+   */
+  async getMentionCountsByFacet(nodeId: string): Promise<Map<string, number>> {
+    const rows = await db
+      .select({
+        facetId: mentions.facetId,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(mentions)
+      .where(eq(mentions.nodeId, nodeId))
+      .groupBy(mentions.facetId);
+
+    const result = new Map<string, number>();
+    for (const row of rows) {
+      if (row.facetId) {
+        result.set(row.facetId, row.count);
+      }
+    }
+    return result;
+  },
+
+  /**
+   * Get mentions by segment ID.
+   */
+  async getBySegmentId(documentId: string, segmentId: string): Promise<Mention[]> {
+    const rows = await db
+      .select()
+      .from(mentions)
+      .where(and(eq(mentions.documentId, documentId), eq(mentions.segmentId, segmentId)));
+
+    return rows.map(rowToMention);
+  },
+
+  /**
+   * Get total mention count for a node.
+   */
+  async getMentionCount(nodeId: string): Promise<number> {
+    const [row] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(mentions)
+      .where(eq(mentions.nodeId, nodeId));
+
+    return row?.count || 0;
+  },
+
+  /**
+   * Get mention counts for multiple nodes.
+   * Returns map of nodeId -> count.
+   */
+  async getMentionCountsByNodes(nodeIds: string[]): Promise<Map<string, number>> {
+    if (nodeIds.length === 0) return new Map();
+
+    const rows = await db
+      .select({
+        nodeId: mentions.nodeId,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(mentions)
+      .where(inArray(mentions.nodeId, nodeIds))
+      .groupBy(mentions.nodeId);
+
+    const result = new Map<string, number>();
+    for (const row of rows) {
+      result.set(row.nodeId, row.count);
+    }
+    return result;
+  },
+
+  /**
    * Run name matching for a node and create mentions.
    * Excludes spans that already have extraction-source mentions.
    */
@@ -339,6 +413,7 @@ function rowToMention(row: typeof mentions.$inferSelect): Mention {
     nodeId: row.nodeId,
     documentId: row.documentId,
     segmentId: row.segmentId,
+    facetId: row.facetId,
     relativeStart: row.relativeStart,
     relativeEnd: row.relativeEnd,
     originalText: row.originalText,

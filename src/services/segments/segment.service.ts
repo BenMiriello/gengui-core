@@ -3,6 +3,7 @@
  * Handles persistence and lookup operations.
  */
 
+import { createHash } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { db } from '../../config/database';
 import { documents } from '../../models/schema';
@@ -126,6 +127,89 @@ export const segmentService = {
    */
   getSegmentText(content: string, segment: Segment): string {
     return content.slice(segment.start, segment.end);
+  },
+
+  /**
+   * Compute hash for a segment's content.
+   */
+  computeSegmentHash(content: string, segment: Segment): string {
+    const text = content.slice(segment.start, segment.end);
+    return createHash('sha256').update(text).digest('hex').slice(0, 16);
+  },
+
+  /**
+   * Add hashes to segments if not present.
+   */
+  addHashesToSegments(content: string, segments: Segment[]): Segment[] {
+    return segments.map((s) => ({
+      ...s,
+      hash: s.hash || this.computeSegmentHash(content, s),
+    }));
+  },
+
+  /**
+   * Detect which segments have changed by comparing hashes.
+   * Returns segment IDs that are new, modified, or removed.
+   */
+  detectChangedSegments(
+    currentContent: string,
+    currentSegments: Segment[],
+    previousSegments: Segment[]
+  ): {
+    added: string[];
+    modified: string[];
+    removed: string[];
+    unchanged: string[];
+  } {
+    const currentWithHashes = this.addHashesToSegments(currentContent, currentSegments);
+    const previousHashMap = new Map(previousSegments.map((s) => [s.id, s.hash]));
+    const currentIds = new Set(currentWithHashes.map((s) => s.id));
+
+    const added: string[] = [];
+    const modified: string[] = [];
+    const unchanged: string[] = [];
+
+    for (const segment of currentWithHashes) {
+      const previousHash = previousHashMap.get(segment.id);
+      if (!previousHash) {
+        added.push(segment.id);
+      } else if (previousHash !== segment.hash) {
+        modified.push(segment.id);
+      } else {
+        unchanged.push(segment.id);
+      }
+    }
+
+    const removed = previousSegments
+      .filter((s) => !currentIds.has(s.id))
+      .map((s) => s.id);
+
+    return { added, modified, removed, unchanged };
+  },
+
+  /**
+   * Get adjacent segments (neighbors) for context gathering.
+   */
+  getAdjacentSegments(
+    segments: Segment[],
+    segmentIds: string[],
+    neighborCount: number = 1
+  ): string[] {
+    const targetSet = new Set(segmentIds);
+    const adjacentIds = new Set<string>();
+
+    for (let i = 0; i < segments.length; i++) {
+      if (targetSet.has(segments[i].id)) {
+        // Add neighbors
+        for (let j = Math.max(0, i - neighborCount); j <= Math.min(segments.length - 1, i + neighborCount); j++) {
+          if (!targetSet.has(segments[j].id)) {
+            adjacentIds.add(segments[j].id);
+          }
+        }
+      }
+    }
+
+    return Array.from(adjacentIds);
   },
 };
 

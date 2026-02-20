@@ -9,6 +9,14 @@ export async function generateEmbedding(text: string): Promise<number[]> {
   return provider.embed(text);
 }
 
+export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
+  if (texts.length === 0) return [];
+  if (texts.length === 1) return [await generateEmbedding(texts[0])];
+
+  const provider = getEmbeddingProvider();
+  return provider.batchEmbed(texts);
+}
+
 /**
  * Build embedding text from stored node (no passages field).
  * Mentions with source='extraction' should be passed separately if available.

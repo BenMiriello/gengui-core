@@ -28,6 +28,7 @@ const generateCharacterSheetSchema = z.object({
   aspectRatio: z.enum(['portrait', 'square', 'landscape']).optional(),
   stylePreset: z.string().max(50).nullable().optional(),
   stylePrompt: z.string().max(2000).nullable().optional(),
+  cursorPosition: z.number().int().min(0).optional(),
 });
 
 const setPrimaryMediaSchema = z.object({
@@ -60,6 +61,7 @@ router.post(
         aspectRatio: validatedData.aspectRatio,
         stylePreset: validatedData.stylePreset,
         stylePrompt: validatedData.stylePrompt,
+        cursorPosition: validatedData.cursorPosition,
       });
 
       res.status(201).json({
@@ -424,6 +426,91 @@ router.get('/documents/:id/mentions', requireAuth, async (req, res, next) => {
     const mentions = await mentionService.getByDocumentIdWithAbsolutePositions(id);
 
     res.json({ mentions });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Get facets for a node
+router.get('/nodes/:id/facets', requireAuth, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    // Verify node exists and user has access
+    const node = await graphService.getStoryNodeById(id, req.user!.id);
+    if (!node) {
+      res.status(404).json({ error: { message: 'Node not found', code: 'NOT_FOUND' } });
+      return;
+    }
+
+    const facets = await graphService.getFacetsForEntity(id);
+
+    res.json({ facets });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Get entity graph data for visualization
+router.get('/nodes/:id/graph', requireAuth, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const graphData = await graphService.getEntityGraph(id, req.user!.id);
+
+    if (!graphData) {
+      res.status(404).json({ error: { message: 'Node not found', code: 'NOT_FOUND' } });
+      return;
+    }
+
+    res.json(graphData);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Get character arc data for visualization
+router.get('/nodes/:id/arc', requireAuth, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    // Verify node exists and is a character
+    const node = await graphService.getStoryNodeById(id, req.user!.id);
+    if (!node) {
+      res.status(404).json({ error: { message: 'Node not found', code: 'NOT_FOUND' } });
+      return;
+    }
+
+    if (node.type !== 'character') {
+      res.status(400).json({
+        error: { message: 'Arc data only available for characters', code: 'INVALID_NODE_TYPE' },
+      });
+      return;
+    }
+
+    // Get arc data
+    const arcs = await graphService.getCharacterArcs(id);
+    const states = await graphService.getCharacterStates(id);
+    const transitions = await graphService.getStateTransitions(id);
+    const threads = await graphService.getCharacterThreadParticipation(id);
+
+    // Get facets for each state
+    const statesWithFacets = await Promise.all(
+      states.map(async (state) => {
+        const facets = await graphService.getFacetsForState(state.id);
+        return {
+          ...state,
+          facets: facets.map((f) => ({ id: f.id, type: f.type, content: f.content })),
+        };
+      })
+    );
+
+    res.json({
+      arcs,
+      states: statesWithFacets,
+      transitions,
+      threads,
+    });
   } catch (error) {
     next(error);
   }

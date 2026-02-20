@@ -8,6 +8,7 @@ export interface Mention {
   nodeId: string;
   documentId: string;
   segmentId: string;
+  facetId: string | null;
   relativeStart: number;
   relativeEnd: number;
   originalText: string;
@@ -30,6 +31,7 @@ export interface CreateMentionInput {
   nodeId: string;
   documentId: string;
   segmentId: string;
+  facetId?: string | null;
   relativeStart: number;
   relativeEnd: number;
   originalText: string;

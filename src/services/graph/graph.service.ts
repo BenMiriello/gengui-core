@@ -2,17 +2,24 @@ import { randomUUID } from 'node:crypto';
 import Redis from 'ioredis';
 import { THREAD_COLORS } from '../../config/constants';
 import type {
+  FacetInput,
+  FacetType,
   NarrativeThreadResult,
   StoryEdgeType,
   StoryNodeResult,
   StoryNodeType,
 } from '../../types/storyNodes';
 import { logger } from '../../utils/logger';
+import type { ArcType } from '../../types/storyNodes';
 import {
   CAUSAL_EDGE_TYPES,
   causalEdgePattern,
+  type ChangesToEdgeProps,
   type NodeProperties,
   type QueryResult,
+  type StoredArc,
+  type StoredCharacterState,
+  type StoredFacet,
   type StoredStoryConnection,
   type StoredStoryNode,
 } from './graph.types';
@@ -30,6 +37,9 @@ const ALLOWED_NODE_LABELS = new Set([
   'Concept',
   'Other',
   'NarrativeThread',
+  'Facet',
+  'CharacterState',
+  'Arc',
 ]);
 
 // Allowed edge types - must be validated before interpolation into queries
@@ -50,6 +60,12 @@ const ALLOWED_EDGE_TYPES = new Set([
   'ABOUT',
   // System
   'BELONGS_TO_THREAD',
+  'HAS_FACET',
+  // Character Arc edges
+  'HAS_STATE',
+  'CHANGES_TO',
+  'HAS_ARC',
+  'INCLUDES_STATE',
   // Fallback
   'RELATED_TO',
 ]);
@@ -76,6 +92,18 @@ const ALLOWED_PROPERTY_NAMES = new Set([
   'order',
   'strength',
   'color',
+  'entityId',
+  'content',
+  'facetType',
+  // Character Arc properties
+  'characterId',
+  'phaseIndex',
+  'causalOrder',
+  'arcType',
+  'summary',
+  'triggerEventId',
+  'gapDetected',
+  'isCurrent',
 ]);
 
 class GraphService {
@@ -513,6 +541,44 @@ class GraphService {
     await this.query(cypher, { nodeId });
   }
 
+  async getNodeEmbedding(nodeId: string): Promise<number[] | null> {
+    const cypher = `
+      MATCH (n:StoryNode)
+      WHERE n.id = $nodeId AND n.embedding IS NOT NULL
+      RETURN n.embedding
+    `;
+    const result = await this.query(cypher, { nodeId });
+
+    if (result.data.length === 0) {
+      return null;
+    }
+
+    const embeddingRaw = result.data[0][0];
+    if (!embeddingRaw) {
+      return null;
+    }
+
+    // FalkorDB returns vecf32 as a Float32Array-like object or comma-separated string
+    if (Array.isArray(embeddingRaw)) {
+      return embeddingRaw as number[];
+    }
+    if (typeof embeddingRaw === 'string') {
+      return embeddingRaw.split(',').map(Number);
+    }
+    if (embeddingRaw instanceof Float32Array) {
+      return Array.from(embeddingRaw);
+    }
+    // Handle object with numeric indices
+    if (typeof embeddingRaw === 'object' && embeddingRaw !== null) {
+      const values = Object.values(embeddingRaw);
+      if (values.length > 0 && typeof values[0] === 'number') {
+        return values as number[];
+      }
+    }
+
+    return null;
+  }
+
   async findSimilarNodes(
     embedding: number[],
     documentId: string,
@@ -585,10 +651,11 @@ class GraphService {
     options?: {
       stylePreset?: string | null;
       stylePrompt?: string | null;
+      existingId?: string;
     }
   ): Promise<string> {
     const label = this.getLabelForType(node.type);
-    const nodeId = randomUUID();
+    const nodeId = options?.existingId || randomUUID();
     const now = new Date().toISOString();
 
     const props: NodeProperties = {
@@ -712,6 +779,29 @@ class GraphService {
       RETURN r.id, a.id, b.id, type(r) as edgeType, r.description, r.strength, r.createdAt, r.deletedAt
     `;
     const result = await this.query(cypher, { documentId });
+
+    return result.data.map((row) => ({
+      id: row[0] as string,
+      fromNodeId: row[1] as string,
+      toNodeId: row[2] as string,
+      edgeType: row[3] as StoryEdgeType,
+      description: row[4] as string | null,
+      strength: row[5] != null ? Number(row[5]) : null,
+      narrativeDistance: null,
+      createdAt: row[6] as string,
+      deletedAt: row[7] as string | null,
+    }));
+  }
+
+  async getConnectionsFromNode(nodeId: string): Promise<StoredStoryConnection[]> {
+    const cypher = `
+      MATCH (a:StoryNode)-[r]->(b:StoryNode)
+      WHERE a.id = $nodeId
+        AND ${this.deletedAtFilterEdge('a', 'r', 'b')}
+        AND type(r) IN ['CAUSES', 'ENABLES', 'PREVENTS', 'HAPPENS_BEFORE', 'PARTICIPATES_IN', 'LOCATED_AT', 'PART_OF', 'MEMBER_OF', 'POSSESSES', 'CONNECTED_TO', 'OPPOSES', 'ABOUT', 'RELATED_TO']
+      RETURN r.id, a.id, b.id, type(r) as edgeType, r.description, r.strength, r.createdAt, r.deletedAt
+    `;
+    const result = await this.query(cypher, { nodeId });
 
     return result.data.map((row) => ({
       id: row[0] as string,
@@ -1191,6 +1281,632 @@ class GraphService {
     );
 
     return result_positions;
+  }
+
+  // ========== Facet Methods ==========
+
+  async createFacet(
+    entityId: string,
+    facet: FacetInput,
+    embedding?: number[]
+  ): Promise<string> {
+    const facetId = randomUUID();
+    const now = new Date().toISOString();
+
+    const props: NodeProperties = {
+      id: facetId,
+      entityId,
+      facetType: facet.type,
+      content: facet.content,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    };
+
+    const propsString = this.propsToString(props);
+    const cypher = `CREATE (f:Facet ${propsString}) RETURN f.id as facetId`;
+    const result = await this.query(cypher);
+
+    if (result.data.length === 0 || result.data[0].length === 0) {
+      throw new Error('Failed to create facet node');
+    }
+
+    // Create HAS_FACET edge from entity to facet
+    const edgeCypher = `
+      MATCH (e:StoryNode), (f:Facet)
+      WHERE e.id = $entityId AND f.id = $facetId
+      CREATE (e)-[:HAS_FACET {createdAt: $now}]->(f)
+    `;
+    await this.query(edgeCypher, { entityId, facetId, now });
+
+    // Set embedding if provided
+    if (embedding) {
+      await this.setFacetEmbedding(facetId, embedding);
+    }
+
+    logger.info({ facetId, entityId, type: facet.type }, 'Facet created in FalkorDB');
+    return facetId;
+  }
+
+  async setFacetEmbedding(facetId: string, embedding: number[]): Promise<void> {
+    this.validateEmbedding(embedding);
+    const vecString = embedding.join(',');
+    const cypher = `
+      MATCH (f:Facet)
+      WHERE f.id = $facetId
+      SET f.embedding = vecf32([${vecString}])
+    `;
+    await this.query(cypher, { facetId });
+  }
+
+  async getFacetsForEntity(entityId: string): Promise<StoredFacet[]> {
+    const cypher = `
+      MATCH (e:StoryNode)-[:HAS_FACET]->(f:Facet)
+      WHERE e.id = $entityId AND f.deletedAt IS NULL
+      RETURN f.id, f.entityId, f.facetType, f.content, f.embedding, f.createdAt, f.updatedAt, f.deletedAt
+      ORDER BY f.facetType, f.createdAt
+    `;
+    const result = await this.query(cypher, { entityId });
+
+    return result.data.map((row) => {
+      const embeddingRaw = row[4];
+      let embedding: number[] | undefined;
+      if (embeddingRaw) {
+        if (Array.isArray(embeddingRaw)) {
+          embedding = embeddingRaw as number[];
+        } else if (typeof embeddingRaw === 'string') {
+          // FalkorDB returns vector as string like "<-0.024,0.015,...>"
+          const cleaned = embeddingRaw.replace(/^<|>$/g, '').trim();
+          if (cleaned) {
+            embedding = cleaned.split(',').map((s) => parseFloat(s.trim()));
+          }
+        }
+      }
+
+      return {
+        id: row[0] as string,
+        entityId: row[1] as string,
+        type: row[2] as FacetType,
+        content: row[3] as string,
+        embedding,
+        createdAt: row[5] as string,
+        updatedAt: row[6] as string,
+        deletedAt: row[7] as string | null,
+      };
+    });
+  }
+
+  async updateFacet(
+    facetId: string,
+    updates: { content?: string; embedding?: number[] }
+  ): Promise<void> {
+    const setStatements: string[] = [];
+    const params: Record<string, unknown> = { facetId, updatedAt: new Date().toISOString() };
+
+    setStatements.push('f.updatedAt = $updatedAt');
+
+    if (updates.content !== undefined) {
+      setStatements.push('f.content = $content');
+      params.content = updates.content;
+    }
+
+    const cypher = `
+      MATCH (f:Facet)
+      WHERE f.id = $facetId
+      SET ${setStatements.join(', ')}
+    `;
+    await this.query(cypher, params);
+
+    if (updates.embedding) {
+      await this.setFacetEmbedding(facetId, updates.embedding);
+    }
+
+    logger.info({ facetId }, 'Facet updated in FalkorDB');
+  }
+
+  async softDeleteFacet(facetId: string): Promise<void> {
+    const cypher = `
+      MATCH (f:Facet)
+      WHERE f.id = $facetId
+      SET f.deletedAt = $deletedAt
+    `;
+    await this.query(cypher, { facetId, deletedAt: new Date().toISOString() });
+    logger.info({ facetId }, 'Facet soft deleted in FalkorDB');
+  }
+
+  async getFacetById(facetId: string): Promise<StoredFacet | null> {
+    const cypher = `
+      MATCH (f:Facet)
+      WHERE f.id = $facetId AND f.deletedAt IS NULL
+      RETURN f.id, f.entityId, f.facetType, f.content, f.createdAt, f.updatedAt, f.deletedAt
+    `;
+    const result = await this.query(cypher, { facetId });
+
+    if (result.data.length === 0) return null;
+
+    const row = result.data[0];
+    return {
+      id: row[0] as string,
+      entityId: row[1] as string,
+      type: row[2] as FacetType,
+      content: row[3] as string,
+      createdAt: row[4] as string,
+      updatedAt: row[5] as string,
+      deletedAt: row[6] as string | null,
+    };
+  }
+
+  async createFacetsForEntity(
+    entityId: string,
+    facets: FacetInput[],
+    getEmbedding?: (content: string) => Promise<number[]>
+  ): Promise<string[]> {
+    const facetIds: string[] = [];
+    for (const facet of facets) {
+      const embedding = getEmbedding ? await getEmbedding(facet.content) : undefined;
+      const facetId = await this.createFacet(entityId, facet, embedding);
+      facetIds.push(facetId);
+    }
+    return facetIds;
+  }
+
+  // ========== Entity Graph Methods ==========
+
+  /**
+   * Get entity graph data for visualization.
+   * Returns the entity, its facets, and 1-hop connected entities.
+   */
+  async getEntityGraph(
+    nodeId: string,
+    userId: string
+  ): Promise<{
+    entity: StoredStoryNode;
+    facets: StoredFacet[];
+    connections: Array<{
+      connectedEntity: StoredStoryNode;
+      edgeType: string;
+      direction: 'in' | 'out';
+    }>;
+  } | null> {
+    const entity = await this.getStoryNodeById(nodeId, userId);
+    if (!entity) return null;
+
+    const facets = await this.getFacetsForEntity(nodeId);
+
+    // Get 1-hop connections (both directions)
+    const cypher = `
+      MATCH (n:StoryNode)-[r]-(m:StoryNode)
+      WHERE n.id = $nodeId
+        AND m.deletedAt IS NULL
+        AND r.deletedAt IS NULL
+        AND type(r) <> 'HAS_FACET'
+        AND type(r) <> 'BELONGS_TO_THREAD'
+      RETURN m.id, m.documentId, m.userId, m.type, m.name, m.description,
+             m.aliases, m.metadata, m.primaryMediaId, m.stylePreset, m.stylePrompt,
+             m.documentOrder,
+             m.createdAt, m.updatedAt, m.deletedAt,
+             type(r) as edgeType,
+             CASE WHEN startNode(r).id = $nodeId THEN 'out' ELSE 'in' END as direction
+    `;
+    const result = await this.query(cypher, { nodeId });
+
+    const connections: Array<{
+      connectedEntity: StoredStoryNode;
+      edgeType: string;
+      direction: 'in' | 'out';
+    }> = [];
+
+    for (const row of result.data) {
+      const aliasesRaw = row[6] as string | null;
+      const aliases = aliasesRaw ? JSON.parse(aliasesRaw) : null;
+
+      const connectedEntity: StoredStoryNode = {
+        id: row[0] as string,
+        documentId: row[1] as string,
+        userId: row[2] as string,
+        type: row[3] as StoryNodeType,
+        name: row[4] as string,
+        description: row[5] as string | null,
+        aliases,
+        metadata: row[7] as string | null,
+        primaryMediaId: row[8] as string | null,
+        stylePreset: row[9] as string | null,
+        stylePrompt: row[10] as string | null,
+        documentOrder: row[11] as number | null,
+        createdAt: row[12] as string,
+        updatedAt: row[13] as string,
+        deletedAt: row[14] as string | null,
+      };
+
+      connections.push({
+        connectedEntity,
+        edgeType: row[15] as string,
+        direction: row[16] as 'in' | 'out',
+      });
+    }
+
+    return { entity, facets, connections };
+  }
+
+  // ========== Character Arc Methods ==========
+
+  /**
+   * Create a CharacterState node representing a character's state at a point in their arc.
+   */
+  async createCharacterState(
+    characterId: string,
+    documentId: string,
+    userId: string,
+    input: {
+      name: string;
+      phaseIndex: number;
+      documentOrder: number;
+      causalOrder: number;
+    }
+  ): Promise<string> {
+    const stateId = randomUUID();
+    const now = new Date().toISOString();
+
+    const props: NodeProperties = {
+      id: stateId,
+      characterId,
+      documentId,
+      userId,
+      name: input.name,
+      phaseIndex: input.phaseIndex,
+      documentOrder: input.documentOrder,
+      causalOrder: input.causalOrder,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    };
+
+    const propsString = this.propsToString(props);
+    const cypher = `CREATE (s:CharacterState ${propsString}) RETURN s.id as stateId`;
+    const result = await this.query(cypher);
+
+    if (result.data.length === 0 || result.data[0].length === 0) {
+      throw new Error('Failed to create character state');
+    }
+
+    logger.info({ stateId, characterId, name: input.name }, 'CharacterState created in FalkorDB');
+    return stateId;
+  }
+
+  /**
+   * Create an Arc node representing a character's overall development arc.
+   */
+  async createArc(
+    characterId: string,
+    documentId: string,
+    userId: string,
+    input: {
+      arcType: ArcType;
+      name?: string;
+      summary?: string;
+    }
+  ): Promise<string> {
+    const arcId = randomUUID();
+    const now = new Date().toISOString();
+
+    const props: NodeProperties = {
+      id: arcId,
+      characterId,
+      documentId,
+      userId,
+      name: input.name || `${input.arcType} arc`,
+      arcType: input.arcType,
+      summary: input.summary || null,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    };
+
+    const propsString = this.propsToString(props);
+    const cypher = `CREATE (a:Arc ${propsString}) RETURN a.id as arcId`;
+    const result = await this.query(cypher);
+
+    if (result.data.length === 0 || result.data[0].length === 0) {
+      throw new Error('Failed to create arc');
+    }
+
+    // Create HAS_ARC edge from character to arc
+    const edgeCypher = `
+      MATCH (c:StoryNode), (a:Arc)
+      WHERE c.id = $characterId AND a.id = $arcId
+      CREATE (c)-[:HAS_ARC {createdAt: $now}]->(a)
+    `;
+    await this.query(edgeCypher, { characterId, arcId, now });
+
+    logger.info({ arcId, characterId, arcType: input.arcType }, 'Arc created in FalkorDB');
+    return arcId;
+  }
+
+  /**
+   * Create a CHANGES_TO edge between two CharacterStates.
+   */
+  async createChangesToEdge(
+    fromStateId: string,
+    toStateId: string,
+    props: ChangesToEdgeProps
+  ): Promise<void> {
+    const now = new Date().toISOString();
+    const cypher = `
+      MATCH (from:CharacterState), (to:CharacterState)
+      WHERE from.id = $fromStateId AND to.id = $toStateId
+      CREATE (from)-[:CHANGES_TO {
+        triggerEventId: $triggerEventId,
+        gapDetected: $gapDetected,
+        createdAt: $now
+      }]->(to)
+    `;
+    await this.query(cypher, {
+      fromStateId,
+      toStateId,
+      triggerEventId: props.triggerEventId,
+      gapDetected: props.gapDetected,
+      now,
+    });
+    logger.info({ fromStateId, toStateId, triggerEventId: props.triggerEventId }, 'CHANGES_TO edge created');
+  }
+
+  /**
+   * Link a CharacterState to an Arc via INCLUDES_STATE edge.
+   */
+  async linkStateToArc(stateId: string, arcId: string, order: number): Promise<void> {
+    const now = new Date().toISOString();
+    const cypher = `
+      MATCH (s:CharacterState), (a:Arc)
+      WHERE s.id = $stateId AND a.id = $arcId
+      CREATE (a)-[:INCLUDES_STATE {order: $order, createdAt: $now}]->(s)
+    `;
+    await this.query(cypher, { stateId, arcId, order, now });
+  }
+
+  /**
+   * Link a CharacterState to a Facet via HAS_FACET edge.
+   */
+  async linkStateToFacet(stateId: string, facetId: string): Promise<void> {
+    const now = new Date().toISOString();
+    const cypher = `
+      MATCH (s:CharacterState), (f:Facet)
+      WHERE s.id = $stateId AND f.id = $facetId
+      CREATE (s)-[:HAS_FACET {createdAt: $now}]->(f)
+    `;
+    await this.query(cypher, { stateId, facetId, now });
+  }
+
+  /**
+   * Create HAS_STATE edge from character to state with optional isCurrent flag.
+   */
+  async linkCharacterToState(characterId: string, stateId: string, isCurrent: boolean): Promise<void> {
+    const now = new Date().toISOString();
+    const cypher = `
+      MATCH (c:StoryNode), (s:CharacterState)
+      WHERE c.id = $characterId AND s.id = $stateId
+      CREATE (c)-[:HAS_STATE {isCurrent: $isCurrent, createdAt: $now}]->(s)
+    `;
+    await this.query(cypher, { characterId, stateId, isCurrent, now });
+  }
+
+  /**
+   * Get all CharacterStates for a character, ordered by phaseIndex.
+   */
+  async getCharacterStates(characterId: string): Promise<StoredCharacterState[]> {
+    const cypher = `
+      MATCH (c:StoryNode)-[:HAS_STATE]->(s:CharacterState)
+      WHERE c.id = $characterId AND s.deletedAt IS NULL
+      RETURN s.id, s.characterId, s.name, s.phaseIndex, s.documentOrder, s.causalOrder,
+             s.embedding, s.createdAt, s.updatedAt, s.deletedAt
+      ORDER BY s.phaseIndex
+    `;
+    const result = await this.query(cypher, { characterId });
+
+    return result.data.map((row) => ({
+      id: row[0] as string,
+      characterId: row[1] as string,
+      name: row[2] as string,
+      phaseIndex: row[3] as number,
+      documentOrder: row[4] as number,
+      causalOrder: row[5] as number,
+      embedding: row[6] as number[] | null,
+      createdAt: row[7] as string,
+      updatedAt: row[8] as string,
+      deletedAt: row[9] as string | null,
+    }));
+  }
+
+  /**
+   * Get all Arcs for a character.
+   */
+  async getCharacterArcs(characterId: string): Promise<StoredArc[]> {
+    const cypher = `
+      MATCH (c:StoryNode)-[:HAS_ARC]->(a:Arc)
+      WHERE c.id = $characterId AND a.deletedAt IS NULL
+      RETURN a.id, a.characterId, a.name, a.arcType, a.summary, a.embedding,
+             a.createdAt, a.updatedAt, a.deletedAt
+    `;
+    const result = await this.query(cypher, { characterId });
+
+    return result.data.map((row) => ({
+      id: row[0] as string,
+      characterId: row[1] as string,
+      name: row[2] as string,
+      arcType: row[3] as ArcType,
+      summary: row[4] as string | null,
+      embedding: row[5] as number[] | null,
+      createdAt: row[6] as string,
+      updatedAt: row[7] as string,
+      deletedAt: row[8] as string | null,
+    }));
+  }
+
+  /**
+   * Get all CharacterStates linked to an Arc, ordered by inclusion order.
+   */
+  async getArcStates(arcId: string): Promise<StoredCharacterState[]> {
+    const cypher = `
+      MATCH (a:Arc)-[r:INCLUDES_STATE]->(s:CharacterState)
+      WHERE a.id = $arcId AND s.deletedAt IS NULL
+      RETURN s.id, s.characterId, s.name, s.phaseIndex, s.documentOrder, s.causalOrder,
+             s.embedding, s.createdAt, s.updatedAt, s.deletedAt
+      ORDER BY r.order
+    `;
+    const result = await this.query(cypher, { arcId });
+
+    return result.data.map((row) => ({
+      id: row[0] as string,
+      characterId: row[1] as string,
+      name: row[2] as string,
+      phaseIndex: row[3] as number,
+      documentOrder: row[4] as number,
+      causalOrder: row[5] as number,
+      embedding: row[6] as number[] | null,
+      createdAt: row[7] as string,
+      updatedAt: row[8] as string,
+      deletedAt: row[9] as string | null,
+    }));
+  }
+
+  /**
+   * Get facets linked to a CharacterState.
+   */
+  async getFacetsForState(stateId: string): Promise<StoredFacet[]> {
+    const cypher = `
+      MATCH (s:CharacterState)-[:HAS_FACET]->(f:Facet)
+      WHERE s.id = $stateId AND f.deletedAt IS NULL
+      RETURN f.id, f.entityId, f.facetType, f.content, f.embedding, f.createdAt, f.updatedAt, f.deletedAt
+      ORDER BY f.facetType, f.createdAt
+    `;
+    const result = await this.query(cypher, { stateId });
+
+    return result.data.map((row) => {
+      const embeddingRaw = row[4];
+      let embedding: number[] | undefined;
+      if (embeddingRaw) {
+        if (Array.isArray(embeddingRaw)) {
+          embedding = embeddingRaw as number[];
+        } else if (typeof embeddingRaw === 'string') {
+          const cleaned = embeddingRaw.replace(/^<|>$/g, '').trim();
+          if (cleaned) {
+            embedding = cleaned.split(',').map((s) => parseFloat(s.trim()));
+          }
+        }
+      }
+
+      return {
+        id: row[0] as string,
+        entityId: row[1] as string,
+        type: row[2] as FacetType,
+        content: row[3] as string,
+        embedding,
+        createdAt: row[5] as string,
+        updatedAt: row[6] as string,
+        deletedAt: row[7] as string | null,
+      };
+    });
+  }
+
+  /**
+   * Get CHANGES_TO edges for a character's states (state transitions).
+   */
+  async getStateTransitions(characterId: string): Promise<Array<{
+    fromStateId: string;
+    toStateId: string;
+    triggerEventId: string | null;
+    gapDetected: boolean;
+  }>> {
+    const cypher = `
+      MATCH (c:StoryNode)-[:HAS_STATE]->(from:CharacterState)-[r:CHANGES_TO]->(to:CharacterState)
+      WHERE c.id = $characterId AND from.deletedAt IS NULL AND to.deletedAt IS NULL
+      RETURN from.id, to.id, r.triggerEventId, r.gapDetected
+      ORDER BY from.phaseIndex
+    `;
+    const result = await this.query(cypher, { characterId });
+
+    return result.data.map((row) => ({
+      fromStateId: row[0] as string,
+      toStateId: row[1] as string,
+      triggerEventId: row[2] as string | null,
+      gapDetected: (row[3] as boolean) || false,
+    }));
+  }
+
+  /**
+   * Parse FalkorDB collect() result to a string array.
+   * FalkorDB may return arrays in various formats:
+   * - Native array: ['a', 'b', 'c']
+   * - String representation: "[a, b, c]" or "<a,b,c>"
+   * - Null or empty for no results
+   */
+  private parseCollectResult(raw: unknown): string[] {
+    if (raw === null || raw === undefined) {
+      return [];
+    }
+    if (Array.isArray(raw)) {
+      return raw as string[];
+    }
+    if (typeof raw === 'string') {
+      // Handle string representations from FalkorDB
+      // Format could be "[a, b, c]" or "<a,b,c>" or just "a,b,c"
+      const cleaned = raw.replace(/^[<\[]|[>\]]$/g, '').trim();
+      if (!cleaned) {
+        return [];
+      }
+      return cleaned.split(',').map((s) => s.trim()).filter(Boolean);
+    }
+    logger.warn({ raw, type: typeof raw }, 'Unexpected collect() result format');
+    return [];
+  }
+
+  /**
+   * Get thread participation for a character (events they participate in, with thread info).
+   */
+  async getCharacterThreadParticipation(characterId: string): Promise<Array<{
+    threadId: string;
+    threadName: string;
+    threadColor: string | null;
+    eventIds: string[];
+  }>> {
+    const cypher = `
+      MATCH (c:StoryNode)-[:PARTICIPATES_IN]->(e:StoryNode)-[bt:BELONGS_TO_THREAD]->(t:NarrativeThread)
+      WHERE c.id = $characterId AND c.deletedAt IS NULL AND e.deletedAt IS NULL
+      RETURN t.id, t.name, t.color, collect(e.id) as eventIds
+    `;
+    const result = await this.query(cypher, { characterId });
+
+    return result.data.map((row) => ({
+      threadId: row[0] as string,
+      threadName: row[1] as string,
+      threadColor: row[2] as string | null,
+      eventIds: this.parseCollectResult(row[3]),
+    }));
+  }
+
+  /**
+   * Set embedding on a CharacterState node.
+   */
+  async setCharacterStateEmbedding(stateId: string, embedding: number[]): Promise<void> {
+    this.validateEmbedding(embedding);
+    const vecString = embedding.join(',');
+    const cypher = `
+      MATCH (s:CharacterState)
+      WHERE s.id = $stateId
+      SET s.embedding = vecf32([${vecString}])
+    `;
+    await this.query(cypher, { stateId });
+  }
+
+  /**
+   * Update Arc summary.
+   */
+  async updateArcSummary(arcId: string, summary: string): Promise<void> {
+    const cypher = `
+      MATCH (a:Arc)
+      WHERE a.id = $arcId
+      SET a.summary = $summary, a.updatedAt = $updatedAt
+    `;
+    await this.query(cypher, { arcId, summary, updatedAt: new Date().toISOString() });
   }
 }
 

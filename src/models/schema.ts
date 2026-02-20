@@ -226,6 +226,9 @@ export const documents = pgTable(
     narrativeModeEnabled: boolean('narrative_mode_enabled').default(false).notNull(),
     mediaModeEnabled: boolean('media_mode_enabled').default(false).notNull(),
     currentVersion: integer('current_version').default(0).notNull(),
+    lastAnalyzedVersion: integer('last_analyzed_version'),
+    analysisStatus: text('analysis_status'),
+    analysisStartedAt: timestamp('analysis_started_at', { withTimezone: true }),
     segmentSequence: jsonb('segment_sequence').default([]).notNull(),
     yjsState: text('yjs_state'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -303,6 +306,7 @@ export const mentions = pgTable(
       .notNull()
       .references(() => documents.id, { onDelete: 'cascade' }),
     segmentId: varchar('segment_id', { length: 255 }).notNull(),
+    facetId: uuid('facet_id'),
     relativeStart: integer('relative_start').notNull(),
     relativeEnd: integer('relative_end').notNull(),
     originalText: text('original_text').notNull(),
@@ -320,6 +324,7 @@ export const mentions = pgTable(
     index('mentions_version_idx').on(table.documentId, table.versionNumber),
     index('mentions_confidence_idx').on(table.confidence),
     index('mentions_source_idx').on(table.source),
+    index('idx_mentions_facet').on(table.facetId).where(sql`facet_id IS NOT NULL`),
   ]
 );
 
@@ -486,6 +491,35 @@ export const documentVersionsRelations = relations(documentVersions, ({ one }) =
 export const mentionsRelations = relations(mentions, ({ one }) => ({
   document: one(documents, {
     fields: [mentions.documentId],
+    references: [documents.id],
+  }),
+}));
+
+export const sentenceEmbeddings = pgTable(
+  'sentence_embeddings',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    documentId: uuid('document_id')
+      .notNull()
+      .references(() => documents.id, { onDelete: 'cascade' }),
+    segmentId: varchar('segment_id', { length: 255 }).notNull(),
+    sentenceStart: integer('sentence_start').notNull(),
+    sentenceEnd: integer('sentence_end').notNull(),
+    contentHash: varchar('content_hash', { length: 64 }).notNull(),
+    embedding: text('embedding').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('idx_sentence_embeddings_document').on(table.documentId),
+    index('idx_sentence_embeddings_segment').on(table.documentId, table.segmentId),
+    index('idx_sentence_embeddings_hash').on(table.contentHash),
+  ]
+);
+
+export const sentenceEmbeddingsRelations = relations(sentenceEmbeddings, ({ one }) => ({
+  document: one(documents, {
+    fields: [sentenceEmbeddings.documentId],
     references: [documents.id],
   }),
 }));

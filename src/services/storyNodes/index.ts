@@ -1,1 +1,6 @@
-export { graphStoryNodesRepository, parsePassages } from './graphRepository';
+export {
+  graphStoryNodesRepository,
+  parsePassages,
+  recomputeEntityEmbeddingWithMentionWeights,
+  selectEntitiesForContext,
+} from './graphRepository';
