@@ -229,6 +229,7 @@ export const documents = pgTable(
     lastAnalyzedVersion: integer('last_analyzed_version'),
     analysisStatus: text('analysis_status'),
     analysisStartedAt: timestamp('analysis_started_at', { withTimezone: true }),
+    analysisCheckpoint: jsonb('analysis_checkpoint'),
     segmentSequence: jsonb('segment_sequence').default([]).notNull(),
     yjsState: text('yjs_state'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),

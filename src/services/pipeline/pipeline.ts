@@ -1,16 +1,19 @@
 /**
  * Multi-stage extraction pipeline.
  *
- * Stage 0: Segmentation + Sentence Embeddings (algorithmic)
- * Stage 1: Entity + Facet Extraction (LLM, parallel per segment)
- * Stage 2: Text Grounding (algorithmic + embeddings)
- * Stage 3: Entity Resolution (multi-signal batch clustering)
- * Stage 4: Relationship Extraction (LLM, parallel per segment)
- * Stage 4b: Cross-Segment Relationships (LLM, sequential)
- * Stage 5: Higher-Order Analysis (LLM + algorithmic)
+ * Stage 1: Segmentation + Sentence Embeddings (algorithmic)
+ * Stage 2: Entity + Facet Extraction (LLM, parallel per segment)
+ * Stage 3: Text Grounding (algorithmic + embeddings)
+ * Stage 4: Entity Resolution (multi-signal batch clustering)
+ * Stage 5: Intra-Segment Relationships (LLM, parallel per segment)
+ * Stage 6: Cross-Segment Relationships (LLM, sequential)
+ * Stage 7: Higher-Order Analysis (LLM + algorithmic)
  */
 
 import { randomUUID } from 'node:crypto';
+import { eq } from 'drizzle-orm';
+import { db } from '../../config/database';
+import { documents } from '../../models/schema';
 import type { FacetInput, FacetType, StoryEdgeType, StoryNodeType } from '../../types/storyNodes';
 import { logger } from '../../utils/logger';
 import { generateEmbedding, generateEmbeddings } from '../embeddings';
@@ -40,6 +43,35 @@ import {
 } from '../storyNodes';
 import { sseService } from '../sse';
 import { type AnalysisStage, getStageLabel } from './stages';
+import {
+  loadCheckpoint,
+  saveCheckpoint,
+  clearCheckpoint,
+  shouldRunStage,
+  isCheckpointValid,
+} from './checkpoint';
+import { AnalysisCancelledError, AnalysisPausedError } from './errors';
+
+/**
+ * Check if the analysis has been paused or cancelled.
+ * Throws an appropriate error if so.
+ */
+async function checkForInterruption(documentId: string): Promise<void> {
+  const [doc] = await db
+    .select({ analysisStatus: documents.analysisStatus })
+    .from(documents)
+    .where(eq(documents.id, documentId))
+    .limit(1);
+
+  if (doc?.analysisStatus === 'cancelling') {
+    await clearCheckpoint(documentId);
+    throw new AnalysisCancelledError('Analysis cancelled by user');
+  }
+
+  if (doc?.analysisStatus === 'paused') {
+    throw new AnalysisPausedError('Analysis paused by user');
+  }
+}
 
 export interface PipelineOptions {
   documentId: string;
@@ -111,537 +143,659 @@ export const multiStagePipeline = {
       });
     };
 
-    // Stage 0: Segmentation + Sentence Embeddings
-    broadcast(0);
-    logger.info({ documentId, segmentCount: segments.length }, 'Stage 0: Processing segments');
-
-    await sentenceService.processDocument(documentId, documentContent, segments);
-
-    // Stage 1: Entity + Facet Extraction (parallel per segment)
-    broadcast(1);
-    logger.info({ documentId }, 'Stage 1: Extracting entities from segments');
-
-    const extractedEntities: ExtractedEntity[] = [];
-
-    for (let i = 0; i < segments.length; i++) {
-      const segment = segments[i];
-      const segmentText = documentContent.slice(segment.start, segment.end);
-
-      // Get context for this segment
-      let existingContext: Array<{
-        id: string;
-        name: string;
-        type: string;
-        facets: Array<{ type: string; content: string }>;
-        mentionCount: number;
-      }> = [];
-
-      if (!isInitialExtraction || i > 0) {
-        // For incremental or later segments, get context
-        const adjacentIds = segmentService.getAdjacentSegments(segments, [segment.id], 1);
-
-        // Get average embedding for this segment's sentences
-        const sentenceEmbeddings = await sentenceService.getBySegmentIds(documentId, [segment.id]);
-        if (sentenceEmbeddings.length > 0) {
-          const avgEmbedding = sentenceService.computeAverageEmbedding(
-            sentenceEmbeddings.map((s) => s.embedding)
-          );
-          existingContext = await selectEntitiesForContext(
-            documentId,
-            userId,
-            avgEmbedding,
-            adjacentIds
-          );
-        }
-      }
-
-      // Extract from this segment
-      const result = await extractEntitiesFromSegment(
-        segmentText,
-        i,
-        segments.length,
-        existingContext
+    // Load checkpoint and check version
+    let checkpoint = await loadCheckpoint(documentId);
+    if (checkpoint && !isCheckpointValid(checkpoint, versionNumber)) {
+      logger.info(
+        { documentId, checkpointVersion: checkpoint.documentVersion, currentVersion: versionNumber },
+        'Document version changed, invalidating checkpoint'
       );
-
-      // Transform flat results to extracted entities
-      for (const entity of result.entities) {
-        const entityFacets = result.facets
-          .filter((f) => f.entityName === entity.name)
-          .map((f) => ({ type: f.facetType as FacetType, content: f.content }));
-
-        const entityMentions = result.mentions
-          .filter((m) => m.entityName === entity.name)
-          .map((m) => ({ text: m.text }));
-
-        extractedEntities.push({
-          segmentId: segment.id,
-          name: entity.name,
-          type: entity.type as StoryNodeType,
-          documentOrder: entity.documentOrder,
-          facets: entityFacets,
-          mentions: entityMentions,
-        });
-      }
-
-      broadcast(1, extractedEntities.length, `Processing segment ${i + 1} of ${segments.length}...`);
+      await clearCheckpoint(documentId);
+      checkpoint = null;
     }
 
-    logger.info(
-      { documentId, extractedCount: extractedEntities.length },
-      'Stage 1 complete: Entities extracted'
-    );
+    if (checkpoint) {
+      logger.info(
+        { documentId, lastStageCompleted: checkpoint.lastStageCompleted },
+        'Resuming from checkpoint'
+      );
+    }
 
-    // Stage 2: Text Grounding (algorithmic)
-    broadcast(2, extractedEntities.length);
-    logger.info({ documentId }, 'Stage 2: Grounding entities to text');
+    // Stage 1: Segmentation + Sentence Embeddings
+    if (shouldRunStage(checkpoint, 1)) {
+      await checkForInterruption(documentId);
+      broadcast(1);
+      logger.info({ documentId, segmentCount: segments.length }, 'Stage 1: Processing segments');
 
-    // Create temporary mentions for grounding
-    // This is done during Stage 3 when entities are resolved
+      await sentenceService.processDocument(documentId, documentContent, segments);
 
-    // Stage 3: Entity Resolution (batch clustering)
-    broadcast(3, extractedEntities.length);
-    logger.info({ documentId }, 'Stage 3: Resolving entities with multi-signal clustering');
-
-    const resolvedEntities: ResolvedEntity[] = [];
-    const entityIdByName = new Map<string, string>();
-
-    // Get existing entities for resolution
-    const existingNodes = await graphStoryNodesRepository.getActiveNodes(documentId, userId);
-
-    // Generate embeddings for all entities in a single batch call
-    const entityTexts = extractedEntities.map(
-      (entity) => `${entity.name}: ${entity.facets.map((f) => f.content).join(', ')}`
-    );
-    const entityEmbeddings = await generateEmbeddings(entityTexts);
-
-    // Convert extracted entities to EntityCandidate format
-    const entityCandidates: EntityCandidate[] = extractedEntities.map((entity, i) => ({
-      name: entity.name,
-      type: entity.type,
-      embedding: entityEmbeddings[i],
-      facets: entity.facets,
-      mentions: entity.mentions.map((m) => ({ text: m.text, segmentId: entity.segmentId })),
-      segmentId: entity.segmentId,
-      documentOrder: entity.documentOrder,
-    }));
-
-    // Build existing entities with embeddings and facets
-    const existingEntities: ExistingEntity[] = [];
-    for (const node of existingNodes) {
-      const facets = await graphService.getFacetsForEntity(node.id);
-      const mentionCount = await mentionService.getMentionCount(node.id);
-      const embedding = await graphService.getNodeEmbedding(node.id);
-
-      existingEntities.push({
-        id: node.id,
-        name: node.name,
-        type: node.type,
-        embedding: embedding || undefined,
-        aliases: node.aliases || undefined,
-        facets: facets.map((f) => ({ type: f.type, content: f.content })),
-        mentionCount,
+      await saveCheckpoint(documentId, {
+        documentVersion: versionNumber,
+        lastStageCompleted: 1,
       });
+    } else {
+      logger.info({ documentId }, 'Skipping Stage 1 (already completed)');
     }
 
-    // Run batch entity resolution
-    const resolutionResults = await resolveEntities(
-      entityCandidates,
-      existingEntities,
-      { documentId, userId }
-    );
+    // Stage 2: Entity + Facet Extraction (parallel per segment)
+    let extractedEntities: ExtractedEntity[];
 
-    logger.info(
-      {
-        documentId,
-        clusters: resolutionResults.stats.totalClusters,
-        autoMerged: resolutionResults.stats.autoMerged,
-        needsReview: resolutionResults.stats.needsReview,
-        created: resolutionResults.stats.created,
-      },
-      'Stage 3: Batch clustering complete'
-    );
+    if (shouldRunStage(checkpoint, 2)) {
+      await checkForInterruption(documentId);
+      broadcast(2);
+      logger.info({ documentId }, 'Stage 2: Extracting entities from segments');
 
-    // Process resolution results
-    for (const result of resolutionResults.results) {
-      const { cluster, decision, targetId, newFacets } = result;
-      const legacyDecision = mapToLegacyDecision(result);
+      extractedEntities = [];
 
-      // Determine entity ID
-      let entityId: string;
-      if (decision === 'MERGE' && targetId) {
-        entityId = targetId;
-      } else {
-        entityId = randomUUID();
-      }
-
-      // Map cluster primary name to entity ID
-      entityIdByName.set(cluster.primaryName, entityId);
-
-      // Also map all aliases to the same entity ID
-      for (const alias of cluster.aliases) {
-        if (alias !== cluster.primaryName) {
-          entityIdByName.set(alias, entityId);
-        }
-      }
-
-      // Track resolved entities for later stages
-      for (const member of cluster.members) {
-        resolvedEntities.push({
-          segmentId: member.segmentId,
-          name: member.name,
-          type: member.type,
-          documentOrder: member.documentOrder,
-          facets: newFacets || member.facets,
-          mentions: member.mentions.map((m) => ({ text: m.text })),
-          id: entityId,
-          decision: legacyDecision,
-          targetEntityId: targetId,
-        });
-      }
-
-      // Handle REVIEW decisions that need LLM refinement
-      if (needsLLMRefinement(result)) {
-        logger.debug(
-          {
-            clusterName: cluster.primaryName,
-            score: result.score,
-            confidence: result.confidence,
-          },
-          'Stage 3: Cluster needs LLM refinement (skipping for now)'
-        );
-        // TODO: Implement LLM refinement for borderline cases
-        // For now, we create new entities for review cases
-      }
-    }
-
-    logger.info(
-      { documentId, resolvedCount: resolvedEntities.length, uniqueEntities: entityIdByName.size },
-      'Stage 3 complete: Entities resolved'
-    );
-
-    // Create entities and facets in the database
-    broadcast(3, entityIdByName.size, 'Creating entities...');
-
-    const createdEntityIds = new Set<string>();
-
-    for (const [name, id] of entityIdByName) {
-      const entityInstances = resolvedEntities.filter((e) => e.name === name);
-      if (entityInstances.length === 0) continue;
-
-      const firstInstance = entityInstances[0];
-
-      if (firstInstance.decision === 'NEW') {
-        // Merge all facets
-        const allFacets: FacetInput[] = [];
-        for (const instance of entityInstances) {
-          allFacets.push(...instance.facets);
-        }
-        const uniqueFacets = Array.from(
-          new Map(allFacets.map((f) => [`${f.type}:${f.content}`, f])).values()
-        );
-
-        // Create entity
-        await graphService.createStoryNode(
-          documentId,
-          userId,
-          {
-            type: firstInstance.type,
-            name,
-            description: '',
-            mentions: [],
-          },
-          {
-            stylePreset: documentStyle?.preset,
-            stylePrompt: documentStyle?.prompt,
-            existingId: id,
-          }
-        );
-
-        // Create facets
-        for (const facet of uniqueFacets) {
-          const facetEmbedding = await generateEmbedding(facet.content);
-          await graphService.createFacet(id, facet, facetEmbedding);
-        }
-
-        createdEntityIds.add(id);
-      } else if (firstInstance.decision === 'ADD_FACET') {
-        // Add new facets to existing entity
-        const allNewFacets: FacetInput[] = [];
-        for (const instance of entityInstances) {
-          if (instance.facets) allNewFacets.push(...instance.facets);
-        }
-
-        for (const facet of allNewFacets) {
-          const facetEmbedding = await generateEmbedding(facet.content);
-          await graphService.createFacet(id, facet, facetEmbedding);
-        }
-      }
-
-      // Create mentions for all instances
-      for (const instance of entityInstances) {
-        const segment = segments.find((s) => s.id === instance.segmentId);
-        if (!segment) continue;
-
+      for (let i = 0; i < segments.length; i++) {
+        const segment = segments[i];
         const segmentText = documentContent.slice(segment.start, segment.end);
 
-        for (const mention of instance.mentions) {
-          const relativeIndex = segmentText.indexOf(mention.text);
-          if (relativeIndex !== -1) {
-            const absoluteStart = segment.start + relativeIndex;
-            await mentionService.createFromAbsolutePosition(
-              id,
+        // Get context for this segment
+        let existingContext: Array<{
+          id: string;
+          name: string;
+          type: string;
+          facets: Array<{ type: string; content: string }>;
+          mentionCount: number;
+        }> = [];
+
+        if (!isInitialExtraction || i > 0) {
+          // For incremental or later segments, get context
+          const adjacentIds = segmentService.getAdjacentSegments(segments, [segment.id], 1);
+
+          // Get average embedding for this segment's sentences
+          const sentenceEmbeddings = await sentenceService.getBySegmentIds(documentId, [segment.id]);
+          if (sentenceEmbeddings.length > 0) {
+            const avgEmbedding = sentenceService.computeAverageEmbedding(
+              sentenceEmbeddings.map((s) => s.embedding)
+            );
+            existingContext = await selectEntitiesForContext(
               documentId,
-              absoluteStart,
-              absoluteStart + mention.text.length,
-              mention.text,
-              versionNumber,
-              segments,
-              'extraction',
-              100
+              userId,
+              avgEmbedding,
+              adjacentIds
             );
           }
         }
-      }
 
-      // Recompute entity embedding with mention weights
-      if (createdEntityIds.has(id) || firstInstance.decision === 'ADD_FACET') {
-        await recomputeEntityEmbeddingWithMentionWeights(id);
-      }
-    }
-
-    // Stage 4: Relationship Extraction (parallel per segment)
-    broadcast(4, entityIdByName.size);
-    logger.info({ documentId }, 'Stage 4: Extracting relationships');
-
-    const allRelationships: Stage4RelationshipsResult['relationships'] = [];
-
-    for (let i = 0; i < segments.length; i++) {
-      const segment = segments[i];
-      const segmentText = documentContent.slice(segment.start, segment.end);
-
-      // Get resolved entities in this segment
-      const entitiesInSegment = resolvedEntities.filter((e) => e.segmentId === segment.id);
-      const uniqueEntitiesInSegment = Array.from(
-        new Map(entitiesInSegment.map((e) => [e.id, e])).values()
-      );
-
-      if (uniqueEntitiesInSegment.length < 2) continue;
-
-      const result = await extractRelationshipsFromSegment(
-        segmentText,
-        i,
-        uniqueEntitiesInSegment.map((e) => ({
-          id: e.id,
-          name: e.name,
-          type: e.type,
-          keyFacets: e.facets.slice(0, 3).map((f) => f.content),
-        }))
-      );
-
-      allRelationships.push(...result.relationships);
-    }
-
-    logger.info(
-      { documentId, relationshipCount: allRelationships.length },
-      'Stage 4 complete: Intra-segment relationships extracted'
-    );
-
-    // Stage 4b: Cross-Segment Relationships
-    broadcast('4b', entityIdByName.size);
-    logger.info({ documentId }, 'Stage 4b: Extracting cross-segment relationships');
-
-    // Build entity list with segment associations
-    const entityWithSegments: EntityWithSegments[] = [];
-    for (const [name, id] of entityIdByName) {
-      const instances = resolvedEntities.filter((e) => e.name === name);
-      const segmentIds = [...new Set(instances.map((e) => e.segmentId))];
-      const keyFacets = instances[0]?.facets.slice(0, 3).map((f) => f.content) || [];
-
-      entityWithSegments.push({
-        id,
-        name,
-        type: instances[0]?.type || 'other',
-        segmentIds,
-        keyFacets,
-      });
-    }
-
-    // Only run cross-segment if we have entities in multiple segments
-    const entitiesInMultipleSegments = entityWithSegments.filter((e) => e.segmentIds.length > 1);
-
-    if (entitiesInMultipleSegments.length > 0) {
-      const crossSegmentResult = await extractCrossSegmentRelationships(
-        documentTitle ? `Document: "${documentTitle}"` : undefined,
-        entityWithSegments,
-        allRelationships.map((r) => ({
-          fromId: r.fromId,
-          toId: r.toId,
-          edgeType: r.edgeType,
-        }))
-      );
-
-      allRelationships.push(...crossSegmentResult.relationships);
-    }
-
-    logger.info(
-      { documentId, totalRelationships: allRelationships.length },
-      'Stage 4b complete: Cross-segment relationships extracted'
-    );
-
-    // Create relationships in database
-    for (const rel of allRelationships) {
-      try {
-        await graphService.createStoryConnection(
-          rel.fromId,
-          rel.toId,
-          rel.edgeType as StoryEdgeType,
-          rel.description,
-          { strength: rel.strength }
+        // Extract from this segment
+        const result = await extractEntitiesFromSegment(
+          segmentText,
+          i,
+          segments.length,
+          existingContext
         );
-      } catch (err: any) {
-        if (!err?.message?.includes('would create a cycle')) {
-          logger.warn({ rel, error: err }, 'Failed to create relationship');
+
+        // Transform flat results to extracted entities
+        for (const entity of result.entities) {
+          const entityFacets = result.facets
+            .filter((f) => f.entityName === entity.name)
+            .map((f) => ({ type: f.facetType as FacetType, content: f.content }));
+
+          const entityMentions = result.mentions
+            .filter((m) => m.entityName === entity.name)
+            .map((m) => ({ text: m.text }));
+
+          extractedEntities.push({
+            segmentId: segment.id,
+            name: entity.name,
+            type: entity.type as StoryNodeType,
+            documentOrder: entity.documentOrder,
+            facets: entityFacets,
+            mentions: entityMentions,
+          });
         }
+
+        broadcast(2, extractedEntities.length, `Processing segment ${i + 1} of ${segments.length}...`);
       }
+
+      logger.info(
+        { documentId, extractedCount: extractedEntities.length },
+        'Stage 2 complete: Entities extracted'
+      );
+
+      await saveCheckpoint(documentId, {
+        lastStageCompleted: 2,
+        stage2Output: { extractedEntities },
+      });
+    } else if (checkpoint?.stage2Output) {
+      extractedEntities = checkpoint.stage2Output.extractedEntities;
+      logger.info(
+        { documentId, cachedCount: extractedEntities.length },
+        'Skipping Stage 2 (using cached entities)'
+      );
+    } else {
+      throw new Error('Checkpoint inconsistency: Stage 2 skipped but no cached data');
     }
 
-    // Stage 5: Higher-Order Analysis
-    broadcast(5, entityIdByName.size);
-    logger.info({ documentId }, 'Stage 5: Analyzing higher-order structure');
+    // Stage 3: Text Grounding (algorithmic)
+    if (shouldRunStage(checkpoint, 3)) {
+      await checkForInterruption(documentId);
+      broadcast(3, extractedEntities.length);
+      logger.info({ documentId }, 'Stage 3: Grounding entities to text');
 
-    // Get events and characters for thread/arc analysis
-    const events: Array<{
-      id: string;
-      name: string;
-      documentOrder: number;
-      connectedCharacterIds: string[];
-      causalEdges: Array<{
-        type: 'CAUSES' | 'ENABLES' | 'PREVENTS';
-        targetId: string;
-        strength: number;
-      }>;
-    }> = [];
+      // Text grounding is done inline during entity resolution
+      // This stage primarily validates and prepares grounding data
 
-    const characters: Array<{
-      id: string;
-      name: string;
-      participatesInEventIds: string[];
-      stateFacetsBySegment: Array<{
-        segmentIndex: number;
-        states: string[];
-      }>;
-    }> = [];
+      await saveCheckpoint(documentId, { lastStageCompleted: 3 });
+    } else {
+      logger.info({ documentId }, 'Skipping Stage 3 (already completed)');
+    }
 
-    for (const [name, id] of entityIdByName) {
-      const instances = resolvedEntities.filter((e) => e.name === name);
-      const entityType = instances[0]?.type;
+    // Stage 4: Entity Resolution (batch clustering)
+    let resolvedEntities: ResolvedEntity[];
+    let entityIdByName: Map<string, string>;
 
-      if (entityType === 'event') {
-        // Get causal edges
-        const connections = await graphService.getConnectionsFromNode(id);
-        const causalEdges = connections
-          .filter((c) => ['CAUSES', 'ENABLES', 'PREVENTS'].includes(c.edgeType))
-          .map((c) => ({
-            type: c.edgeType as 'CAUSES' | 'ENABLES' | 'PREVENTS',
-            targetId: c.toNodeId,
-            strength: c.strength || 0.5,
-          }));
+    if (shouldRunStage(checkpoint, 4)) {
+      await checkForInterruption(documentId);
+      broadcast(4, extractedEntities.length);
+      logger.info({ documentId }, 'Stage 4: Resolving entities with multi-signal clustering');
 
-        // Get connected characters
-        const participates = connections.filter((c) => c.edgeType === 'PARTICIPATES_IN');
-        const connectedCharacterIds = participates.map((c) => c.fromNodeId);
+      resolvedEntities = [];
+      entityIdByName = new Map<string, string>();
 
-        events.push({
-          id,
-          name,
-          documentOrder: instances[0]?.documentOrder || 0,
-          connectedCharacterIds,
-          causalEdges,
+      // Get existing entities for resolution
+      const existingNodes = await graphStoryNodesRepository.getActiveNodes(documentId, userId);
+
+      // Generate embeddings for all entities in a single batch call
+      const entityTexts = extractedEntities.map(
+        (entity) => `${entity.name}: ${entity.facets.map((f) => f.content).join(', ')}`
+      );
+      const entityEmbeddings = await generateEmbeddings(entityTexts);
+
+      // Convert extracted entities to EntityCandidate format
+      const entityCandidates: EntityCandidate[] = extractedEntities.map((entity, i) => ({
+        name: entity.name,
+        type: entity.type,
+        embedding: entityEmbeddings[i],
+        facets: entity.facets,
+        mentions: entity.mentions.map((m) => ({ text: m.text, segmentId: entity.segmentId })),
+        segmentId: entity.segmentId,
+        documentOrder: entity.documentOrder,
+      }));
+
+      // Build existing entities with embeddings and facets
+      const existingEntities: ExistingEntity[] = [];
+      for (const node of existingNodes) {
+        const facets = await graphService.getFacetsForEntity(node.id);
+        const mentionCount = await mentionService.getMentionCount(node.id);
+        const embedding = await graphService.getNodeEmbedding(node.id);
+
+        existingEntities.push({
+          id: node.id,
+          name: node.name,
+          type: node.type,
+          embedding: embedding || undefined,
+          aliases: node.aliases || undefined,
+          facets: facets.map((f) => ({ type: f.type, content: f.content })),
+          mentionCount,
         });
-      } else if (entityType === 'character') {
-        // Get state facets by segment
-        const stateFacetsBySegment: Array<{ segmentIndex: number; states: string[] }> = [];
+      }
 
-        for (const instance of instances) {
-          const segmentIndex = segments.findIndex((s) => s.id === instance.segmentId);
-          const states = instance.facets
-            .filter((f) => f.type === 'state')
-            .map((f) => f.content);
+      // Run batch entity resolution
+      const resolutionResults = await resolveEntities(
+        entityCandidates,
+        existingEntities,
+        { documentId, userId }
+      );
 
-          if (states.length > 0) {
-            stateFacetsBySegment.push({ segmentIndex, states });
+      logger.info(
+        {
+          documentId,
+          clusters: resolutionResults.stats.totalClusters,
+          autoMerged: resolutionResults.stats.autoMerged,
+          needsReview: resolutionResults.stats.needsReview,
+          created: resolutionResults.stats.created,
+        },
+        'Stage 4: Batch clustering complete'
+      );
+
+      // Process resolution results
+      for (const result of resolutionResults.results) {
+        const { cluster, decision, targetId, newFacets } = result;
+        const legacyDecision = mapToLegacyDecision(result);
+
+        // Determine entity ID
+        let entityId: string;
+        if (decision === 'MERGE' && targetId) {
+          entityId = targetId;
+        } else {
+          entityId = randomUUID();
+        }
+
+        // Map cluster primary name to entity ID
+        entityIdByName.set(cluster.primaryName, entityId);
+
+        // Also map all aliases to the same entity ID
+        for (const alias of cluster.aliases) {
+          if (alias !== cluster.primaryName) {
+            entityIdByName.set(alias, entityId);
           }
         }
 
-        // Get events this character participates in
-        const connections = await graphService.getConnectionsFromNode(id);
-        const participatesIn = connections
-          .filter((c) => c.edgeType === 'PARTICIPATES_IN')
-          .map((c) => c.toNodeId);
+        // Track resolved entities for later stages
+        for (const member of cluster.members) {
+          resolvedEntities.push({
+            segmentId: member.segmentId,
+            name: member.name,
+            type: member.type,
+            documentOrder: member.documentOrder,
+            facets: newFacets || member.facets,
+            mentions: member.mentions.map((m) => ({ text: m.text })),
+            id: entityId,
+            decision: legacyDecision,
+            targetEntityId: targetId,
+          });
+        }
 
-        characters.push({
-          id,
-          name,
-          participatesInEventIds: participatesIn,
-          stateFacetsBySegment,
-        });
-      }
-    }
-
-    // Sort events by document order
-    events.sort((a, b) => a.documentOrder - b.documentOrder);
-
-    // Detect thread candidates algorithmically (connected components in causal graph)
-    const threadCandidates = detectThreadCandidates(events, characters);
-
-    let higherOrderResult: Stage5HigherOrderResult | null = null;
-
-    if (events.length >= 2) {
-      higherOrderResult = await analyzeHigherOrder(
-        events,
-        characters,
-        threadCandidates,
-        documentTitle
-      );
-
-      // Create narrative threads
-      for (const thread of higherOrderResult.narrativeThreads) {
-        const threadId = await graphService.createNarrativeThread(documentId, userId, {
-          name: thread.name,
-          isPrimary: thread.isPrimary,
-          eventNames: [], // We use eventIds directly
-        });
-
-        for (const [i, eventId] of thread.eventIds.entries()) {
-          await graphService.linkEventToThread(eventId, threadId, i);
+        // Handle REVIEW decisions that need LLM refinement
+        if (needsLLMRefinement(result)) {
+          logger.debug(
+            {
+              clusterName: cluster.primaryName,
+              score: result.score,
+              confidence: result.confidence,
+            },
+            'Stage 4: Cluster needs LLM refinement (skipping for now)'
+          );
         }
       }
 
-      // Process character arcs from flattened arcPhases
-      if (higherOrderResult.arcPhases && higherOrderResult.arcPhases.length > 0) {
-        await processCharacterArcs(
-          higherOrderResult.arcPhases,
-          documentId,
-          userId,
-          entityIdByName,
-          events
+      // Create entities and facets in the database
+      // Iterate over unique entity IDs, not name→id mappings (which include aliases)
+      const uniqueEntityIds = new Set(entityIdByName.values());
+
+      logger.info(
+        { documentId, resolvedCount: resolvedEntities.length, uniqueEntities: uniqueEntityIds.size },
+        'Stage 4 complete: Entities resolved'
+      );
+      broadcast(4, uniqueEntityIds.size, 'Creating entities...');
+
+      const createdEntityIds = new Set<string>();
+
+      for (const entityId of uniqueEntityIds) {
+        // Find ALL resolved entities that map to this entityId (includes aliases)
+        const entityInstances = resolvedEntities.filter(
+          (e) => entityIdByName.get(e.name) === entityId
         );
+        if (entityInstances.length === 0) continue;
+
+        const firstInstance = entityInstances[0];
+
+        // Pick the primary name (first instance, or could enhance to pick most common)
+        const primaryName = firstInstance.name;
+
+        if (firstInstance.decision === 'NEW') {
+          // Merge all facets from ALL instances (across different name variations)
+          const allFacets: FacetInput[] = [];
+          for (const instance of entityInstances) {
+            allFacets.push(...instance.facets);
+          }
+          const uniqueFacets = Array.from(
+            new Map(allFacets.map((f) => [`${f.type}:${f.content}`, f])).values()
+          );
+
+          // Create entity (idempotent by ID)
+          const { created } = await graphService.createStoryNodeIdempotent(
+            documentId,
+            userId,
+            {
+              type: firstInstance.type,
+              name: primaryName,
+              description: '',
+              mentions: [],
+            },
+            {
+              stylePreset: documentStyle?.preset,
+              stylePrompt: documentStyle?.prompt,
+              existingId: entityId,
+            }
+          );
+
+          if (created) {
+            // Create facets only for newly created entities
+            for (const facet of uniqueFacets) {
+              const facetEmbedding = await generateEmbedding(facet.content);
+              await graphService.createFacet(entityId, facet, facetEmbedding);
+            }
+            createdEntityIds.add(entityId);
+          }
+        } else if (firstInstance.decision === 'ADD_FACET') {
+          // Add new facets to existing entity
+          const allNewFacets: FacetInput[] = [];
+          for (const instance of entityInstances) {
+            if (instance.facets) allNewFacets.push(...instance.facets);
+          }
+
+          for (const facet of allNewFacets) {
+            const facetEmbedding = await generateEmbedding(facet.content);
+            await graphService.createFacet(entityId, facet, facetEmbedding);
+          }
+        }
+
+        // Create mentions for all instances (covers all name variations)
+        for (const instance of entityInstances) {
+          const segment = segments.find((s) => s.id === instance.segmentId);
+          if (!segment) continue;
+
+          const segmentText = documentContent.slice(segment.start, segment.end);
+
+          for (const mention of instance.mentions) {
+            const relativeIndex = segmentText.indexOf(mention.text);
+            if (relativeIndex !== -1) {
+              const absoluteStart = segment.start + relativeIndex;
+              await mentionService.createFromAbsolutePosition(
+                entityId,
+                documentId,
+                absoluteStart,
+                absoluteStart + mention.text.length,
+                mention.text,
+                versionNumber,
+                segments,
+                'extraction',
+                100
+              );
+            }
+          }
+        }
+
+        // Recompute entity embedding with mention weights
+        if (createdEntityIds.has(entityId) || firstInstance.decision === 'ADD_FACET') {
+          await recomputeEntityEmbeddingWithMentionWeights(entityId);
+        }
       }
+
+      await saveCheckpoint(documentId, {
+        lastStageCompleted: 4,
+        stage4Output: { entityIdByName: Object.fromEntries(entityIdByName) },
+      });
+    } else if (checkpoint?.stage4Output) {
+      // Reconstruct from checkpoint
+      entityIdByName = new Map(Object.entries(checkpoint.stage4Output.entityIdByName));
+
+      // Reconstruct resolvedEntities from extractedEntities + entityIdByName
+      resolvedEntities = extractedEntities
+        .map((e) => ({
+          ...e,
+          id: entityIdByName.get(e.name) || '',
+          decision: 'NEW' as const,
+        }))
+        .filter((e) => e.id);
+
+      logger.info(
+        { documentId, cachedEntities: entityIdByName.size },
+        'Skipping Stage 4 (using cached entity mapping)'
+      );
+    } else {
+      throw new Error('Checkpoint inconsistency: Stage 4 skipped but no cached data');
+    }
+
+    // Stage 5: Intra-Segment Relationship Extraction (parallel per segment)
+    const allRelationships: Stage4RelationshipsResult['relationships'] = [];
+
+    if (shouldRunStage(checkpoint, 5)) {
+      await checkForInterruption(documentId);
+      broadcast(5, entityIdByName.size);
+      logger.info({ documentId }, 'Stage 5: Extracting intra-segment relationships');
+
+      for (let i = 0; i < segments.length; i++) {
+        const segment = segments[i];
+        const segmentText = documentContent.slice(segment.start, segment.end);
+
+        broadcast(5, entityIdByName.size, `Extracting relationships: segment ${i + 1}/${segments.length}`);
+
+        // Get resolved entities in this segment
+        const entitiesInSegment = resolvedEntities.filter((e) => e.segmentId === segment.id);
+        const uniqueEntitiesInSegment = Array.from(
+          new Map(entitiesInSegment.map((e) => [e.id, e])).values()
+        );
+
+        if (uniqueEntitiesInSegment.length < 2) continue;
+
+        const result = await extractRelationshipsFromSegment(
+          segmentText,
+          i,
+          uniqueEntitiesInSegment.map((e) => ({
+            id: e.id,
+            name: e.name,
+            type: e.type,
+            keyFacets: e.facets.slice(0, 3).map((f) => f.content),
+          }))
+        );
+
+        allRelationships.push(...result.relationships);
+      }
+
+      logger.info(
+        { documentId, relationshipCount: allRelationships.length },
+        'Stage 5 complete: Intra-segment relationships extracted'
+      );
+
+      await saveCheckpoint(documentId, { lastStageCompleted: 5 });
+    } else {
+      logger.info({ documentId }, 'Skipping Stage 5 (already completed)');
+    }
+
+    // Stage 6: Cross-Segment Relationships
+    if (shouldRunStage(checkpoint, 6)) {
+      await checkForInterruption(documentId);
+      broadcast(6, entityIdByName.size);
+      logger.info({ documentId }, 'Stage 6: Extracting cross-segment relationships');
+
+      // Build entity list with segment associations
+      const entityWithSegments: EntityWithSegments[] = [];
+      for (const [name, id] of entityIdByName) {
+        const instances = resolvedEntities.filter((e) => e.name === name);
+        const segmentIds = [...new Set(instances.map((e) => e.segmentId))];
+        const keyFacets = instances[0]?.facets.slice(0, 3).map((f) => f.content) || [];
+
+        entityWithSegments.push({
+          id,
+          name,
+          type: instances[0]?.type || 'other',
+          segmentIds,
+          keyFacets,
+        });
+      }
+
+      // Only run cross-segment if we have entities in multiple segments
+      const entitiesInMultipleSegments = entityWithSegments.filter((e) => e.segmentIds.length > 1);
+
+      if (entitiesInMultipleSegments.length > 0) {
+        broadcast(6, entityIdByName.size, 'Finding cross-segment connections...');
+        const crossSegmentResult = await extractCrossSegmentRelationships(
+          documentTitle ? `Document: "${documentTitle}"` : undefined,
+          entityWithSegments,
+          allRelationships.map((r) => ({
+            fromId: r.fromId,
+            toId: r.toId,
+            edgeType: r.edgeType,
+          }))
+        );
+
+        allRelationships.push(...crossSegmentResult.relationships);
+      }
+
+      logger.info(
+        { documentId, totalRelationships: allRelationships.length },
+        'Stage 6 complete: Cross-segment relationships extracted'
+      );
+
+      // Create relationships in database (idempotent)
+      for (const rel of allRelationships) {
+        try {
+          await graphService.createStoryConnectionIdempotent(
+            rel.fromId,
+            rel.toId,
+            rel.edgeType as StoryEdgeType,
+            rel.description,
+            { strength: rel.strength }
+          );
+        } catch (err: any) {
+          if (!err?.message?.includes('would create a cycle')) {
+            logger.warn({ rel, error: err }, 'Failed to create relationship');
+          }
+        }
+      }
+
+      await saveCheckpoint(documentId, { lastStageCompleted: 6 });
+    } else {
+      logger.info({ documentId }, 'Skipping Stage 6 (already completed)');
+    }
+
+    // Stage 7: Higher-Order Analysis
+    let higherOrderResult: Stage5HigherOrderResult | null = null;
+
+    if (shouldRunStage(checkpoint, 7)) {
+      await checkForInterruption(documentId);
+      broadcast(7, entityIdByName.size);
+      logger.info({ documentId }, 'Stage 7: Analyzing higher-order structure');
+
+      // Get events and characters for thread/arc analysis
+      const events: Array<{
+        id: string;
+        name: string;
+        documentOrder: number;
+        connectedCharacterIds: string[];
+        causalEdges: Array<{
+          type: 'CAUSES' | 'ENABLES' | 'PREVENTS';
+          targetId: string;
+          strength: number;
+        }>;
+      }> = [];
+
+      const characters: Array<{
+        id: string;
+        name: string;
+        participatesInEventIds: string[];
+        stateFacetsBySegment: Array<{
+          segmentIndex: number;
+          states: string[];
+        }>;
+      }> = [];
+
+      for (const [name, id] of entityIdByName) {
+        const instances = resolvedEntities.filter((e) => e.name === name);
+        const entityType = instances[0]?.type;
+
+        if (entityType === 'event') {
+          // Get causal edges
+          const connections = await graphService.getConnectionsFromNode(id);
+          const causalEdges = connections
+            .filter((c) => ['CAUSES', 'ENABLES', 'PREVENTS'].includes(c.edgeType))
+            .map((c) => ({
+              type: c.edgeType as 'CAUSES' | 'ENABLES' | 'PREVENTS',
+              targetId: c.toNodeId,
+              strength: c.strength || 0.5,
+            }));
+
+          // Get connected characters
+          const participates = connections.filter((c) => c.edgeType === 'PARTICIPATES_IN');
+          const connectedCharacterIds = participates.map((c) => c.fromNodeId);
+
+          events.push({
+            id,
+            name,
+            documentOrder: instances[0]?.documentOrder || 0,
+            connectedCharacterIds,
+            causalEdges,
+          });
+        } else if (entityType === 'character') {
+          // Get state facets by segment
+          const stateFacetsBySegment: Array<{ segmentIndex: number; states: string[] }> = [];
+
+          for (const instance of instances) {
+            const segmentIndex = segments.findIndex((s) => s.id === instance.segmentId);
+            const states = instance.facets
+              .filter((f) => f.type === 'state')
+              .map((f) => f.content);
+
+            if (states.length > 0) {
+              stateFacetsBySegment.push({ segmentIndex, states });
+            }
+          }
+
+          // Get events this character participates in
+          const connections = await graphService.getConnectionsFromNode(id);
+          const participatesIn = connections
+            .filter((c) => c.edgeType === 'PARTICIPATES_IN')
+            .map((c) => c.toNodeId);
+
+          characters.push({
+            id,
+            name,
+            participatesInEventIds: participatesIn,
+            stateFacetsBySegment,
+          });
+        }
+      }
+
+      // Sort events by document order
+      events.sort((a, b) => a.documentOrder - b.documentOrder);
+
+      // Detect thread candidates algorithmically (connected components in causal graph)
+      const threadCandidates = detectThreadCandidates(events, characters);
+
+      if (events.length >= 2) {
+        higherOrderResult = await analyzeHigherOrder(
+          events,
+          characters,
+          threadCandidates,
+          documentTitle
+        );
+
+        // Create narrative threads (idempotent)
+        for (const thread of higherOrderResult.narrativeThreads) {
+          const { id: threadId, created } = await graphService.createNarrativeThreadIdempotent(
+            documentId,
+            userId,
+            {
+              name: thread.name,
+              isPrimary: thread.isPrimary,
+              eventNames: [],
+            }
+          );
+
+          if (created) {
+            for (const [i, eventId] of thread.eventIds.entries()) {
+              await graphService.linkEventToThread(eventId, threadId, i);
+            }
+          }
+        }
+
+        // Process character arcs from flattened arcPhases
+        if (higherOrderResult.arcPhases && higherOrderResult.arcPhases.length > 0) {
+          await processCharacterArcs(
+            higherOrderResult.arcPhases,
+            documentId,
+            userId,
+            entityIdByName,
+            events
+          );
+        }
+      }
+
+      logger.info(
+        {
+          documentId,
+          threadCount: higherOrderResult?.narrativeThreads.length || 0,
+          arcCount: new Set((higherOrderResult?.arcPhases || []).map((p) => p.characterId)).size,
+          arcPhaseCount: higherOrderResult?.arcPhases?.length || 0,
+        },
+        'Stage 7 complete: Higher-order analysis done'
+      );
+
+      // Clear checkpoint on successful completion
+      await clearCheckpoint(documentId);
+    } else {
+      logger.info({ documentId }, 'Skipping Stage 7 (already completed)');
+      await clearCheckpoint(documentId);
     }
 
     // Count unique characters with arcs
     const uniqueCharactersWithArcs = new Set(
       (higherOrderResult?.arcPhases || []).map((p) => p.characterId)
-    );
-
-    logger.info(
-      {
-        documentId,
-        threadCount: higherOrderResult?.narrativeThreads.length || 0,
-        arcCount: uniqueCharactersWithArcs.size,
-        arcPhaseCount: higherOrderResult?.arcPhases?.length || 0,
-      },
-      'Stage 5 complete: Higher-order analysis done'
     );
 
     return {

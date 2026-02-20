@@ -3,7 +3,7 @@
  * Orchestrates document analysis and node updates via Redis streams.
  */
 
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNotNull, sql } from 'drizzle-orm';
 import { db } from '../config/database';
 import { PubSubConsumer } from '../lib/pubsub-consumer';
 import { documents } from '../models/schema';
@@ -11,11 +11,11 @@ import type { ExistingNode } from '../types/storyNodes';
 import { logger } from '../utils/logger';
 import { updateNodes } from './gemini';
 import { mentionService } from './mentions';
-import type { StreamMessage } from './redis-streams';
+import { redisStreams, type StreamMessage } from './redis-streams';
 import { type Segment, segmentService } from './segments';
 import { sseService } from './sse';
 import { graphStoryNodesRepository } from './storyNodes';
-import { multiStagePipeline } from './pipeline';
+import { multiStagePipeline, AnalysisCancelledError, AnalysisPausedError } from './pipeline';
 
 const MIN_CONTENT_LENGTH = 50;
 const MAX_CONTENT_LENGTH = 50000;
@@ -27,6 +27,60 @@ class TextAnalysisConsumer extends PubSubConsumer {
 
   constructor() {
     super('text-analysis-service');
+  }
+
+  /**
+   * Start the consumer and recover any interrupted analyses.
+   */
+  async start(): Promise<void> {
+    await super.start();
+    await this.recoverInterruptedAnalyses();
+  }
+
+  /**
+   * Recover analyses that were interrupted (e.g., by server restart).
+   * Re-queues documents that have an active checkpoint and were analyzing.
+   */
+  private async recoverInterruptedAnalyses(): Promise<void> {
+    const staleThreshold = new Date(Date.now() - 60 * 60 * 1000); // 1 hour
+
+    const interrupted = await db
+      .select({
+        id: documents.id,
+        userId: documents.userId,
+        analysisStartedAt: documents.analysisStartedAt,
+      })
+      .from(documents)
+      .where(
+        and(
+          eq(documents.analysisStatus, 'analyzing'),
+          isNotNull(documents.analysisCheckpoint),
+          sql`${documents.analysisStartedAt} >= ${staleThreshold}`
+        )
+      );
+
+    if (interrupted.length === 0) {
+      logger.info('No interrupted analyses to recover');
+      return;
+    }
+
+    logger.info(
+      { count: interrupted.length },
+      'Recovering interrupted analyses'
+    );
+
+    for (const doc of interrupted) {
+      logger.info(
+        { documentId: doc.id, userId: doc.userId, startedAt: doc.analysisStartedAt },
+        'Re-queuing interrupted analysis'
+      );
+
+      await redisStreams.add(this.streamName, {
+        documentId: doc.id,
+        userId: doc.userId,
+        resume: 'true',
+      });
+    }
   }
 
   protected async handleMessage(message: StreamMessage) {
@@ -44,6 +98,25 @@ class TextAnalysisConsumer extends PubSubConsumer {
         await this.handleMultiStageAnalyze(documentId, userId, reanalyze === 'true');
       }
     } catch (error: any) {
+      // Handle pause - keep status as 'paused', keep checkpoint
+      if (error instanceof AnalysisPausedError) {
+        logger.info({ documentId }, 'Analysis paused by user');
+        this.broadcast(documentId, 'analysis-paused', {});
+        return;
+      }
+
+      // Handle cancel - clear status, checkpoint already cleared in pipeline
+      if (error instanceof AnalysisCancelledError) {
+        await db
+          .update(documents)
+          .set({ analysisStatus: null, analysisStartedAt: null })
+          .where(eq(documents.id, documentId));
+
+        this.broadcast(documentId, 'analysis-cancelled', {});
+        logger.info({ documentId }, 'Analysis cancelled by user');
+        return;
+      }
+
       const errorMessage = error?.message || 'Operation failed. Please try again.';
       logger.error({ error, documentId, errorMessage }, 'Text analysis failed');
 
@@ -53,6 +126,12 @@ class TextAnalysisConsumer extends PubSubConsumer {
           .update(documents)
           .set({ analysisStatus: 'failed', analysisStartedAt: null })
           .where(eq(documents.id, documentId));
+
+        // Broadcast status change
+        this.broadcast(documentId, 'analysis-status-changed', {
+          analysisStatus: 'failed',
+          analysisStartedAt: null,
+        });
       }
 
       const eventType = updateMode === 'true' ? 'update-failed' : 'analysis-failed';
@@ -62,7 +141,7 @@ class TextAnalysisConsumer extends PubSubConsumer {
 
   /**
    * Handle multi-stage pipeline analysis.
-   * Uses the 6-stage extraction process for better quality.
+   * Uses the 7-stage extraction process for better quality.
    */
   private async handleMultiStageAnalyze(documentId: string, userId: string, reanalyze: boolean) {
     logger.info({ documentId, userId, reanalyze }, 'Processing multi-stage analysis request');
@@ -71,10 +150,17 @@ class TextAnalysisConsumer extends PubSubConsumer {
     if (!document) return;
 
     // Mark analysis as in progress
+    const analysisStartedAt = new Date();
     await db
       .update(documents)
-      .set({ analysisStatus: 'analyzing', analysisStartedAt: new Date() })
+      .set({ analysisStatus: 'analyzing', analysisStartedAt })
       .where(eq(documents.id, documentId));
+
+    // Broadcast status change
+    this.broadcast(documentId, 'analysis-status-changed', {
+      analysisStatus: 'analyzing',
+      analysisStartedAt: analysisStartedAt.toISOString(),
+    });
 
     // Get segments (compute and persist if needed)
     const segments = await this.getDocumentSegments(documentId, document);
@@ -106,6 +192,12 @@ class TextAnalysisConsumer extends PubSubConsumer {
         analysisStartedAt: null,
       })
       .where(eq(documents.id, documentId));
+
+    // Broadcast status cleared (completed)
+    this.broadcast(documentId, 'analysis-status-changed', {
+      analysisStatus: null,
+      analysisStartedAt: null,
+    });
 
     this.broadcast(documentId, 'analysis-complete', {
       nodesCount: result.entityCount,

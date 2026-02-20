@@ -1,8 +1,8 @@
-import { inArray } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { type NextFunction, type Request, type Response, Router } from 'express';
 import { db } from '../config/database';
 import { requireAuth } from '../middleware/auth';
-import { media } from '../models/schema';
+import { documents, media } from '../models/schema';
 import { documentsService } from '../services/documents';
 import {
   computeCausalOrder,
@@ -310,6 +310,94 @@ router.post(
       });
 
       res.status(202).json({ message: 'Analysis queued' });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+router.post(
+  '/documents/:id/analysis/pause',
+  requireAuth,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = (req as any).user.id;
+      const { id } = req.params;
+
+      const document = await documentsService.get(id, userId);
+
+      if (document.analysisStatus !== 'analyzing') {
+        res.status(400).json({ error: { message: 'No active analysis to pause', code: 'INVALID_STATE' } });
+        return;
+      }
+
+      await db
+        .update(documents)
+        .set({ analysisStatus: 'paused' })
+        .where(eq(documents.id, id));
+
+      res.json({ success: true });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+router.post(
+  '/documents/:id/analysis/cancel',
+  requireAuth,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = (req as any).user.id;
+      const { id } = req.params;
+
+      const document = await documentsService.get(id, userId);
+
+      if (!['analyzing', 'paused'].includes(document.analysisStatus || '')) {
+        res.status(400).json({ error: { message: 'No active analysis to cancel', code: 'INVALID_STATE' } });
+        return;
+      }
+
+      await db
+        .update(documents)
+        .set({ analysisStatus: 'cancelling' })
+        .where(eq(documents.id, id));
+
+      res.json({ success: true });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+router.post(
+  '/documents/:id/analysis/resume',
+  requireAuth,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = (req as any).user.id;
+      const { id } = req.params;
+
+      const document = await documentsService.get(id, userId);
+
+      if (document.analysisStatus !== 'paused') {
+        res.status(400).json({ error: { message: 'No paused analysis to resume', code: 'INVALID_STATE' } });
+        return;
+      }
+
+      // Re-queue the analysis (checkpoint will be used)
+      await redisStreams.add('text-analysis:stream', {
+        documentId: id,
+        userId,
+        resume: 'true',
+      });
+
+      await db
+        .update(documents)
+        .set({ analysisStatus: 'analyzing' })
+        .where(eq(documents.id, id));
+
+      res.json({ success: true });
     } catch (error) {
       next(error);
     }

@@ -774,23 +774,36 @@ class GraphService {
     const cypher = `
       MATCH (a:StoryNode)-[r]->(b:StoryNode)
       WHERE a.documentId = $documentId
+        AND b.documentId = $documentId
         AND ${this.deletedAtFilterEdge('a', 'r', 'b')}
         AND type(r) IN ['CAUSES', 'ENABLES', 'PREVENTS', 'HAPPENS_BEFORE', 'PARTICIPATES_IN', 'LOCATED_AT', 'PART_OF', 'MEMBER_OF', 'POSSESSES', 'CONNECTED_TO', 'OPPOSES', 'ABOUT', 'RELATED_TO']
-      RETURN r.id, a.id, b.id, type(r) as edgeType, r.description, r.strength, r.createdAt, r.deletedAt
+      RETURN DISTINCT r.id, a.id, b.id, type(r) as edgeType, r.description, r.strength, r.createdAt, r.deletedAt
     `;
     const result = await this.query(cypher, { documentId });
 
-    return result.data.map((row) => ({
-      id: row[0] as string,
-      fromNodeId: row[1] as string,
-      toNodeId: row[2] as string,
-      edgeType: row[3] as StoryEdgeType,
-      description: row[4] as string | null,
-      strength: row[5] != null ? Number(row[5]) : null,
-      narrativeDistance: null,
-      createdAt: row[6] as string,
-      deletedAt: row[7] as string | null,
-    }));
+    // Deduplicate by edge ID (in case FalkorDB returns duplicates)
+    const seenIds = new Set<string>();
+    const connections: StoredStoryConnection[] = [];
+
+    for (const row of result.data) {
+      const id = row[0] as string;
+      if (seenIds.has(id)) continue;
+      seenIds.add(id);
+
+      connections.push({
+        id,
+        fromNodeId: row[1] as string,
+        toNodeId: row[2] as string,
+        edgeType: row[3] as StoryEdgeType,
+        description: row[4] as string | null,
+        strength: row[5] != null ? Number(row[5]) : null,
+        narrativeDistance: null,
+        createdAt: row[6] as string,
+        deletedAt: row[7] as string | null,
+      });
+    }
+
+    return connections;
   }
 
   async getConnectionsFromNode(nodeId: string): Promise<StoredStoryConnection[]> {
@@ -1907,6 +1920,181 @@ class GraphService {
       SET a.summary = $summary, a.updatedAt = $updatedAt
     `;
     await this.query(cypher, { arcId, summary, updatedAt: new Date().toISOString() });
+  }
+
+  // ========== Idempotent Operation Helpers ==========
+
+  /**
+   * Find a node by name within a document.
+   * Used for idempotent node creation.
+   */
+  async findNodeByNameInDocument(
+    documentId: string,
+    name: string
+  ): Promise<StoredStoryNode | null> {
+    const cypher = `
+      MATCH (n:StoryNode)
+      WHERE n.documentId = $documentId AND n.name = $name AND n.deletedAt IS NULL
+      RETURN n.id, n.documentId, n.userId, n.type, n.name, n.description,
+             n.aliases, n.metadata, n.primaryMediaId, n.stylePreset, n.stylePrompt,
+             n.documentOrder,
+             n.createdAt, n.updatedAt, n.deletedAt
+      LIMIT 1
+    `;
+    const result = await this.query(cypher, { documentId, name });
+
+    if (result.data.length === 0) return null;
+
+    const row = result.data[0];
+    const aliasesRaw = row[6] as string | null;
+    const aliases = aliasesRaw ? JSON.parse(aliasesRaw) : null;
+
+    return {
+      id: row[0] as string,
+      documentId: row[1] as string,
+      userId: row[2] as string,
+      type: row[3] as StoryNodeType,
+      name: row[4] as string,
+      description: row[5] as string | null,
+      aliases,
+      metadata: row[7] as string | null,
+      primaryMediaId: row[8] as string | null,
+      stylePreset: row[9] as string | null,
+      stylePrompt: row[10] as string | null,
+      documentOrder: row[11] as number | null,
+      createdAt: row[12] as string,
+      updatedAt: row[13] as string,
+      deletedAt: row[14] as string | null,
+    };
+  }
+
+  /**
+   * Find an existing connection between two nodes of a specific type.
+   * Used for idempotent edge creation.
+   */
+  async findConnection(
+    fromId: string,
+    toId: string,
+    edgeType: StoryEdgeType
+  ): Promise<StoredStoryConnection | null> {
+    this.validateEdgeType(edgeType);
+    const cypher = `
+      MATCH (a:StoryNode)-[r:${edgeType}]->(b:StoryNode)
+      WHERE a.id = $fromId AND b.id = $toId AND r.deletedAt IS NULL
+      RETURN r.id, a.id, b.id, type(r) as edgeType, r.description, r.strength, r.createdAt, r.deletedAt
+      LIMIT 1
+    `;
+    const result = await this.query(cypher, { fromId, toId });
+
+    if (result.data.length === 0) return null;
+
+    const row = result.data[0];
+    return {
+      id: row[0] as string,
+      fromNodeId: row[1] as string,
+      toNodeId: row[2] as string,
+      edgeType: row[3] as StoryEdgeType,
+      description: row[4] as string | null,
+      strength: row[5] != null ? Number(row[5]) : null,
+      narrativeDistance: null,
+      createdAt: row[6] as string,
+      deletedAt: row[7] as string | null,
+    };
+  }
+
+  /**
+   * Find a narrative thread by name within a document.
+   * Used for idempotent thread creation.
+   */
+  async findThreadByName(
+    documentId: string,
+    name: string
+  ): Promise<{ id: string; name: string; isPrimary: boolean; color: string | null } | null> {
+    const cypher = `
+      MATCH (nt:NarrativeThread)
+      WHERE nt.documentId = $documentId AND nt.name = $name
+      RETURN nt.id, nt.name, nt.isPrimary, nt.color
+      LIMIT 1
+    `;
+    const result = await this.query(cypher, { documentId, name });
+
+    if (result.data.length === 0) return null;
+
+    const row = result.data[0];
+    return {
+      id: row[0] as string,
+      name: row[1] as string,
+      isPrimary: row[2] as boolean,
+      color: row[3] as string | null,
+    };
+  }
+
+  /**
+   * Create a story node only if one with the same name doesn't exist.
+   * Returns the existing node ID if found, or creates and returns the new ID.
+   */
+  async createStoryNodeIdempotent(
+    documentId: string,
+    userId: string,
+    node: StoryNodeResult,
+    options?: {
+      stylePreset?: string | null;
+      stylePrompt?: string | null;
+      existingId?: string;
+    }
+  ): Promise<{ id: string; created: boolean }> {
+    // If existingId provided, check by ID first (handles aliases mapped to same ID)
+    if (options?.existingId) {
+      const existingById = await this.getStoryNodeByIdInternal(options.existingId);
+      if (existingById) {
+        return { id: options.existingId, created: false };
+      }
+    }
+
+    // Fall back to name check for backwards compatibility
+    const existing = await this.findNodeByNameInDocument(documentId, node.name);
+    if (existing) {
+      return { id: existing.id, created: false };
+    }
+
+    const id = await this.createStoryNode(documentId, userId, node, options);
+    return { id, created: true };
+  }
+
+  /**
+   * Create a story connection only if one doesn't exist.
+   * Returns the existing connection ID if found, or creates and returns the new ID.
+   */
+  async createStoryConnectionIdempotent(
+    fromId: string,
+    toId: string,
+    edgeType: StoryEdgeType,
+    description: string | null,
+    properties?: { strength?: number }
+  ): Promise<{ id: string; created: boolean }> {
+    const existing = await this.findConnection(fromId, toId, edgeType);
+    if (existing) {
+      return { id: existing.id, created: false };
+    }
+    const id = await this.createStoryConnection(fromId, toId, edgeType, description, properties);
+    return { id, created: true };
+  }
+
+  /**
+   * Create a narrative thread only if one with the same name doesn't exist.
+   * Returns the existing thread ID if found, or creates and returns the new ID.
+   */
+  async createNarrativeThreadIdempotent(
+    documentId: string,
+    userId: string,
+    thread: NarrativeThreadResult
+  ): Promise<{ id: string; created: boolean }> {
+    const existing = await this.findThreadByName(documentId, thread.name);
+    if (existing) {
+      return { id: existing.id, created: false };
+    }
+    const id = await this.createNarrativeThread(documentId, userId, thread);
+    return { id, created: true };
   }
 }
 
