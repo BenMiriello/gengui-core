@@ -9,11 +9,14 @@ import { db } from '../config/database';
 import { logger } from '../utils/logger';
 
 /**
- * Convert UUID to int64 for use with pg_advisory_lock.
+ * Convert UUID to signed int64 for use with pg_advisory_lock.
+ * Postgres bigint is signed, max 2^63-1.
  */
 function uuidToInt64(uuid: string): bigint {
   const hash = createHash('md5').update(`analysis:${uuid}`).digest('hex');
-  return BigInt(`0x${hash.slice(0, 16)}`);
+  const unsigned = BigInt(`0x${hash.slice(0, 16)}`);
+  // Mask to signed bigint range (clear the sign bit)
+  return unsigned & BigInt('0x7FFFFFFFFFFFFFFF');
 }
 
 export const analysisLock = {

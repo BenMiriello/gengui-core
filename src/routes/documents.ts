@@ -22,6 +22,7 @@ import { redisStreams } from '../services/redis-streams';
 import { s3 } from '../services/s3';
 import { sseService } from '../services/sse';
 import { stalenessService } from '../services/staleness';
+import { loadCheckpoint } from '../services/pipeline/checkpoint';
 import { graphStoryNodesRepository } from '../services/storyNodes';
 import { versioningService } from '../services/versioning';
 
@@ -306,6 +307,17 @@ router.get(
         }
       }
 
+      // Get current stage from checkpoint for state recovery
+      let currentStage: number | null = null;
+      if (analysisStatus === 'analyzing') {
+        const checkpoint = await loadCheckpoint(id);
+        if (checkpoint?.lastStageCompleted !== null) {
+          currentStage = (checkpoint?.lastStageCompleted ?? 0) + 1;
+        } else {
+          currentStage = 1;
+        }
+      }
+
       res.json({
         hasAnalysis,
         lastAnalyzedVersion,
@@ -314,6 +326,7 @@ router.get(
         nodeCount: nodes.length,
         analysisStatus,
         analysisStartedAt,
+        currentStage,
       });
     } catch (error) {
       next(error);
@@ -390,6 +403,13 @@ router.post(
         .set({ analysisStatus: 'paused' })
         .where(eq(documents.id, id));
 
+      // Broadcast immediately so frontend gets feedback
+      sseService.broadcastToDocument(id, 'analysis-status-changed', {
+        documentId: id,
+        analysisStatus: 'paused',
+        timestamp: new Date().toISOString(),
+      });
+
       res.json({ success: true });
     } catch (error) {
       next(error);
@@ -421,6 +441,13 @@ router.post(
         .update(documents)
         .set({ analysisStatus: 'cancelling' })
         .where(eq(documents.id, id));
+
+      // Broadcast immediately so frontend gets feedback
+      sseService.broadcastToDocument(id, 'analysis-status-changed', {
+        documentId: id,
+        analysisStatus: 'cancelling',
+        timestamp: new Date().toISOString(),
+      });
 
       res.json({ success: true });
     } catch (error) {

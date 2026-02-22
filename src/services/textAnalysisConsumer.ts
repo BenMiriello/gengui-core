@@ -173,23 +173,18 @@ class TextAnalysisConsumer extends PubSubConsumer {
       'Processing multi-stage analysis request',
     );
 
-    // Try to acquire document-level lock
-    const lockAcquired = await analysisLock.tryAcquire(documentId);
-    if (!lockAcquired) {
+    const lockResult = await analysisLock.withLock(documentId, async () => {
+      await this.runAnalysis(documentId, userId, reanalyze);
+    });
+
+    if (!lockResult.success) {
       this.broadcast(documentId, 'analysis-failed', {
         error: 'Analysis already in progress for this document',
       });
-      return;
-    }
-
-    try {
-      await this.runAnalysisWithLock(documentId, userId, reanalyze);
-    } finally {
-      await analysisLock.release(documentId);
     }
   }
 
-  private async runAnalysisWithLock(
+  private async runAnalysis(
     documentId: string,
     userId: string,
     reanalyze: boolean,

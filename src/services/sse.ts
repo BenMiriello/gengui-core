@@ -17,7 +17,7 @@ class SSEService {
   private clients: Map<string, SSEClient> = new Map();
   private eventBuffer: Map<string, BufferedEvent[]> = new Map();
   private readonly BUFFER_SIZE = 10;
-  private readonly BUFFER_TTL_MS = 60000; // 1 minute
+  private readonly BUFFER_TTL_MS = 300000; // 5 minutes
 
   /**
    * Add an SSE client subscribed to a channel

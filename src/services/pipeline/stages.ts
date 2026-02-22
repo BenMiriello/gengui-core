@@ -17,15 +17,15 @@ export const STAGE_LABELS: Record<
   { generic: string; technical: string }
 > = {
   1: {
-    generic: 'Reading through your document...',
+    generic: 'Reading through document...',
     technical: 'Stage 1: Segmentation + Sentence Embeddings',
   },
   2: {
-    generic: 'Identifying characters, places, and key ideas...',
+    generic: 'Identifying characters, places, and ideas...',
     technical: 'Stage 2: Entity + Facet Extraction',
   },
   3: {
-    generic: 'Finding where each entity appears...',
+    generic: 'Connecting entities to text...',
     technical: 'Stage 3: Text Grounding',
   },
   4: {
@@ -33,7 +33,7 @@ export const STAGE_LABELS: Record<
     technical: 'Stage 4: Entity Resolution',
   },
   5: {
-    generic: 'Mapping how everything connects...',
+    generic: 'Mapping connections...',
     technical: 'Stage 5: Intra-Segment Relationships',
   },
   6: {
@@ -41,7 +41,7 @@ export const STAGE_LABELS: Record<
     technical: 'Stage 6: Cross-Segment Relationships',
   },
   7: {
-    generic: 'Spotting narrative arcs and themes...',
+    generic: 'Finding narrative arcs and themes...',
     technical: 'Stage 7: Higher-Order Analysis',
   },
 };

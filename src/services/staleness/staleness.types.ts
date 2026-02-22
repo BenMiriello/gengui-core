@@ -13,7 +13,7 @@ export interface StaleRegion {
   charStart: number;
   charEnd: number;
   sentenceIndex: number;
-  changeType: 'modified' | 'added';
+  changeType: 'changed';
 }
 
 export interface StalenessResult {

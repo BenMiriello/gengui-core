@@ -57,6 +57,45 @@ export const mentionService = {
   },
 
   /**
+   * Create a mention from absolute positions, idempotently.
+   * Returns existing mention if one exists at same position.
+   */
+  async createFromAbsolutePositionIdempotent(
+    nodeId: string,
+    documentId: string,
+    absoluteStart: number,
+    absoluteEnd: number,
+    originalText: string,
+    versionNumber: number,
+    segments: Segment[],
+    source: CreateMentionInput['source'] = 'extraction',
+    confidence = 100,
+    facetId?: string | null,
+  ): Promise<Mention | null> {
+    const relative = segmentService.toRelativePosition(
+      segments,
+      absoluteStart,
+      absoluteEnd,
+    );
+    if (!relative) {
+      return null;
+    }
+
+    return this.createIdempotent({
+      nodeId,
+      documentId,
+      segmentId: relative.segmentId,
+      facetId: facetId ?? null,
+      relativeStart: relative.relativeStart,
+      relativeEnd: relative.relativeEnd,
+      originalText,
+      versionNumber,
+      source,
+      confidence,
+    });
+  },
+
+  /**
    * Create a mention with segment-relative positions.
    */
   async create(input: CreateMentionInput): Promise<Mention> {
@@ -82,6 +121,32 @@ export const mentionService = {
       .returning();
 
     return rowToMention(row);
+  },
+
+  /**
+   * Create a mention idempotently - checks for existing mention at same position.
+   * Returns existing mention if found, creates new one otherwise.
+   */
+  async createIdempotent(input: CreateMentionInput): Promise<Mention> {
+    // Check for existing mention at same node+segment+position
+    const existing = await db
+      .select()
+      .from(mentions)
+      .where(
+        and(
+          eq(mentions.nodeId, input.nodeId),
+          eq(mentions.segmentId, input.segmentId),
+          eq(mentions.relativeStart, input.relativeStart),
+          eq(mentions.relativeEnd, input.relativeEnd),
+        ),
+      )
+      .limit(1);
+
+    if (existing.length > 0) {
+      return rowToMention(existing[0]);
+    }
+
+    return this.create(input);
   },
 
   /**

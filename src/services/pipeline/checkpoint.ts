@@ -33,6 +33,22 @@ export interface AnalysisCheckpoint {
   startedAt: string;
   lastStageCompleted: AnalysisStage | null;
 
+  // Stage 2 in-progress state (for graceful pause/resume)
+  stage2Progress?: {
+    completedSegmentIndices: number[];
+    extractedEntities: Array<{
+      segmentId: string;
+      name: string;
+      type: StoryNodeType;
+      documentOrder?: number;
+      facets: Array<{ type: FacetType; content: string }>;
+      mentions: Array<{ text: string }>;
+      existingMatch?: ExistingMatchCheckpoint;
+    }>;
+    entityIdByName: Record<string, string>;
+    mergeSignals: MergeSignalCheckpoint[];
+  };
+
   // Stage 2 output (expensive LLM calls)
   stage2Output?: {
     extractedEntities: Array<{
@@ -86,15 +102,25 @@ export async function loadCheckpoint(
   return checkpoint;
 }
 
+interface CheckpointUpdate extends Partial<Omit<AnalysisCheckpoint, 'version' | 'stage2Progress'>> {
+  stage2Progress?: AnalysisCheckpoint['stage2Progress'] | null;
+}
+
 /**
  * Save or update checkpoint for a document.
  * Merges with existing checkpoint data.
+ * Use `null` to explicitly clear a field.
  */
 export async function saveCheckpoint(
   documentId: string,
-  update: Partial<Omit<AnalysisCheckpoint, 'version'>>,
+  update: CheckpointUpdate,
 ): Promise<void> {
   const existing = await loadCheckpoint(documentId);
+
+  // Handle explicit null to clear stage2Progress
+  const stage2Progress = update.stage2Progress === null
+    ? undefined
+    : (update.stage2Progress ?? existing?.stage2Progress);
 
   const checkpoint: AnalysisCheckpoint = {
     version: 1,
@@ -103,6 +129,7 @@ export async function saveCheckpoint(
       existing?.startedAt ?? update.startedAt ?? new Date().toISOString(),
     lastStageCompleted:
       update.lastStageCompleted ?? existing?.lastStageCompleted ?? null,
+    stage2Progress,
     stage2Output: update.stage2Output ?? existing?.stage2Output,
     stage4Output: update.stage4Output ?? existing?.stage4Output,
   };

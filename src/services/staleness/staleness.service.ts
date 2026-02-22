@@ -3,7 +3,7 @@
  * Compares current document sentences against analysis snapshot to detect changes.
  */
 
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '../../config/database';
 import { analysisSnapshots, documents } from '../../models/schema';
 import { logger } from '../../utils/logger';
@@ -132,14 +132,11 @@ export const stalenessService = {
       const sentence = currentSentences[i];
 
       if (!snapshotHashes.has(sentence.contentHash)) {
-        // This sentence hash wasn't in the snapshot
-        const isModified = i < snapshot.length;
-
         staleRegions.push({
           charStart: sentence.start,
           charEnd: sentence.end,
           sentenceIndex: i,
-          changeType: isModified ? 'modified' : 'added',
+          changeType: 'changed',
         });
       }
     }
@@ -170,15 +167,13 @@ export const stalenessService = {
   ): Promise<void> {
     if (versions.length === 0) return;
 
-    for (const version of versions) {
-      await db
-        .delete(analysisSnapshots)
-        .where(
-          and(
-            eq(analysisSnapshots.documentId, documentId),
-            eq(analysisSnapshots.versionNumber, version),
-          ),
-        );
-    }
+    await db
+      .delete(analysisSnapshots)
+      .where(
+        and(
+          eq(analysisSnapshots.documentId, documentId),
+          inArray(analysisSnapshots.versionNumber, versions),
+        ),
+      );
   },
 };

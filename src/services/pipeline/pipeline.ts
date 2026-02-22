@@ -300,15 +300,33 @@ export const multiStagePipeline = {
       broadcast(2);
       logger.info({ documentId }, 'Stage 2: Extracting entities with LLM-first merge detection');
 
-      extractedEntities = [];
-      entityIdByName = new Map<string, string>();
-      accumulatedMergeSignals = [];
+      // Initialize from checkpoint progress if available (resume scenario)
+      const progress = checkpoint?.stage2Progress;
+      const completedSegments = new Set<number>(progress?.completedSegmentIndices || []);
+      extractedEntities = progress?.extractedEntities || [];
+      entityIdByName = new Map<string, string>(Object.entries(progress?.entityIdByName || {}));
+      accumulatedMergeSignals = progress?.mergeSignals || [];
+
+      if (completedSegments.size > 0) {
+        logger.info(
+          { documentId, completedSegments: completedSegments.size, totalSegments: segments.length },
+          'Resuming Stage 2 from checkpoint progress',
+        );
+      }
 
       // Runtime registry tracks entities as they're extracted
       const runtimeRegistry: RuntimeEntityRegistry = {
         entries: new Map(),
         nextIndex: 0,
       };
+
+      // Rebuild registry from already-extracted entities
+      for (const entity of extractedEntities) {
+        const entityId = entityIdByName.get(entity.name);
+        if (entityId) {
+          updateEntityRegistry(runtimeRegistry, entity, entityId);
+        }
+      }
 
       // Load existing entities into registry if incremental
       if (!isInitialExtraction) {
@@ -317,6 +335,8 @@ export const multiStagePipeline = {
           userId,
         );
         for (const node of existingNodes) {
+          if (runtimeRegistry.entries.has(node.id)) continue;
+
           const facets = await graphService.getFacetsForEntity(node.id);
           const mentionCount = await mentionService.getMentionCount(node.id);
           const embedding = await graphService.getNodeEmbedding(node.id);
@@ -336,7 +356,17 @@ export const multiStagePipeline = {
       }
 
       for (let i = 0; i < segments.length; i++) {
-        await checkForInterruption(documentId);
+        // Skip already-completed segments
+        if (completedSegments.has(i)) {
+          logger.debug({ segmentIndex: i }, 'Skipping completed segment');
+          broadcast(
+            2,
+            runtimeRegistry.entries.size,
+            `Skipping segment ${i + 1} (already processed)...`,
+          );
+          continue;
+        }
+
         const segment = segments[i];
         const segmentText = documentContent.slice(segment.start, segment.end);
 
@@ -365,6 +395,12 @@ export const multiStagePipeline = {
             'Entity registry for segment extraction',
           );
         }
+
+        broadcast(
+          2,
+          runtimeRegistry.entries.size,
+          `Processing segment ${i + 1} of ${segments.length}...`,
+        );
 
         // Extract from this segment with merge detection
         const result = await extractEntitiesFromSegment(
@@ -447,10 +483,23 @@ export const multiStagePipeline = {
           );
         }
 
-        broadcast(
-          2,
-          runtimeRegistry.entries.size,
-          `Processing segment ${i + 1} of ${segments.length}...`,
+        // Mark segment as completed and save checkpoint (graceful pause point)
+        completedSegments.add(i);
+        await saveCheckpoint(documentId, {
+          stage2Progress: {
+            completedSegmentIndices: Array.from(completedSegments),
+            extractedEntities,
+            entityIdByName: Object.fromEntries(entityIdByName),
+            mergeSignals: accumulatedMergeSignals,
+          },
+        });
+
+        // Check for pause/cancel AFTER saving checkpoint (graceful pause)
+        await checkForInterruption(documentId);
+
+        logger.debug(
+          { segmentIndex: i, entityCount: runtimeRegistry.entries.size },
+          'Segment entities extracted',
         );
       }
 
@@ -464,8 +513,10 @@ export const multiStagePipeline = {
         'Stage 2 complete: Entities extracted with merge detection',
       );
 
+      // Promote progress to output and clear progress field
       await saveCheckpoint(documentId, {
         lastStageCompleted: 2,
+        stage2Progress: null,
         stage2Output: {
           extractedEntities,
           entityIdByName: Object.fromEntries(entityIdByName),
@@ -664,7 +715,8 @@ export const multiStagePipeline = {
             const relativeIndex = segmentText.indexOf(mention.text);
             if (relativeIndex !== -1) {
               const absoluteStart = segment.start + relativeIndex;
-              await mentionService.createFromAbsolutePosition(
+              // Use idempotent create to avoid duplicates on pause/resume
+              await mentionService.createFromAbsolutePositionIdempotent(
                 entityId,
                 documentId,
                 absoluteStart,
