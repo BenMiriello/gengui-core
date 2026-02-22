@@ -196,12 +196,17 @@ function updateEntityRegistry(
       existing.aliases.push(entity.name);
     }
   } else {
+    // Extract name facets as aliases for immediate availability in registry
+    const nameFacetAliases = entity.facets
+      .filter((f) => f.type === 'name')
+      .map((f) => f.content);
+
     registry.entries.set(entityId, {
       registryIndex: registry.nextIndex++,
       id: entityId,
       name: entity.name,
       type: entity.type,
-      aliases: [],
+      aliases: nameFacetAliases,
       facets: [...entity.facets],
       mentionCount: entity.mentions.length,
     });
@@ -344,6 +349,22 @@ export const multiStagePipeline = {
 
         // Build entity registry for this segment's prompt
         const entityRegistry = buildEntityRegistryForPrompt(runtimeRegistry);
+
+        // Log registry for debugging entity resolution
+        if (entityRegistry.length > 0) {
+          logger.debug(
+            {
+              segmentIndex: i,
+              registrySize: entityRegistry.length,
+              topEntities: entityRegistry.slice(0, 5).map((e) => ({
+                name: e.name,
+                type: e.type,
+                aliases: e.aliases,
+              })),
+            },
+            'Entity registry for segment extraction',
+          );
+        }
 
         // Extract from this segment with merge detection
         const result = await extractEntitiesFromSegment(
