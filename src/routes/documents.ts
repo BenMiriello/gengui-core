@@ -21,6 +21,7 @@ import { mediaService } from '../services/mediaService';
 import { redisStreams } from '../services/redis-streams';
 import { s3 } from '../services/s3';
 import { sseService } from '../services/sse';
+import { stalenessService } from '../services/staleness';
 import { graphStoryNodesRepository } from '../services/storyNodes';
 import { versioningService } from '../services/versioning';
 
@@ -314,6 +315,24 @@ router.get(
         analysisStatus,
         analysisStartedAt,
       });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.get(
+  '/documents/:id/staleness',
+  requireAuth,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = (req as any).user.id;
+      const { id } = req.params;
+
+      const document = await documentsService.get(id, userId);
+      const result = await stalenessService.detectStaleness(id, document.content);
+
+      res.json(result);
     } catch (error) {
       next(error);
     }

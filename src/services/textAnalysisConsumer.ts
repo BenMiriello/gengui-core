@@ -9,6 +9,7 @@ import { PubSubConsumer } from '../lib/pubsub-consumer';
 import { documents } from '../models/schema';
 import type { ExistingNode } from '../types/storyNodes';
 import { logger } from '../utils/logger';
+import { analysisLock } from './analysisLock';
 import { updateNodes } from './gemini';
 import { mentionService } from './mentions';
 import {
@@ -18,7 +19,9 @@ import {
 } from './pipeline';
 import { redisStreams, type StreamMessage } from './redis-streams';
 import { type Segment, segmentService } from './segments';
+import { splitIntoSentences } from './sentences/sentence.detector';
 import { sseService } from './sse';
+import { stalenessService } from './staleness';
 import { graphStoryNodesRepository } from './storyNodes';
 
 const MIN_CONTENT_LENGTH = 50;
@@ -170,6 +173,27 @@ class TextAnalysisConsumer extends PubSubConsumer {
       'Processing multi-stage analysis request',
     );
 
+    // Try to acquire document-level lock
+    const lockAcquired = await analysisLock.tryAcquire(documentId);
+    if (!lockAcquired) {
+      this.broadcast(documentId, 'analysis-failed', {
+        error: 'Analysis already in progress for this document',
+      });
+      return;
+    }
+
+    try {
+      await this.runAnalysisWithLock(documentId, userId, reanalyze);
+    } finally {
+      await analysisLock.release(documentId);
+    }
+  }
+
+  private async runAnalysisWithLock(
+    documentId: string,
+    userId: string,
+    reanalyze: boolean,
+  ) {
     const document = await this.fetchAndValidateDocument(
       documentId,
       userId,
@@ -209,6 +233,19 @@ class TextAnalysisConsumer extends PubSubConsumer {
       documentTitle: document.title,
       isInitialExtraction: !reanalyze,
       broadcastProgress: true,
+    });
+
+    // Save analysis snapshot for staleness detection
+    const sentences = splitIntoSentences(document.content);
+    await stalenessService.saveAnalysisSnapshot({
+      documentId,
+      versionNumber: document.currentVersion,
+      sentences: sentences.map((s, i) => ({
+        index: i,
+        start: s.start,
+        end: s.end,
+        hash: s.contentHash,
+      })),
     });
 
     // Update lastAnalyzedVersion and clear analysis status

@@ -620,3 +620,42 @@ export const sentenceEmbeddingsRelations = relations(
     }),
   }),
 );
+
+export const analysisSnapshots = pgTable(
+  'analysis_snapshots',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    documentId: uuid('document_id')
+      .notNull()
+      .references(() => documents.id, { onDelete: 'cascade' }),
+    versionNumber: integer('version_number').notNull(),
+    sentenceIndex: integer('sentence_index').notNull(),
+    sentenceStart: integer('sentence_start').notNull(),
+    sentenceEnd: integer('sentence_end').notNull(),
+    contentHash: varchar('content_hash', { length: 64 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index('idx_analysis_snapshots_doc_version').on(
+      table.documentId,
+      table.versionNumber,
+    ),
+    uniqueIndex('idx_analysis_snapshots_unique').on(
+      table.documentId,
+      table.versionNumber,
+      table.sentenceIndex,
+    ),
+  ],
+);
+
+export const analysisSnapshotsRelations = relations(
+  analysisSnapshots,
+  ({ one }) => ({
+    document: one(documents, {
+      fields: [analysisSnapshots.documentId],
+      references: [documents.id],
+    }),
+  }),
+);
