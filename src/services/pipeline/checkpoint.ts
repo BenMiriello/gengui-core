@@ -11,9 +11,10 @@ import type { FacetType, StoryNodeType } from '../../types/storyNodes';
 import { logger } from '../../utils/logger';
 import type { AnalysisStage } from './stages';
 
-/** Existing match from LLM merge detection */
+/** Existing match from LLM merge detection (name-based) */
 interface ExistingMatchCheckpoint {
-  registryIndex: number;
+  matchedName: string;
+  matchedType: string;
   confidence: 'high' | 'medium' | 'low';
   reason: string;
 }
@@ -21,7 +22,8 @@ interface ExistingMatchCheckpoint {
 /** Merge signal for uncertain matches */
 interface MergeSignalCheckpoint {
   extractedEntityName: string;
-  registryIndex: number;
+  registryName: string;
+  registryType: string;
   confidence: 'high' | 'medium' | 'low';
   evidence: string;
   segmentIndex: number;
@@ -33,8 +35,13 @@ export interface AnalysisCheckpoint {
   startedAt: string;
   lastStageCompleted: AnalysisStage | null;
 
-  // Stage 2 in-progress state (for graceful pause/resume)
-  stage2Progress?: {
+  // Stage 2: Summary generation output
+  summaryData?: {
+    segmentSummaries: Array<{ segmentId: string; summary: string }>;
+    documentSummary: string;
+  };
+
+  stage3Progress?: {
     completedSegmentIndices: number[];
     extractedEntities: Array<{
       segmentId: string;
@@ -46,11 +53,12 @@ export interface AnalysisCheckpoint {
       existingMatch?: ExistingMatchCheckpoint;
     }>;
     entityIdByName: Record<string, string>;
+    /** Maps all name variants (aliases, name facets) to entity IDs */
+    aliasToEntityId?: Record<string, string>;
     mergeSignals: MergeSignalCheckpoint[];
   };
 
-  // Stage 2 output (expensive LLM calls)
-  stage2Output?: {
+  stage3Output?: {
     extractedEntities: Array<{
       segmentId: string;
       name: string;
@@ -62,6 +70,8 @@ export interface AnalysisCheckpoint {
     }>;
     // LLM-first merge detection additions
     entityIdByName?: Record<string, string>;
+    /** Maps all name variants (aliases, name facets) to entity IDs */
+    aliasToEntityId?: Record<string, string>;
     mergeSignals?: MergeSignalCheckpoint[];
   };
 
@@ -102,8 +112,8 @@ export async function loadCheckpoint(
   return checkpoint;
 }
 
-interface CheckpointUpdate extends Partial<Omit<AnalysisCheckpoint, 'version' | 'stage2Progress'>> {
-  stage2Progress?: AnalysisCheckpoint['stage2Progress'] | null;
+interface CheckpointUpdate extends Partial<Omit<AnalysisCheckpoint, 'version' | 'stage3Progress'>> {
+  stage3Progress?: AnalysisCheckpoint['stage3Progress'] | null;
 }
 
 /**
@@ -117,10 +127,9 @@ export async function saveCheckpoint(
 ): Promise<void> {
   const existing = await loadCheckpoint(documentId);
 
-  // Handle explicit null to clear stage2Progress
-  const stage2Progress = update.stage2Progress === null
+  const stage3Progress = update.stage3Progress === null
     ? undefined
-    : (update.stage2Progress ?? existing?.stage2Progress);
+    : (update.stage3Progress ?? existing?.stage3Progress);
 
   const checkpoint: AnalysisCheckpoint = {
     version: 1,
@@ -129,8 +138,9 @@ export async function saveCheckpoint(
       existing?.startedAt ?? update.startedAt ?? new Date().toISOString(),
     lastStageCompleted:
       update.lastStageCompleted ?? existing?.lastStageCompleted ?? null,
-    stage2Progress,
-    stage2Output: update.stage2Output ?? existing?.stage2Output,
+    summaryData: update.summaryData ?? existing?.summaryData,
+    stage3Progress,
+    stage3Output: update.stage3Output ?? existing?.stage3Output,
     stage4Output: update.stage4Output ?? existing?.stage4Output,
   };
 

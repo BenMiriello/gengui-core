@@ -58,3 +58,64 @@ export class InternalServerError extends AppError {
     this.name = 'InternalServerError';
   }
 }
+
+/**
+ * LLM service unavailable (API key missing, service down, etc.)
+ */
+export class LLMUnavailableError extends AppError {
+  constructor(message: string = 'LLM service unavailable', code?: string) {
+    super(503, message, code);
+    this.name = 'LLMUnavailableError';
+  }
+}
+
+/**
+ * Failed to apply a diff to content.
+ */
+export class DiffApplicationError extends AppError {
+  public readonly originalContent: string;
+  public readonly diff: string;
+
+  constructor(
+    message: string,
+    originalContent: string,
+    diff: string,
+    code?: string,
+  ) {
+    super(422, message, code);
+    this.name = 'DiffApplicationError';
+    this.originalContent = originalContent;
+    this.diff = diff;
+  }
+}
+
+/**
+ * Entity not found in graph database.
+ */
+export class EntityNotFoundError extends NotFoundError {
+  public readonly entityId: string;
+  public readonly entityType?: string;
+
+  constructor(entityId: string, entityType?: string, code?: string) {
+    const message = entityType
+      ? `${entityType} not found: ${entityId}`
+      : `Entity not found: ${entityId}`;
+    super(message, code);
+    this.name = 'EntityNotFoundError';
+    this.entityId = entityId;
+    this.entityType = entityType;
+  }
+}
+
+/**
+ * Invalid LLM response format.
+ */
+export class LLMResponseError extends AppError {
+  public readonly response: string;
+
+  constructor(message: string, response: string, code?: string) {
+    super(422, message, code);
+    this.name = 'LLMResponseError';
+    this.response = response;
+  }
+}

@@ -22,9 +22,10 @@ import { redisStreams } from '../services/redis-streams';
 import { s3 } from '../services/s3';
 import { sseService } from '../services/sse';
 import { stalenessService } from '../services/staleness';
-import { loadCheckpoint } from '../services/pipeline/checkpoint';
+import { loadCheckpoint, clearCheckpoint } from '../services/pipeline/checkpoint';
 import { graphStoryNodesRepository } from '../services/storyNodes';
 import { versioningService } from '../services/versioning';
+import { mentionService } from '../services/mentions/mention.service';
 
 const router = Router();
 
@@ -437,15 +438,19 @@ router.post(
         return;
       }
 
+      // Clean up immediately (whether paused or analyzing)
+      await clearCheckpoint(id);
+      await graphService.deleteAllStoryNodesForDocument(id, userId);
+      await mentionService.deleteByDocumentId(id);
+
       await db
         .update(documents)
-        .set({ analysisStatus: 'cancelling' })
+        .set({ analysisStatus: 'cancelled' })
         .where(eq(documents.id, id));
 
-      // Broadcast immediately so frontend gets feedback
       sseService.broadcastToDocument(id, 'analysis-status-changed', {
         documentId: id,
-        analysisStatus: 'cancelling',
+        analysisStatus: 'cancelled',
         timestamp: new Date().toISOString(),
       });
 

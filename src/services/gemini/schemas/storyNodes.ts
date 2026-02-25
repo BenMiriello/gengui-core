@@ -92,14 +92,15 @@ const narrativeThreadSchema = {
 const existingMatchSchema = {
   type: GeminiType.OBJECT,
   properties: {
-    registryIndex: { type: GeminiType.INTEGER },
+    matchedName: { type: GeminiType.STRING },
+    matchedType: { type: GeminiType.STRING },
     confidence: {
       type: GeminiType.STRING,
       enum: ['high', 'medium', 'low'],
     },
     reason: { type: GeminiType.STRING },
   },
-  required: ['registryIndex', 'confidence', 'reason'],
+  required: ['matchedName', 'matchedType', 'confidence', 'reason'],
 };
 
 const entityBaseSchema = {
@@ -110,47 +111,51 @@ const entityBaseSchema = {
       type: GeminiType.STRING,
       enum: ['character', 'location', 'event', 'concept', 'other'],
     },
+    segmentId: { type: GeminiType.STRING },
     documentOrder: { type: GeminiType.INTEGER, nullable: true },
     existingMatch: { ...existingMatchSchema, nullable: true },
   },
-  required: ['name', 'type'],
+  required: ['name', 'type', 'segmentId'],
 };
 
 const mergeSignalSchema = {
   type: GeminiType.OBJECT,
   properties: {
     extractedEntityName: { type: GeminiType.STRING },
-    registryIndex: { type: GeminiType.INTEGER },
+    registryName: { type: GeminiType.STRING },
+    registryType: { type: GeminiType.STRING },
     confidence: {
       type: GeminiType.STRING,
       enum: ['high', 'medium', 'low'],
     },
     evidence: { type: GeminiType.STRING },
   },
-  required: ['extractedEntityName', 'registryIndex', 'confidence', 'evidence'],
+  required: ['extractedEntityName', 'registryName', 'registryType', 'confidence', 'evidence'],
 };
 
 const facetFlatSchema = {
   type: GeminiType.OBJECT,
   properties: {
     entityName: { type: GeminiType.STRING },
+    segmentId: { type: GeminiType.STRING },
     facetType: {
       type: GeminiType.STRING,
       enum: ['name', 'appearance', 'trait', 'state'],
     },
     content: { type: GeminiType.STRING },
   },
-  required: ['entityName', 'facetType', 'content'],
+  required: ['entityName', 'segmentId', 'facetType', 'content'],
 };
 
 const mentionFlatSchema = {
   type: GeminiType.OBJECT,
   properties: {
     entityName: { type: GeminiType.STRING },
+    segmentId: { type: GeminiType.STRING },
     text: { type: GeminiType.STRING },
     context: { type: GeminiType.STRING, nullable: true },
   },
-  required: ['entityName', 'text'],
+  required: ['entityName', 'segmentId', 'text'],
 };
 
 /** Schema for incremental node updates */
@@ -335,6 +340,7 @@ const relationshipSchema = {
     edgeType: { type: GeminiType.STRING, enum: EDGE_TYPE_ENUM },
     description: { type: GeminiType.STRING },
     strength: { type: GeminiType.NUMBER, nullable: true },
+    segmentId: { type: GeminiType.STRING, nullable: true }, // NEW: for batched extraction
   },
   required: ['fromId', 'toId', 'edgeType', 'description'],
 };
@@ -434,4 +440,26 @@ export const stage5RefineThreadsSchema = {
     },
   },
   required: ['threads'],
+};
+
+/**
+ * Stage 10: Contradiction Detection
+ */
+const contradictionItemSchema = {
+  type: GeminiType.OBJECT,
+  properties: {
+    facetIndexA: { type: GeminiType.INTEGER },
+    facetIndexB: { type: GeminiType.INTEGER },
+    classificationType: {
+      type: GeminiType.STRING,
+      enum: ['true_inconsistency', 'temporal_change', 'arc_divergence'],
+    },
+    reasoning: { type: GeminiType.STRING },
+  },
+  required: ['facetIndexA', 'facetIndexB', 'classificationType', 'reasoning'],
+};
+
+export const stage10DetectContradictionsSchema = {
+  type: GeminiType.ARRAY,
+  items: contradictionItemSchema,
 };

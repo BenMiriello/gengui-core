@@ -6,6 +6,7 @@ import { logger } from '../utils/logger';
 import { getImageProvider } from './image-generation/factory';
 import { segmentService } from './segments';
 import { sseService } from './sse';
+import { summaryService } from './summarization';
 import { versioningService } from './versioning';
 
 export class DocumentsService {
@@ -168,11 +169,19 @@ export class DocumentsService {
     let existingSegments:
       | { id: string; start: number; end: number }[]
       | undefined;
+    let oldContent: string | undefined;
+    let oldSummary: string | null | undefined;
+    let oldSummaryEditChainLength: number | undefined;
+
     if (updates.content !== undefined) {
       const current = await this.get(documentId, userId);
       existingSegments = Array.isArray(current.segmentSequence)
         ? current.segmentSequence
         : [];
+      oldContent = current.content ?? undefined;
+      oldSummary = current.summary;
+      oldSummaryEditChainLength = current.summaryEditChainLength;
+
       if (current.content || current.yjsState) {
         await versioningService.createVersion(
           documentId,
@@ -220,6 +229,17 @@ export class DocumentsService {
 
     logger.info({ userId, documentId }, 'Document updated');
 
+    // Update summary if content changed
+    if (updates.content !== undefined && oldContent !== undefined) {
+      await this.updateDocumentSummary(
+        documentId,
+        oldContent,
+        updates.content,
+        oldSummary ?? null,
+        oldSummaryEditChainLength ?? 0,
+      );
+    }
+
     sseService.broadcastToDocument(documentId, 'document-update', {
       updatedBy: userId,
       timestamp: new Date().toISOString(),
@@ -256,6 +276,70 @@ export class DocumentsService {
     }
 
     return first50;
+  }
+
+  /**
+   * Update document summary based on content changes.
+   * Uses progressive updates with unified diff format per TDD.
+   */
+  private async updateDocumentSummary(
+    documentId: string,
+    oldContent: string,
+    newContent: string,
+    currentSummary: string | null,
+    editChainLength: number,
+  ): Promise<void> {
+    try {
+      // Compute diff between old and new content
+      const sourceDiff = summaryService.computeDiff(oldContent, newContent);
+
+      // Check if changes are significant enough to update summary
+      if (!summaryService.needsUpdate(sourceDiff)) {
+        logger.debug({ documentId }, 'Content changes not significant, skipping summary update');
+        return;
+      }
+
+      let result;
+
+      if (!currentSummary || editChainLength >= summaryService.MAX_EDIT_CHAIN_LENGTH) {
+        // Generate fresh summary
+        result = await summaryService.generate({
+          summaryId: documentId,
+          summaryType: 'document',
+          sourceText: newContent,
+          currentSummary: currentSummary ?? undefined,
+          editChainLength,
+        });
+      } else {
+        // Progressive update
+        result = await summaryService.update({
+          summaryId: documentId,
+          summaryType: 'document',
+          currentSummary,
+          sourceDiff,
+          editChainLength,
+        });
+      }
+
+      // Update document with new summary
+      if (result.method !== 'no_change') {
+        await db
+          .update(documents)
+          .set({
+            summary: result.summary,
+            summaryEditChainLength: result.editChainLength,
+            summaryUpdatedAt: new Date(),
+          })
+          .where(eq(documents.id, documentId));
+
+        logger.info(
+          { documentId, method: result.method, editChainLength: result.editChainLength },
+          'Document summary updated',
+        );
+      }
+    } catch (error) {
+      logger.error({ documentId, error }, 'Failed to update document summary');
+    }
   }
 }
 

@@ -15,11 +15,16 @@ export type EmbeddingModelId = keyof typeof EMBEDDING_MODELS;
  */
 export interface TextModelConfig {
   provider: 'gemini' | 'openai' | 'anthropic';
+  /** Maximum context window (input + output combined) */
   maxTokens: number;
+  /** Maximum output tokens the model can generate */
+  maxOutputTokens: number;
   /** Characters per token estimate (for budget calculations) */
   charsPerToken: number;
-  /** Target utilization of context window (0-1) */
-  targetUtilization: number;
+  /** Optional override for context window targeting. If not set, uses system-wide default. */
+  targetUtilization?: number;
+  /** Optional override for output capacity targeting. If not set, uses system-wide default. */
+  outputUtilization?: number;
   costPer1MInputTokens?: number;
   costPer1MOutputTokens?: number;
 }
@@ -28,24 +33,24 @@ export const TEXT_MODELS: Record<string, TextModelConfig> = {
   'gemini-2.5-flash': {
     provider: 'gemini',
     maxTokens: 1048576,
+    maxOutputTokens: 65536,
     charsPerToken: 3.3,
-    targetUtilization: 0.8,
     costPer1MInputTokens: 0.075,
     costPer1MOutputTokens: 0.3,
   },
   'gemini-2.5-pro': {
     provider: 'gemini',
     maxTokens: 1048576,
+    maxOutputTokens: 65536,
     charsPerToken: 3.3,
-    targetUtilization: 0.8,
     costPer1MInputTokens: 1.25,
     costPer1MOutputTokens: 10.0,
   },
   'gemini-2.0-flash': {
     provider: 'gemini',
     maxTokens: 1048576,
+    maxOutputTokens: 65536,
     charsPerToken: 3.3,
-    targetUtilization: 0.8,
     costPer1MInputTokens: 0.1,
     costPer1MOutputTokens: 0.4,
   },
@@ -61,8 +66,8 @@ export function getTextModelConfig(modelId: string): TextModelConfig {
     TEXT_MODELS[modelId] ?? {
       provider: 'gemini',
       maxTokens: 1048576,
+      maxOutputTokens: 65536,
       charsPerToken: 3.3,
-      targetUtilization: 0.8,
     }
   );
 }

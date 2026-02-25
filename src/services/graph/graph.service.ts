@@ -28,6 +28,7 @@ export type {
   NodeProperties,
   StoredStoryNode,
   StoredStoryConnection,
+  StoredFacet,
   QueryResult,
 };
 
@@ -1285,6 +1286,7 @@ class GraphService {
     documentId: string,
     userId: string,
   ): Promise<Array<{ nodeId: string; x: number; y: number }>> {
+    const startTime = Date.now();
     const cypher = `
       MATCH (n:StoryNode)
       WHERE n.documentId = $documentId AND n.userId = $userId
@@ -1292,13 +1294,18 @@ class GraphService {
       RETURN n.id, n.embedding
     `;
     const result = await this.query(cypher, { documentId, userId });
+    const queryTime = Date.now() - startTime;
+    logger.info({ documentId, queryTime, rowCount: result.data.length }, '[projection] query complete');
 
     if (result.data.length === 0) {
       return [];
     }
 
+    const importStart = Date.now();
     const PCAModule = await import('ml-pca');
     const PCA = (PCAModule as any).default || PCAModule;
+    const importTime = Date.now() - importStart;
+    logger.info({ importTime }, '[projection] ml-pca import');
 
     const nodeIds: string[] = [];
     const embeddings: number[][] = [];
@@ -1347,8 +1354,11 @@ class GraphService {
       return [];
     }
 
+    const pcaStart = Date.now();
     const pca = new PCA(embeddings);
     const projected = pca.predict(embeddings, { nComponents: 2 });
+    const pcaTime = Date.now() - pcaStart;
+    logger.info({ pcaTime, nodeCount: embeddings.length }, '[projection] PCA complete');
 
     const projectedArray = projected.to2DArray();
 
@@ -1393,9 +1403,10 @@ class GraphService {
       });
     }
 
+    const totalTime = Date.now() - startTime;
     logger.info(
-      { documentId, nodeCount: result_positions.length },
-      'Generated PCA projection for document',
+      { documentId, nodeCount: result_positions.length, totalTime },
+      '[projection] TOTAL complete',
     );
 
     return result_positions;
@@ -1430,9 +1441,10 @@ class GraphService {
     }
 
     // Create HAS_FACET edge from entity to facet
+    // Split MATCH statements so query fails explicitly if either node is missing
     const edgeCypher = `
-      MATCH (e:StoryNode), (f:Facet)
-      WHERE e.id = $entityId AND f.id = $facetId
+      MATCH (e:StoryNode {id: $entityId})
+      MATCH (f:Facet {id: $facetId})
       CREATE (e)-[:HAS_FACET {createdAt: $now}]->(f)
     `;
     await this.query(edgeCypher, { entityId, facetId, now });
@@ -1501,6 +1513,11 @@ class GraphService {
     facetId: string,
     updates: { content?: string; embedding?: number[] },
   ): Promise<void> {
+    // Get facet info before updating to check if name recomputation needed
+    const facet = await this.getFacetById(facetId);
+    const isNameFacet = facet?.type === 'name';
+    const entityId = facet?.entityId;
+
     const setStatements: string[] = [];
     const params: Record<string, unknown> = {
       facetId,
@@ -1526,9 +1543,20 @@ class GraphService {
     }
 
     logger.info({ facetId }, 'Facet updated in FalkorDB');
+
+    // Recompute primary name if this was a name facet
+    if (isNameFacet && entityId) {
+      const { recomputeAndUpdatePrimaryName } = await import('./entityNames.js');
+      await recomputeAndUpdatePrimaryName(entityId);
+    }
   }
 
   async softDeleteFacet(facetId: string): Promise<void> {
+    // Get facet info before deleting to check if name recomputation needed
+    const facet = await this.getFacetById(facetId);
+    const isNameFacet = facet?.type === 'name';
+    const entityId = facet?.entityId;
+
     const cypher = `
       MATCH (f:Facet)
       WHERE f.id = $facetId
@@ -1536,6 +1564,12 @@ class GraphService {
     `;
     await this.query(cypher, { facetId, deletedAt: new Date().toISOString() });
     logger.info({ facetId }, 'Facet soft deleted in FalkorDB');
+
+    // Recompute primary name if this was a name facet
+    if (isNameFacet && entityId) {
+      const { recomputeAndUpdatePrimaryName } = await import('./entityNames.js');
+      await recomputeAndUpdatePrimaryName(entityId);
+    }
   }
 
   async getFacetById(facetId: string): Promise<StoredFacet | null> {
@@ -1816,6 +1850,62 @@ class GraphService {
   }
 
   /**
+   * Move a facet from an Entity to a CharacterState.
+   * Removes HAS_FACET edge from Entity, adds HAS_FACET edge to CharacterState.
+   */
+  async moveFacetToState(
+    entityId: string,
+    facetId: string,
+    stateId: string,
+  ): Promise<void> {
+    const now = new Date().toISOString();
+    const cypher = `
+      MATCH (e:StoryNode)-[r:HAS_FACET]->(f:Facet), (s:CharacterState)
+      WHERE e.id = $entityId AND f.id = $facetId AND s.id = $stateId
+      DELETE r
+      CREATE (s)-[:HAS_FACET {createdAt: $now}]->(f)
+    `;
+    await this.query(cypher, { entityId, facetId, stateId, now });
+  }
+
+  /**
+   * Get state facets for an entity (facets with type 'state' attached to entity).
+   */
+  async getStateFacetsForEntity(entityId: string): Promise<StoredFacet[]> {
+    const cypher = `
+      MATCH (e:StoryNode)-[:HAS_FACET]->(f:Facet)
+      WHERE e.id = $entityId AND f.facetType = 'state' AND f.deletedAt IS NULL
+      RETURN f.id, f.entityId, f.facetType, f.content, f.embedding, f.createdAt, f.updatedAt, f.deletedAt
+    `;
+    const result = await this.query(cypher, { entityId });
+
+    return result.data.map((row) => {
+      const embeddingRaw = row[4];
+      let embedding: number[] | undefined;
+      if (embeddingRaw) {
+        if (Array.isArray(embeddingRaw)) {
+          embedding = embeddingRaw as number[];
+        } else if (typeof embeddingRaw === 'string') {
+          try {
+            embedding = JSON.parse(embeddingRaw);
+          } catch {}
+        }
+      }
+
+      return {
+        id: row[0] as string,
+        entityId: row[1] as string,
+        type: row[2] as FacetType,
+        content: row[3] as string,
+        embedding,
+        createdAt: row[5] as string,
+        updatedAt: row[6] as string,
+        deletedAt: (row[7] as string) || null,
+      };
+    });
+  }
+
+  /**
    * Create HAS_STATE edge from character to state with optional isCurrent flag.
    */
   async linkCharacterToState(
@@ -1953,6 +2043,52 @@ class GraphService {
   }
 
   /**
+   * Get what a facet is attached to (Entity or CharacterState).
+   * Used for conflict classification to determine if facets are in different temporal contexts.
+   */
+  async getFacetAttachment(facetId: string): Promise<
+    | { type: 'entity'; entityId: string }
+    | { type: 'state'; stateId: string; entityId: string }
+  > {
+    // Check if attached to CharacterState first
+    const stateResult = await this.query(
+      `
+      MATCH (s:CharacterState)-[:HAS_FACET]->(f:Facet {id: $facetId})
+      MATCH (c:StoryNode)-[:HAS_STATE]->(s)
+      RETURN s.id, c.id
+      `,
+      { facetId },
+    );
+
+    if (stateResult.data.length > 0) {
+      return {
+        type: 'state',
+        stateId: stateResult.data[0][0] as string,
+        entityId: stateResult.data[0][1] as string,
+      };
+    }
+
+    // Check if attached to Entity
+    const entityResult = await this.query(
+      `
+      MATCH (e:StoryNode)-[:HAS_FACET]->(f:Facet {id: $facetId})
+      RETURN e.id
+      `,
+      { facetId },
+    );
+
+    if (entityResult.data.length > 0) {
+      return {
+        type: 'entity',
+        entityId: entityResult.data[0][0] as string,
+      };
+    }
+
+    // Facet is orphaned (shouldn't happen in normal operation)
+    throw new Error(`Facet ${facetId} is not attached to any entity or state`);
+  }
+
+  /**
    * Get CHANGES_TO edges for a character's states (state transitions).
    */
   async getStateTransitions(characterId: string): Promise<
@@ -2069,6 +2205,178 @@ class GraphService {
       summary,
       updatedAt: new Date().toISOString(),
     });
+  }
+
+  // ========== Position-Based Validity Queries ==========
+
+  /**
+   * Get the validity window for a CharacterState.
+   * Window runs from state's documentOrder to next state's documentOrder (or null for last state).
+   */
+  async getStateValidityWindow(
+    stateId: string,
+  ): Promise<{ start: number; end: number | null }> {
+    // Get this state and the next state in sequence
+    const cypher = `
+      MATCH (s:CharacterState {id: $stateId})
+      OPTIONAL MATCH (s)-[:CHANGES_TO]->(next:CharacterState)
+      WHERE next.deletedAt IS NULL
+      RETURN s.documentOrder, next.documentOrder
+    `;
+    const result = await this.query(cypher, { stateId });
+
+    if (result.data.length === 0) {
+      throw new Error(`CharacterState ${stateId} not found`);
+    }
+
+    const start = result.data[0][0] as number;
+    const end = result.data[0][1] as number | null;
+
+    return { start, end };
+  }
+
+  /**
+   * Get the CharacterState active at a specific document position.
+   * Returns the state whose validity window contains the position.
+   */
+  async getStateAtPosition(
+    characterId: string,
+    position: number,
+  ): Promise<StoredCharacterState | null> {
+    // Find the state with the highest documentOrder that is <= position
+    const cypher = `
+      MATCH (c:StoryNode {id: $characterId})-[:HAS_STATE]->(s:CharacterState)
+      WHERE s.deletedAt IS NULL AND s.documentOrder <= $position
+      RETURN s.id, s.characterId, s.name, s.phaseIndex, s.documentOrder, s.causalOrder,
+             s.embedding, s.createdAt, s.updatedAt, s.deletedAt
+      ORDER BY s.documentOrder DESC
+      LIMIT 1
+    `;
+    const result = await this.query(cypher, { characterId, position });
+
+    if (result.data.length === 0) {
+      return null;
+    }
+
+    const row = result.data[0];
+    return {
+      id: row[0] as string,
+      characterId: row[1] as string,
+      name: row[2] as string,
+      phaseIndex: row[3] as number,
+      documentOrder: row[4] as number,
+      causalOrder: row[5] as number,
+      embedding: row[6] as number[] | null,
+      createdAt: row[7] as string,
+      updatedAt: row[8] as string,
+      deletedAt: row[9] as string | null,
+    };
+  }
+
+  /**
+   * Get all facets valid at a specific document position for an entity.
+   * Returns permanent facets (attached to entity) + phase-bounded facets (from active state).
+   */
+  async getActiveFacetsAtPosition(
+    entityId: string,
+    position: number,
+  ): Promise<StoredFacet[]> {
+    // Get permanent facets (attached directly to entity)
+    const permanentCypher = `
+      MATCH (e:StoryNode {id: $entityId})-[:HAS_FACET]->(f:Facet)
+      WHERE f.deletedAt IS NULL
+      RETURN f.id, f.entityId, f.facetType, f.content, f.embedding,
+             f.createdAt, f.updatedAt, f.deletedAt
+    `;
+    const permanentResult = await this.query(permanentCypher, { entityId });
+
+    const permanentFacets = permanentResult.data.map((row) =>
+      this.rowToStoredFacet(row),
+    );
+
+    // Get active state at position (if entity has states)
+    const activeState = await this.getStateAtPosition(entityId, position);
+
+    if (!activeState) {
+      return permanentFacets;
+    }
+
+    // Get phase-bounded facets from active state
+    const stateFacets = await this.getFacetsForState(activeState.id);
+
+    return [...permanentFacets, ...stateFacets];
+  }
+
+  /**
+   * Get entity state summary at a specific position.
+   * Returns entity info, active state (if any), and all valid facets.
+   */
+  async getEntityStateAtPosition(
+    entityId: string,
+    userId: string,
+    position: number,
+  ): Promise<{
+    entity: StoredStoryNode;
+    activeState: StoredCharacterState | null;
+    permanentFacets: StoredFacet[];
+    stateFacets: StoredFacet[];
+  } | null> {
+    const entity = await this.getStoryNodeById(entityId, userId);
+    if (!entity) return null;
+
+    // Get permanent facets
+    const permanentCypher = `
+      MATCH (e:StoryNode {id: $entityId})-[:HAS_FACET]->(f:Facet)
+      WHERE f.deletedAt IS NULL
+      RETURN f.id, f.entityId, f.facetType, f.content, f.embedding,
+             f.createdAt, f.updatedAt, f.deletedAt
+    `;
+    const permanentResult = await this.query(permanentCypher, { entityId });
+    const permanentFacets = permanentResult.data.map((row) =>
+      this.rowToStoredFacet(row),
+    );
+
+    // Get active state and its facets
+    const activeState = await this.getStateAtPosition(entityId, position);
+    const stateFacets = activeState
+      ? await this.getFacetsForState(activeState.id)
+      : [];
+
+    return {
+      entity,
+      activeState,
+      permanentFacets,
+      stateFacets,
+    };
+  }
+
+  /**
+   * Helper to convert a facet query row to StoredFacet.
+   */
+  private rowToStoredFacet(row: unknown[]): StoredFacet {
+    const embeddingRaw = row[4];
+    let embedding: number[] | undefined;
+    if (embeddingRaw) {
+      if (Array.isArray(embeddingRaw)) {
+        embedding = embeddingRaw as number[];
+      } else if (typeof embeddingRaw === 'string') {
+        const cleaned = embeddingRaw.replace(/^<|>$/g, '').trim();
+        if (cleaned) {
+          embedding = cleaned.split(',').map((s) => parseFloat(s.trim()));
+        }
+      }
+    }
+
+    return {
+      id: row[0] as string,
+      entityId: row[1] as string,
+      type: row[2] as FacetType,
+      content: row[3] as string,
+      embedding,
+      createdAt: row[5] as string,
+      updatedAt: row[6] as string,
+      deletedAt: row[7] as string | null,
+    };
   }
 
   // ========== Idempotent Operation Helpers ==========

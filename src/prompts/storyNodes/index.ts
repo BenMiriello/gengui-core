@@ -14,3 +14,4 @@ export {
   resolveEntityPrompt,
 } from './resolveEntities';
 export { updateNodesPrompt } from './update';
+export { detectContradictionsPrompt } from './detectContradictions';

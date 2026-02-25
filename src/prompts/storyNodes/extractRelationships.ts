@@ -16,6 +16,7 @@ interface ExtractRelationshipsInput {
     name: string;
     type: string;
     keyFacets: string[];
+    aliases?: string[];
   }>;
 }
 
@@ -34,7 +35,12 @@ export const extractRelationshipsPrompt: PromptDefinition<ExtractRelationshipsIn
     build: ({ segmentText, segmentIndex, resolvedEntities }) => {
       const entitiesSection = resolvedEntities
         .map((e) => {
-          return `[${e.id}] ${e.type.toUpperCase()}: "${e.name}" - ${e.keyFacets.join(', ') || 'no facets'}`;
+          let entry = `[${e.id}] ${e.type.toUpperCase()}: "${e.name}"`;
+          if (e.aliases && e.aliases.length > 0) {
+            entry += ` (also: ${e.aliases.join(', ')})`;
+          }
+          entry += ` - ${e.keyFacets.join(', ') || 'no facets'}`;
+          return entry;
         })
         .join('\n');
 
@@ -107,6 +113,7 @@ interface ExtractCrossSegmentInput {
     type: string;
     segmentIds: string[];
     keyFacets: string[];
+    aliases?: string[];
   }>;
   existingRelationships: Array<{
     fromId: string;
@@ -130,9 +137,13 @@ export const extractCrossSegmentRelationshipsPrompt: PromptDefinition<ExtractCro
     build: ({ documentSummary, allEntities, existingRelationships }) => {
       const entitiesSection = allEntities
         .map((e) => {
-          return `[${e.id}] ${e.type.toUpperCase()}: "${e.name}"
-    Segments: ${e.segmentIds.join(', ')}
-    Facets: ${e.keyFacets.join(', ') || 'none'}`;
+          let entry = `[${e.id}] ${e.type.toUpperCase()}: "${e.name}"`;
+          if (e.aliases && e.aliases.length > 0) {
+            entry += ` (also: ${e.aliases.join(', ')})`;
+          }
+          entry += `\n    Segments: ${e.segmentIds.join(', ')}`;
+          entry += `\n    Facets: ${e.keyFacets.join(', ') || 'none'}`;
+          return entry;
         })
         .join('\n\n');
 

@@ -1,60 +1,288 @@
 /**
- * Context Budget Calculator
+ * Context Budget Calculator - Tiered Architecture
  *
- * Dynamically calculates token budgets for LLM prompts based on:
- * - Model context window size
- * - Actual entity registry data
- * - Segment text size
- * - Reserved output space
+ * Tier 1 (this file): Universal calculator logic - model and task agnostic
+ * Tier 2 (operationConfigs.ts): Operation-specific formulas and formatting
+ * Tier 3 (text-models.ts): Model configuration values
  *
- * No magic numbers - all calculations from actual data.
+ * Key principles:
+ * - NO magic numbers - all values from config or measurement
+ * - Multi-item batching - calculate how many items fit in context
+ * - Batch balancing - avoid tiny final batches
+ * - Runtime measurement - system prompts measured via actual templates
  */
 
 import type { TextModelConfig } from '../../config/text-models';
 import type { FacetInput } from '../../types/storyNodes';
+import type { OperationBudgetConfig } from './operationConfigs';
 
-export interface EntityRegistryEntry {
-  id: string;
-  name: string;
-  type: string;
-  aliases?: string[];
-  summary?: string;
-  facets?: Array<{ type: string; content: string }>;
-  mentionCount?: number;
-}
+/**
+ * System-wide context window target for batch sizing.
+ *
+ * Conservative 80% target provides safety margin for token estimation variance.
+ * Models can override via TextModelConfig.targetUtilization if needed.
+ */
+const DEFAULT_TARGET_UTILIZATION = 0.8;
 
-export interface ContextBudgetInput {
+/**
+ * System-wide output capacity target for batch sizing.
+ *
+ * Conservative 60% target prevents MAX_TOKENS errors while allowing models
+ * full output capacity if needed. Based on empirical data from Gemini 2.5 Flash
+ * which ignores maxOutputTokens parameter.
+ *
+ * Models can override via TextModelConfig.outputUtilization if needed.
+ */
+const DEFAULT_OUTPUT_UTILIZATION = 0.6;
+
+// ============================================================================
+// Generic Batch Budget Calculator (Tier 1)
+// ============================================================================
+
+export interface BatchBudgetInput<TItem> {
   modelConfig: TextModelConfig;
-  entityRegistry: EntityRegistryEntry[];
-  segmentText: string;
-  previousSegmentText?: string;
-  estimatedNewEntities?: number;
+  operationConfig: OperationBudgetConfig<TItem>;
+  items: TItem[];
+  fixedContext?: string;
+  startIndex?: number;
 }
 
-export interface ContextBudgetResult {
-  fitsAllEntities: boolean;
-  includedEntities: EntityRegistryEntry[];
+export interface BatchBudgetResult<TItem> {
+  includedItems: TItem[];
+  includedCount: number;
   excludedCount: number;
-  formattedRegistry: string;
+  nextStartIndex: number;
+  isLastBatch: boolean;
   tokenBreakdown: {
     systemPrompt: number;
-    entityRegistry: number;
-    segmentText: number;
-    previousSegment: number;
+    fixedContext: number;
+    items: number;
     outputReserve: number;
     total: number;
+    /** Available context window tokens (input + output) */
     available: number;
+    /** Available output tokens (separate limit) */
+    availableOutput?: number;
   };
 }
 
-const SYSTEM_PROMPT_CHARS = 3000;
-const MIN_ENTITY_BUDGET = 250;
+/**
+ * Calculate how many items fit in a single batch.
+ *
+ * Uses operation config to measure prompt sizes and estimate output.
+ * Returns items that fit within BOTH:
+ * 1. Model's context budget (input + output combined)
+ * 2. Model's output capacity (maxOutputTokens)
+ *
+ * This ensures we don't send so much input that the output would be truncated.
+ */
+export function calculateBatchBudget<TItem>(
+  input: BatchBudgetInput<TItem>,
+): BatchBudgetResult<TItem> {
+  const { modelConfig, operationConfig, items, fixedContext, startIndex = 0 } = input;
+
+  const charsPerToken = modelConfig.charsPerToken ?? 3.3;
+  const targetUtilization = modelConfig.targetUtilization ?? DEFAULT_TARGET_UTILIZATION;
+  const outputUtilization = modelConfig.outputUtilization ?? DEFAULT_OUTPUT_UTILIZATION;
+
+  // Context window budget (input + output combined)
+  const availableContextTokens = Math.floor(modelConfig.maxTokens * targetUtilization);
+
+  // Output capacity budget (separate constraint)
+  const maxOutputTokens = modelConfig.maxOutputTokens ?? 65536;
+  const availableOutputTokens = Math.floor(maxOutputTokens * outputUtilization);
+
+  // Measure system prompt at runtime (no magic numbers)
+  const systemPromptTokens = operationConfig.getSystemPromptTokens(charsPerToken);
+
+  // Fixed context tokens (e.g., previous segment for overlap)
+  const fixedContextTokens = fixedContext
+    ? countTokens(fixedContext, charsPerToken)
+    : 0;
+
+  // Prioritize items
+  const remainingItems = items.slice(startIndex);
+  const prioritizedItems = operationConfig.prioritize(remainingItems);
+
+  // Measure each item's token cost
+  const itemTokenCounts = prioritizedItems.map(
+    (item) => countTokens(operationConfig.formatItem(item), charsPerToken),
+  );
+
+  const minOutputReserve = operationConfig.thinkingConfig?.minOutputReserve ?? 0;
+
+  // Greedily include items while respecting BOTH budgets:
+  // 1. Context budget: system + fixed + items + output <= availableContextTokens
+  // 2. Output budget: estimated output <= availableOutputTokens
+  // Note: estimation is already conservative, no additional multiplier needed
+  let includedCount = 0;
+  let itemTokensUsed = 0;
+
+  for (let i = 0; i < prioritizedItems.length; i++) {
+    const candidateItems = prioritizedItems.slice(0, i + 1);
+    const candidateItemTokens = itemTokenCounts.slice(0, i + 1).reduce((a, b) => a + b, 0);
+    const candidateOutputReserve = operationConfig.estimateOutputReserve(candidateItems, charsPerToken);
+
+    // Use conservative estimate directly (no multiplier)
+    const outputReserve = Math.max(minOutputReserve, candidateOutputReserve);
+
+    const totalContextTokens =
+      systemPromptTokens +
+      fixedContextTokens +
+      candidateItemTokens +
+      candidateOutputReserve;
+
+    // Check BOTH constraints
+    const fitsInContext = totalContextTokens <= availableContextTokens;
+    const fitsInOutput = outputReserve <= availableOutputTokens;
+
+    if (fitsInContext && fitsInOutput) {
+      includedCount = i + 1;
+      itemTokensUsed = candidateItemTokens;
+    } else {
+      break;
+    }
+  }
+
+  const includedItems = prioritizedItems.slice(0, includedCount);
+  const outputReserveTokens = operationConfig.estimateOutputReserve(includedItems, charsPerToken);
+
+  return {
+    includedItems,
+    includedCount,
+    excludedCount: remainingItems.length - includedCount,
+    nextStartIndex: startIndex + includedCount,
+    isLastBatch: startIndex + includedCount >= items.length,
+    tokenBreakdown: {
+      systemPrompt: systemPromptTokens,
+      fixedContext: fixedContextTokens,
+      items: itemTokensUsed,
+      outputReserve: outputReserveTokens,
+      total: systemPromptTokens + fixedContextTokens + itemTokensUsed + outputReserveTokens,
+      available: availableContextTokens,
+      availableOutput: availableOutputTokens,
+    },
+  };
+}
+
+/**
+ * Calculate all batches needed to process items.
+ *
+ * Handles 1-item overlap between batches for continuity.
+ * Balances final batches to avoid tiny remainders.
+ */
+export function calculateAllBatches<TItem>(
+  input: Omit<BatchBudgetInput<TItem>, 'startIndex'> & {
+    overlapSize?: number;
+    getOverlapContext?: (lastItem: TItem) => string;
+  },
+): Array<BatchBudgetResult<TItem>> {
+  const { items, overlapSize = 1, getOverlapContext, ...rest } = input;
+  const batches: Array<BatchBudgetResult<TItem>> = [];
+
+  let currentIndex = 0;
+
+  while (currentIndex < items.length) {
+    // For batches after the first, include overlap context
+    let fixedContext = rest.fixedContext;
+    if (currentIndex > 0 && getOverlapContext && batches.length > 0) {
+      const lastBatch = batches[batches.length - 1];
+      const lastItem = lastBatch.includedItems[lastBatch.includedItems.length - 1];
+      if (lastItem) {
+        const overlapText = getOverlapContext(lastItem);
+        fixedContext = fixedContext ? `${fixedContext}\n${overlapText}` : overlapText;
+      }
+    }
+
+    const batch = calculateBatchBudget({
+      ...rest,
+      items,
+      fixedContext,
+      startIndex: currentIndex,
+    });
+
+    if (batch.includedCount === 0) {
+      // Can't fit any items - this shouldn't happen with reasonable configs
+      console.warn('Batch calculation returned 0 items - check model/operation config');
+      break;
+    }
+
+    batches.push(batch);
+
+    // Check if we should balance final batches
+    const remainingAfterBatch = items.length - batch.nextStartIndex;
+    if (remainingAfterBatch > 0 && remainingAfterBatch < batch.includedCount) {
+      // Remaining items would create a small final batch
+      // Rebalance: split remaining items more evenly
+      const totalRemaining = batch.includedCount + remainingAfterBatch - overlapSize;
+      const balanced = balanceFinalBatches(totalRemaining, batch.includedCount, overlapSize);
+
+      if (balanced.length === 2 && balanced[0] < batch.includedCount) {
+        // Recalculate this batch with smaller size
+        batches.pop();
+        const rebalancedBatch = calculateBatchBudget({
+          ...rest,
+          items: items.slice(currentIndex, currentIndex + balanced[0]),
+          fixedContext,
+          startIndex: 0,
+        });
+        rebalancedBatch.nextStartIndex = currentIndex + balanced[0];
+        rebalancedBatch.isLastBatch = false;
+        batches.push(rebalancedBatch);
+        currentIndex = currentIndex + balanced[0] - overlapSize;
+        continue;
+      }
+    }
+
+    // Move to next batch with overlap
+    currentIndex = batch.nextStartIndex - overlapSize;
+    if (currentIndex < 0) currentIndex = 0;
+    if (batch.isLastBatch) break;
+  }
+
+  return batches;
+}
+
+/**
+ * Balance batch sizes when remaining items < 2x batch capacity.
+ *
+ * Example: 22 remaining, capacity 20 → two batches of 11 (plus overlap)
+ */
+export function balanceFinalBatches(
+  remainingCount: number,
+  batchCapacity: number,
+  overlapSize: number = 1,
+): number[] {
+  // If remaining fits in one batch, return single batch
+  if (remainingCount <= batchCapacity) {
+    return [remainingCount];
+  }
+
+  // If remaining is less than 2x capacity, balance into 2 batches
+  const effectiveCapacity = batchCapacity - overlapSize;
+  if (remainingCount < 2 * effectiveCapacity + overlapSize) {
+    // Split evenly
+    const halfWithOverlap = Math.ceil((remainingCount + overlapSize) / 2);
+    return [halfWithOverlap, remainingCount - halfWithOverlap + overlapSize];
+  }
+
+  // Otherwise, fill first batch fully and recurse
+  return [
+    batchCapacity,
+    ...balanceFinalBatches(remainingCount - effectiveCapacity, batchCapacity, overlapSize),
+  ];
+}
+
+// ============================================================================
+// Utility Functions
+// ============================================================================
 
 /**
  * Estimate token count from character count.
  * Uses model-specific chars-per-token ratio.
  */
 export function countTokens(text: string, charsPerToken: number): number {
+  if (!text) return 0;
   return Math.ceil(text.length / charsPerToken);
 }
 
@@ -81,14 +309,52 @@ export function formatEntityEntry(
   return lines.join('\n');
 }
 
+// ============================================================================
+// Legacy Interface (for gradual migration)
+// ============================================================================
+
+export interface EntityRegistryEntry {
+  id: string;
+  name: string;
+  type: string;
+  aliases?: string[];
+  summary?: string;
+  facets?: Array<{ type: string; content: string }>;
+  mentionCount?: number;
+}
+
+export interface ContextBudgetInput {
+  modelConfig: TextModelConfig;
+  entityRegistry: EntityRegistryEntry[];
+  segmentText: string;
+  previousSegmentText?: string;
+  estimatedNewEntities?: number;
+  systemPromptTokens?: number;
+}
+
+export interface ContextBudgetResult {
+  fitsAllEntities: boolean;
+  includedEntities: EntityRegistryEntry[];
+  excludedCount: number;
+  formattedRegistry: string;
+  tokenBreakdown: {
+    systemPrompt: number;
+    entityRegistry: number;
+    segmentText: number;
+    previousSegment: number;
+    outputReserve: number;
+    total: number;
+    available: number;
+  };
+}
+
+const MIN_ENTITY_BUDGET = 250;
+
 /**
- * Calculate context budget and determine which entities fit.
+ * Calculate context budget for single-segment extraction.
  *
- * Strategy:
- * 1. Calculate fixed costs (system prompt, segment text, output reserve)
- * 2. Remaining budget goes to entity registry
- * 3. Include entities in priority order (most mentions first)
- * 4. Use tiered formatting (full → standard → minimal) as budget tightens
+ * Now uses runtime-measured system prompt tokens instead of magic number.
+ * For multi-segment batching, use calculateBatchBudget instead.
  */
 export function calculateContextBudget(
   input: ContextBudgetInput,
@@ -99,18 +365,20 @@ export function calculateContextBudget(
     segmentText,
     previousSegmentText,
     estimatedNewEntities = 10,
+    systemPromptTokens: providedSystemPromptTokens,
   } = input;
 
   const charsPerToken = modelConfig.charsPerToken ?? 3.3;
-  const targetUtilization = modelConfig.targetUtilization ?? 0.8;
+  const targetUtilization = modelConfig.targetUtilization ?? DEFAULT_TARGET_UTILIZATION;
   const maxTokens = modelConfig.maxTokens;
   const availableTokens = Math.floor(maxTokens * targetUtilization);
 
   const outputReserveTokens = 150 * estimatedNewEntities;
-  const systemPromptTokens = countTokens(
-    ' '.repeat(SYSTEM_PROMPT_CHARS),
-    charsPerToken,
-  );
+
+  // Use provided system prompt tokens or fall back to estimation
+  // Callers should measure actual prompt template and pass it in
+  const systemPromptTokens = providedSystemPromptTokens ?? Math.ceil(3000 / charsPerToken);
+
   const segmentTokens = countTokens(segmentText, charsPerToken);
   const previousSegmentTokens = previousSegmentText
     ? countTokens(previousSegmentText, charsPerToken)

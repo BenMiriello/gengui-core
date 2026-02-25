@@ -3,9 +3,17 @@
  * Thin wrapper handling API calls, retries, and error handling.
  */
 
+import { getTextModelConfig } from '../../config/text-models';
+import {
+  batchedRelationshipConfig,
+  calculateThinkingBudget,
+  estimateExtractionOutputTokens,
+  extractionConfig,
+} from '../contextBudget';
 import {
   analyzeHigherOrderPrompt,
   batchResolveEntitiesPrompt,
+  detectContradictionsPrompt,
   extractCrossSegmentRelationshipsPrompt,
   extractEntitiesPrompt,
   extractRelationshipsPrompt,
@@ -28,6 +36,7 @@ import {
   stage4ExtractRelationshipsSchema,
   stage5HigherOrderSchema,
   stage5RefineThreadsSchema,
+  stage10DetectContradictionsSchema,
   updateNodesResponseSchema,
 } from './schemas/storyNodes';
 
@@ -115,10 +124,38 @@ function parseResponse<T>(result: any, operation: string): T {
     throw new Error('Empty response text');
   }
 
+  // Check for potential truncation indicators
+  const trimmed = text.trim();
+  const looksComplete = trimmed.endsWith('}') || trimmed.endsWith(']');
+  const finishReason = result.candidates?.[0]?.finishReason;
+
   try {
     return JSON.parse(text) as T;
-  } catch {
-    throw new Error(`Failed to parse ${operation} response as JSON`);
+  } catch (parseError: any) {
+    // Log detailed diagnostics for debugging
+    logger.error(
+      {
+        operation,
+        responseLength: text.length,
+        responseStart: text.slice(0, 500),
+        responseEnd: text.slice(-500),
+        looksComplete,
+        finishReason,
+        parseError: parseError?.message,
+      },
+      `JSON parse failed for ${operation}`,
+    );
+
+    // Try to identify the specific issue
+    let hint = '';
+    if (!looksComplete) {
+      hint = ' Response appears truncated (does not end with } or ]).';
+    }
+    if (finishReason && finishReason !== 'STOP') {
+      hint += ` Finish reason: ${finishReason}.`;
+    }
+
+    throw new Error(`Failed to parse ${operation} response as JSON.${hint}`);
   }
 }
 
@@ -206,7 +243,10 @@ export interface EntityRegistryEntry {
 
 /** Existing match from LLM merge detection */
 export interface ExistingMatch {
-  registryIndex: number;
+  /** Name of the matched registry entity (exact match required) */
+  matchedName: string;
+  /** Type of the matched registry entity */
+  matchedType: string;
   confidence: 'high' | 'medium' | 'low';
   reason: string;
 }
@@ -214,35 +254,57 @@ export interface ExistingMatch {
 /** Merge signal for uncertain matches */
 export interface MergeSignal {
   extractedEntityName: string;
-  registryIndex: number;
+  /** Name of the registry entity this might match */
+  registryName: string;
+  /** Type of the registry entity this might match */
+  registryType: string;
   confidence: 'high' | 'medium' | 'low';
   evidence: string;
 }
 
-/** Stage 1 extraction result with LLM-first merge detection */
-export interface Stage1ExtractionResult {
+/** Segment input for batch extraction */
+export interface SegmentInput {
+  id: string;
+  index: number;
+  text: string;
+}
+
+/** Stage 2 extraction result with batch support and segmentId tracking */
+export interface Stage2ExtractionResult {
   entities: Array<{
     name: string;
     type: StoryNodeType;
+    segmentId: string;
     documentOrder?: number;
     existingMatch?: ExistingMatch;
   }>;
-  facets: Array<{ entityName: string; facetType: FacetType; content: string }>;
-  mentions: Array<{ entityName: string; text: string }>;
+  facets: Array<{
+    entityName: string;
+    segmentId: string;
+    facetType: FacetType;
+    content: string;
+  }>;
+  mentions: Array<{
+    entityName: string;
+    segmentId: string;
+    text: string;
+  }>;
   mergeSignals?: MergeSignal[];
 }
 
 /**
- * Stage 1: Extract entities, facets, and mentions from a single segment.
+ * Stage 3: Extract entities, facets, and mentions from a batch of segments.
  * Uses entity registry for LLM-first merge detection.
+ * Supports multi-segment batching for efficient context window usage.
  */
-export async function extractEntitiesFromSegment(
-  segmentText: string,
-  segmentIndex: number,
+export async function extractEntitiesFromBatch(
+  segments: SegmentInput[],
   totalSegments: number,
   entityRegistry?: EntityRegistryEntry[],
-  previousSegmentText?: string,
-): Promise<Stage1ExtractionResult> {
+  overlapSegmentText?: string,
+  segmentSummaries?: Array<{ index: number; summary: string }>,
+  documentSummary?: string,
+): Promise<Stage2ExtractionResult> {
   const client = await getGeminiClient();
   if (!client) {
     throw new Error(
@@ -251,16 +313,69 @@ export async function extractEntitiesFromSegment(
   }
 
   const prompt = extractEntitiesPrompt.build({
-    segmentText,
-    segmentIndex,
+    segments,
     totalSegments,
     entityRegistry,
-    previousSegmentText,
+    overlapSegmentText,
+    segmentSummaries,
+    documentSummary,
   });
 
   let lastError: Error | null = null;
+  const segmentIndices = segments.map((s) => s.index);
+  const segmentRange = segments.length > 0
+    ? `${Math.min(...segmentIndices)}-${Math.max(...segmentIndices)}`
+    : 'none';
+
+  // Get model config for output limits
+  const modelConfig = getTextModelConfig(extractEntitiesPrompt.model);
+  const charsPerToken = modelConfig.charsPerToken;
+  const maxModelOutput = modelConfig.maxOutputTokens;
+
+  // Log input characteristics for diagnostics
+  const totalInputChars = segments.reduce((sum, s) => sum + s.text.length, 0);
+  const estimatedInputTokens = Math.ceil(totalInputChars / charsPerToken);
+  const projectedExtractedEntities = Math.ceil(totalInputChars / 500);
+  // Use single source of truth for output estimation
+  const estimatedOutputTokens = estimateExtractionOutputTokens(totalInputChars);
+
+  // Target 60% of output capacity for batch sizing (conservative)
+  // Model can still use full capacity, this is just our target for batch calculator
+  const totalOutputCapacity = Math.floor(maxModelOutput * 0.6);
+
+  const thinkingBudgetResult = extractionConfig.thinkingConfig
+    ? calculateThinkingBudget(
+        totalOutputCapacity,
+        estimatedOutputTokens,
+        extractionConfig.thinkingConfig,
+      )
+    : {
+        thinkingBudget: 0,
+        maxOutputTokens: totalOutputCapacity,
+        guaranteedResponseCapacity: totalOutputCapacity,
+      };
+
+  logger.info(
+    {
+      segmentRange,
+      segmentCount: segments.length,
+      totalInputChars,
+      estimatedInputTokens,
+      promptChars: prompt.length,
+      promptTokens: Math.ceil(prompt.length / charsPerToken),
+      registryEntitiesIncluded: entityRegistry?.length ?? 0,
+      projectedExtractedEntities,
+      estimatedOutputTokens,
+      totalOutputCapacity,
+      thinkingBudget: thinkingBudgetResult.thinkingBudget,
+      guaranteedResponseCapacity: thinkingBudgetResult.guaranteedResponseCapacity,
+      maxModelOutput,
+    },
+    'Stage 3: Starting batch extraction',
+  );
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    const startTime = Date.now();
     try {
       const result = await client.models.generateContent({
         model: extractEntitiesPrompt.model,
@@ -268,12 +383,15 @@ export async function extractEntitiesFromSegment(
         config: {
           responseMimeType: 'application/json',
           responseJsonSchema: stage1ExtractEntitiesSchema,
+          httpOptions: { timeout: 300000 },
         },
       });
+      const elapsed = Date.now() - startTime;
 
-      const parsed = parseResponse<Stage1ExtractionResult>(
+      const responseLength = result.text?.length ?? 0;
+      const parsed = parseResponse<Stage2ExtractionResult>(
         result,
-        'extractEntitiesFromSegment',
+        'extractEntitiesFromBatch',
       );
 
       const matchCount = parsed.entities.filter((e) => e.existingMatch).length;
@@ -281,14 +399,17 @@ export async function extractEntitiesFromSegment(
 
       logger.info(
         {
-          segmentIndex,
+          segmentRange,
+          segmentCount: segments.length,
           entitiesCount: parsed.entities.length,
           facetsCount: parsed.facets.length,
           mentionsCount: parsed.mentions.length,
           matchCount,
           signalCount,
+          elapsedMs: elapsed,
+          responseLength,
         },
-        'Stage 1: Entities extracted with merge detection',
+        'Stage 3: Entities extracted from batch with merge detection',
       );
 
       return parsed;
@@ -296,12 +417,13 @@ export async function extractEntitiesFromSegment(
       lastError = error;
       logger.warn(
         {
-          segmentIndex,
+          segmentIndices,
           attempt: attempt + 1,
           maxRetries: MAX_RETRIES,
           error: error?.message,
+          elapsedMs: Date.now() - startTime,
         },
-        'Stage 1 extraction attempt failed, retrying',
+        'Stage 3 batch extraction attempt failed, retrying',
       );
 
       if (attempt < MAX_RETRIES - 1) {
@@ -312,7 +434,27 @@ export async function extractEntitiesFromSegment(
     }
   }
 
-  throw handleApiError(lastError, 'Stage 1 extraction');
+  throw handleApiError(lastError, 'Stage 3 batch extraction');
+}
+
+/**
+ * Stage 3: Extract entities from a single segment.
+ * Convenience wrapper around extractEntitiesFromBatch for single-segment use.
+ */
+export async function extractEntitiesFromSegment(
+  segmentId: string,
+  segmentText: string,
+  segmentIndex: number,
+  totalSegments: number,
+  entityRegistry?: EntityRegistryEntry[],
+  previousSegmentText?: string,
+): Promise<Stage2ExtractionResult> {
+  return extractEntitiesFromBatch(
+    [{ id: segmentId, index: segmentIndex, text: segmentText }],
+    totalSegments,
+    entityRegistry,
+    previousSegmentText,
+  );
 }
 
 /** Stage 3 resolution input */
@@ -343,7 +485,7 @@ export interface Stage3ResolutionResult {
 }
 
 /**
- * Stage 3: Resolve a single extracted entity against candidates.
+ * Stage 5: Resolve a single extracted entity against candidates.
  */
 export async function resolveEntity(
   input: Stage3ResolutionInput,
@@ -378,7 +520,7 @@ export async function resolveEntity(
         decision: parsed.decision,
         targetId: parsed.targetEntityId,
       },
-      'Stage 3: Entity resolution completed',
+      'Stage 5: Entity resolution completed',
     );
 
     return parsed;
@@ -399,7 +541,7 @@ export interface Stage3BatchResolutionResult {
 }
 
 /**
- * Stage 3: Batch resolve multiple entities.
+ * Stage 5: Batch resolve multiple entities.
  */
 export async function batchResolveEntities(
   extractedEntities: Array<{
@@ -451,7 +593,7 @@ export async function batchResolveEntities(
         entitiesCount: extractedEntities.length,
         resolutionsCount: parsed.resolutions.length,
       },
-      'Stage 3: Batch entity resolution completed',
+      'Stage 5: Batch entity resolution completed',
     );
 
     return parsed;
@@ -472,7 +614,7 @@ export interface Stage4RelationshipsResult {
 }
 
 /**
- * Stage 4: Extract relationships between entities in a segment.
+ * Stage 6: Extract relationships between entities in a segment.
  */
 export async function extractRelationshipsFromSegment(
   segmentText: string,
@@ -482,6 +624,7 @@ export async function extractRelationshipsFromSegment(
     name: string;
     type: string;
     keyFacets: string[];
+    aliases?: string[];
   }>,
 ): Promise<Stage4RelationshipsResult> {
   const client = await getGeminiClient();
@@ -517,12 +660,223 @@ export async function extractRelationshipsFromSegment(
         segmentIndex,
         relationshipsCount: parsed.relationships.length,
       },
-      'Stage 4: Relationships extracted from segment',
+      'Relationships extracted from segment',
     );
 
     return parsed;
   } catch (error) {
     throw handleApiError(error, 'Stage 4 relationship extraction');
+  }
+}
+
+/** Batched relationship extraction result (with segmentId attribution) */
+export interface Stage4BatchRelationshipsResult {
+  relationships: Array<{
+    fromId: string;
+    toId: string;
+    edgeType: string;
+    description: string;
+    strength?: number;
+    segmentId: string; // NEW: track which segment this relationship came from
+  }>;
+}
+
+/**
+ * Stage 6 (batched): Extract relationships from multiple segments in one LLM call.
+ * Reduces API calls and improves throughput.
+ */
+export async function extractRelationshipsFromBatch(
+  segments: Array<{
+    id: string;
+    index: number;
+    text: string;
+    entities: Array<{
+      id: string;
+      name: string;
+      type: string;
+      keyFacets: string[];
+      aliases?: string[];
+    }>;
+  }>,
+  documentSummary?: string,
+): Promise<Stage4BatchRelationshipsResult> {
+  const client = await getGeminiClient();
+  if (!client) {
+    throw new Error(
+      'Gemini API client not initialized - GEMINI_API_KEY missing',
+    );
+  }
+
+  // Build multi-segment prompt
+  const segmentsText = segments
+    .map((seg) => {
+      const entitiesSection = seg.entities
+        .map((e) => {
+          let entry = `[${e.id}] ${e.type.toUpperCase()}: "${e.name}"`;
+          if (e.aliases && e.aliases.length > 0) {
+            entry += ` (also: ${e.aliases.join(', ')})`;
+          }
+          entry += ` - ${e.keyFacets.join(', ') || 'no facets'}`;
+          return entry;
+        })
+        .join('\n');
+
+      return `### SEGMENT ${seg.index + 1} [id: ${seg.id}]
+"""
+${seg.text}
+"""
+
+ENTITIES IN THIS SEGMENT:
+${entitiesSection}`;
+    })
+    .join('\n\n');
+
+  const documentContext = documentSummary
+    ? `## DOCUMENT CONTEXT\n${documentSummary}\n\n`
+    : '';
+
+  const prompt = `${documentContext}Extract relationships between entities in these narrative segments.
+Focus on relationships EVIDENCED in the segment text.
+
+${segmentsText}
+
+## OUTPUT FORMAT
+\`\`\`json
+{
+  "relationships": [
+    {
+      "fromId": "entity-uuid",
+      "toId": "entity-uuid",
+      "segmentId": "segment-uuid",
+      "edgeType": "RELATIONSHIP_TYPE",
+      "description": "Brief explanation",
+      "strength": 0.8
+    }
+  ]
+}
+\`\`\`
+
+EDGE TYPES:
+
+**Layer 2 - Causal/Temporal (MUST include strength 0-1):**
+- CAUSES: A directly causes B (necessary and sufficient)
+- ENABLES: A makes B possible but doesn't guarantee it
+- PREVENTS: A blocks B from occurring
+- HAPPENS_BEFORE: Temporal only (use sparingly - text position often suffices)
+
+**Layer 3 - Structural/Relational:**
+- PARTICIPATES_IN: Agent involved in event
+- LOCATED_AT: Entity exists/occurs at location
+- PART_OF: Component of containing entity (chapter of book)
+- MEMBER_OF: Belongs to group while retaining identity
+- POSSESSES: Ownership or control
+- CONNECTED_TO: Social/professional connection between agents
+- OPPOSES: Conflict, antagonism, opposition
+- ABOUT: Entity relates to abstract concept/theme
+- RELATED_TO: Fallback (use sparingly, <5% of edges)
+
+RULES:
+1. Use entity IDs from the lists above - not names
+2. Only extract relationships EVIDENCED in each segment text
+3. For causal edges (CAUSES, ENABLES, PREVENTS), include strength 0-1
+4. Prefer specific edge types over RELATED_TO
+5. Description should be 3-10 words explaining the relationship
+6. IMPORTANT: Set segmentId to the segment where the relationship is evidenced
+7. Extract ALL relationships evidenced in each segment`;
+
+  // Validate output budget before sending batch
+  const modelConfig = getTextModelConfig('gemini-2.5-flash');
+  const charsPerToken = modelConfig.charsPerToken;
+  const outputUtilization = modelConfig.outputUtilization ?? 0.6;
+  const maxModelOutput = modelConfig.maxOutputTokens;
+  const totalOutputCapacity = Math.floor(maxModelOutput * outputUtilization);
+
+  // Estimate output for this batch
+  const estimatedOutputTokens = batchedRelationshipConfig.estimateOutputReserve(
+    segments,
+    charsPerToken,
+  );
+
+  // Validate batch fits
+  if (estimatedOutputTokens > totalOutputCapacity) {
+    logger.error(
+      {
+        segmentCount: segments.length,
+        estimatedOutputTokens,
+        totalOutputCapacity,
+        exceedsBy: estimatedOutputTokens - totalOutputCapacity,
+      },
+      'Stage 6: Batch exceeds output capacity - calculator error',
+    );
+
+    throw new Error(
+      `Batch output (${estimatedOutputTokens} tokens) exceeds capacity (${totalOutputCapacity} tokens). ` +
+        `This indicates a bug in the batch calculator.`,
+    );
+  }
+
+  logger.info(
+    {
+      segmentCount: segments.length,
+      estimatedOutputTokens,
+      totalOutputCapacity,
+      utilizationPercent: ((estimatedOutputTokens / totalOutputCapacity) * 100).toFixed(1),
+    },
+    'Stage 6: Output budget validated',
+  );
+
+  try {
+    const result = await client.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        responseJsonSchema: stage4ExtractRelationshipsSchema,
+      },
+    });
+
+    const parsed = parseResponse<Stage4RelationshipsResult>(
+      result,
+      'extractRelationshipsFromBatch',
+    );
+
+    // Add segmentId attribution (fallback to first segment if not provided)
+    const relationships: Stage4BatchRelationshipsResult['relationships'] = [];
+    for (const rel of parsed.relationships) {
+      // Check if relationship already has segmentId in description or elsewhere
+      // If not, we can't reliably attribute it - log warning and skip
+      if (!(rel as any).segmentId) {
+        logger.warn(
+          { fromId: rel.fromId, toId: rel.toId, edgeType: rel.edgeType },
+          'Relationship missing segmentId attribution',
+        );
+        // Default to first segment as fallback
+        relationships.push({
+          ...rel,
+          segmentId: segments[0].id,
+        });
+      } else {
+        relationships.push(rel as any);
+      }
+    }
+
+    const segmentIndices = segments.map((s) => s.index);
+    const segmentRange = segments.length > 0
+      ? `${Math.min(...segmentIndices)}-${Math.max(...segmentIndices)}`
+      : 'none';
+
+    logger.info(
+      {
+        segmentRange,
+        segmentCount: segments.length,
+        relationshipsCount: relationships.length,
+      },
+      'Stage 6: Relationships extracted from batch',
+    );
+
+    return { relationships };
+  } catch (error) {
+    throw handleApiError(error, 'Stage 6 batched relationship extraction');
   }
 }
 
@@ -606,7 +960,7 @@ export interface Stage5HigherOrderResult {
 }
 
 /**
- * Stage 5: Analyze higher-order narrative structure.
+ * Stage 8: Analyze higher-order narrative structure.
  */
 export async function analyzeHigherOrder(
   events: Array<{
@@ -669,7 +1023,7 @@ export async function analyzeHigherOrder(
         threadsCount: parsed.narrativeThreads.length,
         arcPhasesCount: parsed.arcPhases?.length || 0,
       },
-      'Stage 5: Higher-order analysis completed',
+      'Stage 8: Higher-order analysis completed',
     );
 
     return parsed;
@@ -689,7 +1043,7 @@ export interface Stage5ThreadRefinementResult {
 }
 
 /**
- * Stage 5: Refine algorithmically detected threads.
+ * Stage 8: Refine algorithmically detected threads.
  */
 export async function refineThreads(
   algorithmicThreads: Array<{
@@ -730,11 +1084,72 @@ export async function refineThreads(
         inputThreads: algorithmicThreads.length,
         refinedThreads: parsed.threads.length,
       },
-      'Stage 5: Thread refinement completed',
+      'Stage 8: Thread refinement completed',
     );
 
     return parsed;
   } catch (error) {
     throw handleApiError(error, 'Stage 5 thread refinement');
+  }
+}
+
+/** Stage 10 contradiction detection result */
+export interface Stage10ContradictionResult {
+  facetIndexA: number;
+  facetIndexB: number;
+  classificationType: 'true_inconsistency' | 'temporal_change' | 'arc_divergence';
+  reasoning: string;
+}
+
+/**
+ * Stage 10: Detect contradictions in a batch of facets for a single entity.
+ * Analyzes all facets of the same type at once for efficiency.
+ */
+export async function detectContradictionsInBatch(
+  entityName: string,
+  facetType: FacetType,
+  facets: Array<{ content: string }>,
+): Promise<Stage10ContradictionResult[]> {
+  const client = await getGeminiClient();
+  if (!client) {
+    throw new Error(
+      'Gemini API client not initialized - GEMINI_API_KEY missing',
+    );
+  }
+
+  const prompt = detectContradictionsPrompt.build({
+    entityName,
+    facetType,
+    facets,
+  });
+
+  try {
+    const result = await client.models.generateContent({
+      model: detectContradictionsPrompt.model,
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        responseJsonSchema: stage10DetectContradictionsSchema,
+      },
+    });
+
+    const parsed = parseResponse<Stage10ContradictionResult[]>(
+      result,
+      'detectContradictionsInBatch',
+    );
+
+    logger.info(
+      {
+        entityName,
+        facetType,
+        facetCount: facets.length,
+        contradictionsFound: parsed.length,
+      },
+      'Stage 10: Contradiction detection completed',
+    );
+
+    return parsed;
+  } catch (error) {
+    throw handleApiError(error, 'Stage 10 contradiction detection');
   }
 }

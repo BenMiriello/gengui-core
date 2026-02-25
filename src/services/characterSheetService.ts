@@ -14,15 +14,16 @@ import type {
   CharacterSheetSettings,
 } from '../types/generationSettings';
 import { GENERATION_SETTINGS_SCHEMA_VERSION } from '../types/generationSettings';
+import { extractJson } from '../utils/llmUtils';
 import { logger } from '../utils/logger';
+import { getGeminiClient, GeminiType } from './gemini/core';
 import { graphService, type StoredStoryNode } from './graph/graph.service';
 import type { StoredFacet } from './graph/graph.types';
 import {
   getImageProvider,
   getImageProviderName,
 } from './image-generation/factory';
-import { mentionService } from './mentions';
-import { segmentService } from './segments';
+
 
 interface GenerateCharacterSheetParams {
   nodeId: string;
@@ -82,11 +83,13 @@ export const characterSheetService = {
     );
 
     // Build prompt from node + settings + style + facets
-    const prompt = this.buildPromptWithFacets(
+    // Uses async version to leverage LLM for visual relevance inference (TDD Section 7.4)
+    const prompt = await this.buildPromptWithFacetsAsync(
       node,
       settings,
       finalStylePrompt,
       facets,
+      cursorPosition ?? 0,
     );
 
     // Create media record
@@ -212,6 +215,12 @@ export const characterSheetService = {
   /**
    * Build generation prompt using facets for more precise descriptions.
    * Falls back to buildPrompt if no facets available.
+   *
+   * Per TDD 2026-02-23 Section 7.4: Only include visual attributes in image prompts.
+   * Exclude personality traits, internal states, and non-visual information.
+   *
+   * NOTE: This is a synchronous wrapper. For state facets, use buildPromptWithFacetsAsync
+   * which calls the LLM to infer visual relevance (the TDD-correct approach).
    */
   buildPromptWithFacets(
     node: StoredStoryNode,
@@ -224,6 +233,87 @@ export const characterSheetService = {
       return this.buildPrompt(node, settings, stylePrompt);
     }
 
+    // Separate facets by type
+    const appearanceFacets = facets.filter((f) => f.type === 'appearance');
+    const stateFacets = facets.filter((f) => f.type === 'state');
+
+    // Build visual attributes:
+    // - Appearance facets are visual by definition (TDD Section 7.4)
+    // - State facets excluded in sync version - use buildPromptWithFacetsAsync for LLM inference
+    const visualAttributes = appearanceFacets.map((f) => f.content);
+
+    return this.buildPromptFromVisualAttributes(
+      node,
+      settings,
+      stylePrompt,
+      visualAttributes,
+      stateFacets.length > 0,
+    );
+  },
+
+  /**
+   * Build generation prompt using LLM to infer visual relevance of state facets.
+   * This is the TDD-correct approach per Section 7.4.
+   *
+   * @param position - Document position for context (used in LLM inference)
+   */
+  async buildPromptWithFacetsAsync(
+    node: StoredStoryNode,
+    settings: CharacterSheetSettings,
+    stylePrompt: string | null | undefined,
+    facets: StoredFacet[],
+    position: number = 0,
+  ): Promise<string> {
+    // If no facets, fall back to legacy buildPrompt
+    if (!facets || facets.length === 0) {
+      return this.buildPrompt(node, settings, stylePrompt);
+    }
+
+    // If manual edit, skip LLM inference
+    if (settings.manualEdit && settings.customDescription) {
+      return this.buildPromptFromVisualAttributes(
+        node,
+        settings,
+        stylePrompt,
+        [settings.customDescription],
+        false,
+      );
+    }
+
+    // Separate facets by type
+    const appearanceFacets = facets.filter((f) => f.type === 'appearance');
+    const stateFacets = facets.filter((f) => f.type === 'state');
+
+    // Use LLM to infer which facets are visually relevant (TDD Section 7.4)
+    // This is the PRIMARY method - appearance facets are passed directly,
+    // state facets are evaluated by LLM for visual relevance
+    const visualAttributes = await this.inferVisuallyRelevantFacets(
+      node.name,
+      position,
+      appearanceFacets,
+      stateFacets,
+    );
+
+    return this.buildPromptFromVisualAttributes(
+      node,
+      settings,
+      stylePrompt,
+      visualAttributes,
+      false,
+    );
+  },
+
+  /**
+   * Build the final prompt from visual attributes.
+   * Shared between sync and async versions.
+   */
+  buildPromptFromVisualAttributes(
+    node: StoredStoryNode,
+    settings: CharacterSheetSettings,
+    stylePrompt: string | null | undefined,
+    visualAttributes: string[],
+    _hasExcludedStateFacets: boolean,
+  ): string {
     const parts: string[] = [];
 
     // STYLE FIRST - Imagen weights the beginning of prompts more heavily
@@ -234,38 +324,16 @@ export const characterSheetService = {
     // If manual edit, use custom description
     if (settings.manualEdit && settings.customDescription) {
       parts.push(settings.customDescription);
+    } else if (visualAttributes.length > 0) {
+      // Build from visual attributes
+      parts.push(`${node.name}: ${visualAttributes.join(', ')}`);
     } else {
-      // Build description from facets
-      const appearanceFacets = facets.filter((f) => f.type === 'appearance');
-      const traitFacets = facets.filter((f) => f.type === 'trait');
-      const stateFacets = facets.filter((f) => f.type === 'state');
-
-      // Character with appearance
-      if (appearanceFacets.length > 0) {
-        const appearanceDesc = appearanceFacets
-          .map((f) => f.content)
-          .join(', ');
-        parts.push(`${node.name}: ${appearanceDesc}`);
-      } else {
-        // Fall back to node description
-        parts.push(node.description || node.name);
-      }
-
-      // Add relevant traits
-      if (traitFacets.length > 0 && node.type === 'character') {
-        const traitDesc = traitFacets
-          .slice(0, 3)
-          .map((f) => f.content)
-          .join(', ');
-        parts.push(`Expression and demeanor conveying: ${traitDesc}`);
-      }
-
-      // Add current state (position-relevant)
-      if (stateFacets.length > 0) {
-        const stateDesc = stateFacets.map((f) => f.content).join(', ');
-        parts.push(`Current state: ${stateDesc}`);
-      }
+      // Fall back to node description
+      parts.push(node.description || node.name);
     }
+
+    // Note: hasExcludedStateFacets is informational only - we could log it
+    // if we want to track when state facets were excluded
 
     // Add framing for characters
     if (node.type === 'character' && settings.framing) {
@@ -319,76 +387,29 @@ export const characterSheetService = {
 
   /**
    * Get facets relevant to a specific position in the document.
-   * Returns appearance facets always, plus state facets if they're grounded near position.
+   * Uses position-based validity queries (Phase 4) to return:
+   * - Permanent facets (attached to entity)
+   * - Phase-bounded facets (from active CharacterState at position)
+   *
+   * Per TDD 2026-02-23: All queries are position-based. There is no "current"
+   * vs "historical" - everything exists on the timeline.
    */
   async getPositionRelevantFacets(
     nodeId: string,
-    documentId: string,
+    _documentId: string,
     cursorPosition?: number,
   ): Promise<StoredFacet[]> {
-    // Get all facets for the entity
-    const allFacets = await graphService.getFacetsForEntity(nodeId);
+    // If no position, use position 0 (start of document)
+    const position = cursorPosition ?? 0;
 
-    if (!cursorPosition) {
-      // No position context - return all appearance/trait facets
-      return allFacets.filter(
-        (f) => f.type === 'appearance' || f.type === 'trait',
-      );
-    }
-
-    // Get segments for position mapping
-    const segments = await segmentService.getDocumentSegments(documentId);
-    const segmentAtPosition = segmentService.findSegmentAtPosition(
-      segments,
-      cursorPosition,
+    // Use the position-based graph query from Phase 4
+    // This returns permanent facets (on entity) + phase-bounded facets (from active state)
+    const activeFacets = await graphService.getActiveFacetsAtPosition(
+      nodeId,
+      position,
     );
 
-    if (!segmentAtPosition) {
-      // Position not in valid segment - return all appearance/trait
-      return allFacets.filter(
-        (f) => f.type === 'appearance' || f.type === 'trait',
-      );
-    }
-
-    // Find adjacent segment IDs (current + 1 before + 1 after)
-    const relevantSegmentIds = new Set<string>();
-    relevantSegmentIds.add(segmentAtPosition.segmentId);
-
-    const segmentIndex = segments.findIndex(
-      (s) => s.id === segmentAtPosition.segmentId,
-    );
-    if (segmentIndex > 0) {
-      relevantSegmentIds.add(segments[segmentIndex - 1].id);
-    }
-    if (segmentIndex < segments.length - 1) {
-      relevantSegmentIds.add(segments[segmentIndex + 1].id);
-    }
-
-    // Get mentions for this node in relevant segments
-    const mentions = await mentionService.getByNodeId(nodeId);
-    const nearbyMentionIds = new Set(
-      mentions
-        .filter((m) => relevantSegmentIds.has(m.segmentId))
-        .map((m) => m.id),
-    );
-
-    // TODO: When mentions are linked to facets via facet_id,
-    // filter state facets to only those with nearby mentions.
-    // For now, include all state facets if there are any nearby mentions.
-    const hasNearbyMentions = nearbyMentionIds.size > 0;
-
-    // Always include appearance facets
-    const result = allFacets.filter((f) => f.type === 'appearance');
-
-    // Include trait facets
-    result.push(...allFacets.filter((f) => f.type === 'trait'));
-
-    // Include state facets only if we have nearby mentions
-    if (hasNearbyMentions) {
-      result.push(...allFacets.filter((f) => f.type === 'state'));
-    }
-
-    return result;
+    return activeFacets;
   },
 
   /**
@@ -466,5 +487,106 @@ export const characterSheetService = {
       media: results,
       primaryMediaId: node.primaryMediaId,
     };
+  },
+
+  /**
+   * Use LLM to infer visual relevance of facets at a specific position.
+   * Per TDD 2026-02-23 Section 7.4: Provide context and let LLM determine
+   * which attributes are visually relevant at this narrative moment.
+   *
+   * This is the PRIMARY method for visual relevance determination.
+   * Falls back to appearance-only filtering if LLM unavailable.
+   */
+  async inferVisuallyRelevantFacets(
+    entityName: string,
+    position: number,
+    permanentFacets: StoredFacet[],
+    stateFacets: StoredFacet[],
+    nearbyContext?: string,
+  ): Promise<string[]> {
+    const client = await getGeminiClient();
+
+    // Fallback when LLM unavailable: only use appearance facets
+    // (appearance is visual by definition, state facets require LLM to classify)
+    if (!client) {
+      const appearanceFacets = permanentFacets.filter(
+        (f) => f.type === 'appearance',
+      );
+      return appearanceFacets.map((f) => f.content);
+    }
+
+    const prompt = `You are creating an image for "${entityName}" at narrative position ${position}.
+
+PERSISTENT ATTRIBUTES (attached to entity):
+${permanentFacets.map((f) => `- [${f.type}] ${f.content}`).join('\n') || '(none)'}
+
+PHASE ATTRIBUTES (from active CharacterState):
+${stateFacets.map((f) => `- [${f.type}] ${f.content}`).join('\n') || '(none)'}
+
+${nearbyContext ? `NEARBY CONTEXT:\n${nearbyContext}\n` : ''}
+
+TASK:
+Determine which attributes are visually relevant for generating an image at this moment.
+- Include persistent appearance attributes unless clearly contradicted
+- Include phase attributes only if visually apparent (wounds, disguises, clothing)
+- Exclude personality traits, emotions, internal states, non-visual information
+
+Return ONLY the visually relevant attributes as a JSON array of strings.
+Example: ["tall with brown hair", "wearing armor", "visible scar on cheek"]`;
+
+    // Timeout for visual inference - don't block image generation too long
+    const VISUAL_INFERENCE_TIMEOUT_MS = 3000;
+
+    try {
+      const inferencePromise = client.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          responseJsonSchema: {
+            type: GeminiType.ARRAY,
+            items: { type: GeminiType.STRING },
+          },
+        },
+      });
+
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(
+          () => reject(new Error('Visual inference timeout')),
+          VISUAL_INFERENCE_TIMEOUT_MS,
+        );
+      });
+
+      const result = await Promise.race([inferencePromise, timeoutPromise]);
+
+      const text = result.text?.trim();
+      if (!text) {
+        throw new Error('Empty response from Gemini');
+      }
+
+      // Use shared JSON extraction utility with type validation
+      const parsed = extractJson<string[]>(text);
+      if (!parsed || !Array.isArray(parsed)) {
+        throw new Error('Invalid response format from Gemini');
+      }
+
+      return parsed;
+    } catch (error) {
+      const isTimeout =
+        error instanceof Error && error.message === 'Visual inference timeout';
+      logger.warn(
+        { error, entityName, position, isTimeout },
+        isTimeout
+          ? 'Visual inference timed out, using appearance-only fallback'
+          : 'LLM visual inference failed, using appearance-only fallback',
+      );
+
+      // Fallback: only appearance facets (visual by definition)
+      // State facets excluded when LLM unavailable (can't classify visual relevance)
+      const appearanceFacets = permanentFacets.filter(
+        (f) => f.type === 'appearance',
+      );
+      return appearanceFacets.map((f) => f.content);
+    }
   },
 };

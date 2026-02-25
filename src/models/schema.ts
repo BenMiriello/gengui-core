@@ -272,6 +272,9 @@ export const documents = pgTable(
     analysisCheckpoint: jsonb('analysis_checkpoint'),
     segmentSequence: jsonb('segment_sequence').default([]).notNull(),
     yjsState: text('yjs_state'),
+    summary: text('summary'),
+    summaryEditChainLength: integer('summary_edit_chain_length').default(0).notNull(),
+    summaryUpdatedAt: timestamp('summary_updated_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -659,3 +662,63 @@ export const analysisSnapshotsRelations = relations(
     }),
   }),
 );
+
+// Review queue for user review of LLM-detected conflicts
+// Per TDD 2026-02-21 Section 7.3
+
+export const reviewItemTypeEnum = pgEnum('review_item_type', [
+  'contradiction',
+  'merge_suggestion',
+  'gap_detected',
+  'low_confidence',
+]);
+
+export const reviewQueue = pgTable(
+  'review_queue',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    documentId: uuid('document_id')
+      .notNull()
+      .references(() => documents.id, { onDelete: 'cascade' }),
+    itemType: reviewItemTypeEnum('item_type').notNull(),
+
+    primaryEntityId: varchar('primary_entity_id', { length: 255 }),
+    secondaryEntityId: varchar('secondary_entity_id', { length: 255 }),
+    facetIds: text('facet_ids').array(),
+    stateIds: text('state_ids').array(),
+
+    contextSummary: text('context_summary').notNull(),
+    sourcePositions: jsonb('source_positions'),
+    conflictType: varchar('conflict_type', { length: 50 }),
+    similarity: integer('similarity'),
+
+    status: varchar('status', { length: 20 }).default('pending').notNull(),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    resolvedBy: uuid('resolved_by').references(() => users.id),
+    resolution: jsonb('resolution'),
+
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index('idx_review_queue_document').on(
+      table.documentId,
+      table.status,
+      table.createdAt,
+    ),
+    index('idx_review_queue_status').on(table.status),
+    index('idx_review_queue_entity').on(table.primaryEntityId),
+  ],
+);
+
+export const reviewQueueRelations = relations(reviewQueue, ({ one }) => ({
+  document: one(documents, {
+    fields: [reviewQueue.documentId],
+    references: [documents.id],
+  }),
+  resolvedByUser: one(users, {
+    fields: [reviewQueue.resolvedBy],
+    references: [users.id],
+  }),
+}));

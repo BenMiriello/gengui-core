@@ -1,14 +1,16 @@
 /**
- * Stage 1: Entity + Facet Extraction with LLM-First Merge Detection
+ * Stage 2: Entity + Facet Extraction with LLM-First Merge Detection
  *
- * This prompt extracts entities, facets, and mentions from a single segment
- * while actively identifying potential matches to existing entities.
+ * Supports both single-segment and multi-segment batch extraction.
+ * Multi-segment batching improves efficiency by processing multiple
+ * segments in a single LLM call.
  *
  * Key features:
- * - Entity registry with known entities from previous segments
+ * - Entity registry with known entities from previous batches
  * - Explicit existingMatch field for each entity (LLM decides matches)
  * - mergeSignals for cross-entity alias detection
- * - Better facet guidance for inferred characteristics
+ * - Facet guidance for inferred characteristics
+ * - Segment attribution for batch processing
  */
 
 import type { PromptDefinition } from '../types';
@@ -22,12 +24,24 @@ interface EntityRegistryEntry {
   summary?: string;
 }
 
+interface SegmentInput {
+  id: string;
+  index: number;
+  text: string;
+}
+
+interface SegmentSummary {
+  index: number;
+  summary: string;
+}
+
 interface ExtractEntitiesInput {
-  segmentText: string;
-  segmentIndex: number;
+  segments: SegmentInput[];
   totalSegments: number;
   entityRegistry?: EntityRegistryEntry[];
-  previousSegmentText?: string;
+  overlapSegmentText?: string;
+  segmentSummaries?: SegmentSummary[];
+  documentSummary?: string;
 }
 
 /**
@@ -54,26 +68,50 @@ function formatEntityRegistry(registry: EntityRegistryEntry[]): string {
 }
 
 /**
- * Stage 1 prompt with LLM-first merge detection.
- * Returns flat parallel arrays for Gemini schema compliance.
+ * Format segments for prompt inclusion.
+ */
+function formatSegments(segments: SegmentInput[], totalSegments: number): string {
+  return segments
+    .map((s) => `### SEGMENT ${s.index + 1} OF ${totalSegments} [id: ${s.id}]\n"""\n${s.text}\n"""`)
+    .join('\n\n');
+}
+
+/**
+ * Stage 2 prompt with LLM-first merge detection.
+ * Supports batch extraction of multiple segments.
  */
 export const extractEntitiesPrompt: PromptDefinition<ExtractEntitiesInput> = {
-  id: 'stage1-extract-entities-v2',
-  version: 2,
-  model: 'gemini-2.5-flash',
+  id: 'stage2-extract-entities-batch',
+  version: 3,
+  model: process.env.ENTITY_EXTRACTION_MODEL || 'gemini-2.5-flash',
   description:
-    'Stage 1: Extract entities with LLM-first merge detection',
+    'Stage 2: Extract entities with LLM-first merge detection (batch support)',
 
   build: ({
-    segmentText,
-    segmentIndex,
+    segments,
     totalSegments,
     entityRegistry,
-    previousSegmentText,
+    overlapSegmentText,
+    segmentSummaries,
+    documentSummary,
   }) => {
+    const documentSummarySection = documentSummary
+      ? `
+## DOCUMENT CONTEXT
+${documentSummary}
+`
+      : '';
+
+    const summariesSection = segmentSummaries?.length
+      ? `
+## RELEVANT SEGMENT SUMMARIES
+${segmentSummaries.map(s => `[Segment ${s.index + 1}]: ${s.summary}`).join('\n')}
+`
+      : '';
+
     const registrySection = entityRegistry?.length
       ? `
-## ENTITY REGISTRY (Known entities from previous segments)
+## ENTITY REGISTRY (${entityRegistry.length} known entities from previous batches)
 ${formatEntityRegistry(entityRegistry)}
 
 CRITICAL: For EVERY entity you extract, you MUST check if it matches one of these existing entities.
@@ -83,32 +121,46 @@ The same entity may appear with different names:
 - Pronouns in narration: descriptions like "the stranger" or "the old man"
 - Nicknames: "Harry" = "Mr. Potter" = "the boy who lived"
 
-When you find a match, set existingMatch with the registryIndex.
-When uncertain but suspicious, add to mergeSignals.
-`
-      : '';
+When you find a match:
+- Set existingMatch.matchedName to the EXACT name from the registry (e.g., "Count Dracula")
+- Set existingMatch.matchedType to the EXACT type from the registry (e.g., "character")
+- Provide a reason explaining the evidence for the match
 
-    const previousSegmentSection = previousSegmentText
+When uncertain but suspicious, add to mergeSignals with registryName and registryType.
+`
+      : `
+## ENTITY REGISTRY
+No existing entities yet. This is the first batch of this stage.
+ALL entities you extract will be NEW entities.
+Do NOT set existingMatch for any entities - leave that field unset.
+`;
+
+    const overlapSection = overlapSegmentText
       ? `
-## PREVIOUS SEGMENT (Read-only context - do NOT extract from this)
+## OVERLAP CONTEXT (Read-only - do NOT extract from this)
 """
-${previousSegmentText}
+${overlapSegmentText}
 """
-(Use this only to understand continuity. Extract entities only from CURRENT SEGMENT below.)
+(Use this only to understand continuity. Extract entities only from SEGMENTS below.)
 `
       : '';
 
-    return `You are extracting entities from a narrative text segment. Your primary goals:
-1. Extract ALL entities (characters, locations, events, concepts, objects)
+    const segmentWord = segments.length === 1 ? 'segment' : 'segments';
+    const segmentIndices = segments.map((s) => s.index + 1).join(', ');
+
+    return `You are extracting entities from ${segments.length} narrative text ${segmentWord}. Your primary goals:
+1. Extract ALL entities (characters, locations, events, concepts, objects) from each segment
 2. Actively identify which extracted entities match existing ones
 3. Capture rich facets including INFERRED characteristics
+4. Track which segment each entity comes from using segmentId
 
+${documentSummarySection}
+${summariesSection}
 ${registrySection}
-${previousSegmentSection}
-## CURRENT SEGMENT ${segmentIndex + 1} OF ${totalSegments} (Extract from this)
-"""
-${segmentText}
-"""
+${overlapSection}
+## SEGMENTS TO EXTRACT FROM (${segmentWord} ${segmentIndices} of ${totalSegments})
+
+${formatSegments(segments, totalSegments)}
 
 ## OUTPUT FORMAT
 \`\`\`json
@@ -117,24 +169,27 @@ ${segmentText}
     {
       "name": "Entity Name",
       "type": "character|location|event|concept|other",
+      "segmentId": "segment-uuid",
       "documentOrder": 1,
       "existingMatch": {
-        "registryIndex": 0,
+        "matchedName": "Exact Name From Registry",
+        "matchedType": "character|location|event|concept|other",
         "confidence": "high|medium|low",
         "reason": "Why this matches the existing entity"
       }
     }
   ],
   "facets": [
-    {"entityName": "Entity Name", "facetType": "name|appearance|trait|state", "content": "facet content"}
+    {"entityName": "Entity Name", "segmentId": "segment-uuid", "facetType": "name|appearance|trait|state", "content": "facet content"}
   ],
   "mentions": [
-    {"entityName": "Entity Name", "text": "exact verbatim quote"}
+    {"entityName": "Entity Name", "segmentId": "segment-uuid", "text": "exact verbatim quote"}
   ],
   "mergeSignals": [
     {
       "extractedEntityName": "the driver",
-      "registryIndex": 3,
+      "registryName": "Count Dracula",
+      "registryType": "character",
       "confidence": "medium",
       "evidence": "Described at same location, similar physical description"
     }
@@ -155,23 +210,29 @@ existingMatch confidence levels:
 - **medium**: Strong contextual evidence (same role, location, description)
 - **low**: Possible match, needs verification
 
-## FACET TYPES
-- **name**: Alternate names, titles, nicknames, epithets, references
-  Include ALL ways this entity is referred to in text
-- **appearance**: Visual/physical attributes (for image generation)
-  Include BOTH explicit AND inferred visual traits
-  "tall" "pale" "wearing a cloak" - even if implied by type (e.g., vampire)
-- **trait**: Personality, behavioral patterns, intrinsic characteristics
-  Include demonstrated behaviors, not just stated traits
-- **state**: TEMPORARY conditions only (wounded, disguised, tired)
-  Must be changeable within the narrative
+## FACET TYPES - STRICT DEFINITIONS
 
-## APPEARANCE FACETS - IMPORTANT
-For visual characters, extract:
-- Explicit descriptions: "tall and pale"
-- Implied attributes: a coachman likely wears a coat, a count wears formal attire
-- Environmental suggestions: characters in cold settings may be bundled up
-- Type-implied features: supernatural beings often have distinctive eyes
+**trait**: PERMANENT characteristics
+  Include: personality ("brave"), skills ("fluent in French"), permanent physical ("tall")
+  Exclude: actions, temporary states, current emotions
+
+**state**: TEMPORARY conditions
+  Include: physical ("wounded"), emotional ("angry"), situational ("disguised")
+  Exclude: actions being performed, permanent traits
+
+**appearance**: VISUAL attributes
+  Include: physical features, clothing, visible conditions
+  For image generation - focus on what can be SEEN
+  Extract BOTH explicit and inferred visual details:
+  - Explicit: "tall and pale" -> extract as stated
+  - Setting-inferred: Victorian era -> period-appropriate dress
+  - Profession-inferred: soldier -> uniform, military bearing
+  - Type-inferred: vampire -> pale complexion
+  Target: 5-10 appearance facets per main character
+
+**name**: Identifiers
+  Include: proper names, titles, epithets
+  Exclude: pronouns (he/she/they), generic descriptions (the man)
 
 ## ENTITY TYPES
 - **character**: People, sentient beings, animals with agency
@@ -181,21 +242,71 @@ For visual characters, extract:
 - **other**: Objects, artifacts, items of narrative significance
 
 ## RULES
-1. Extract ONLY from the CURRENT SEGMENT text
-2. Each facet: 3-15 words, SHORT and SPECIFIC
-3. Mentions must be EXACT VERBATIM quotes (3-15 words)
-4. For events, use documentOrder to indicate narrative sequence
-5. Do NOT extract relationships - that's a later stage
-6. If no existing entities match, omit existingMatch field
-7. If you find NO potential merges, omit mergeSignals or return empty array
+1. Extract ONLY from the SEGMENTS provided (not from overlap context)
+2. Include segmentId for EVERY entity, facet, and mention
+3. Each facet: 3-15 words, SHORT and SPECIFIC
+4. Mentions must be EXACT VERBATIM quotes (3-15 words)
+5. For events, use documentOrder to indicate narrative sequence
+6. Do NOT extract relationships - that's a later stage
+7. If no existing entities match, omit existingMatch field
+8. If you find NO potential merges, omit mergeSignals or return empty array
+9. Entities appearing in multiple segments should have one entry per segment
+
+## COUNT CHECK (verify before submitting)
+For a typical segment with 5-10 characters, you should produce:
+- 5-10 entities per segment
+- 25-75 facets total (avg 5-7 per entity)
+- 15-30 mentions (avg 2-3 per entity)
+
+MINIMUM REQUIREMENTS (must meet these):
+- Each CHARACTER must have at least 1 appearance facet
+- Characters with titles/aliases MUST have at least 1 name facet (e.g., "Count" -> name facet "Count Dracula")
+- Each entity MUST have at least 2 facets total
+- Named characters MUST have at least 3 facets
+
+If your counts are significantly lower, re-read the segment and extract more detail.
 
 ## QUALITY CHECKLIST
 Before submitting, verify:
 - Did you check EVERY extracted entity against the registry?
-- Did you extract ALL characters mentioned in the segment?
+- Did you extract ALL characters mentioned in each segment?
 - Did you capture appearance details (explicit AND inferred)?
 - Did you note any temporary states (injured, disguised, etc.)?
 - Are your mentions exact quotes from the text?
-- Did you consider whether descriptive phrases ("the driver") match named entities?`;
+- Did you consider whether descriptive phrases ("the driver") match named entities?
+- Does every entity/facet/mention have the correct segmentId?
+- Does each character have at least 1 appearance facet?
+- Does each entity have at least 2 facets?`;
   },
 };
+
+/**
+ * Legacy single-segment interface for backwards compatibility during migration.
+ * @deprecated Use batch interface with segments array instead.
+ */
+export interface LegacyExtractEntitiesInput {
+  segmentText: string;
+  segmentIndex: number;
+  totalSegments: number;
+  entityRegistry?: EntityRegistryEntry[];
+  previousSegmentText?: string;
+}
+
+/**
+ * Convert legacy single-segment input to batch format.
+ */
+export function convertLegacyInput(
+  input: LegacyExtractEntitiesInput,
+  segmentId: string,
+): ExtractEntitiesInput {
+  return {
+    segments: [{
+      id: segmentId,
+      index: input.segmentIndex,
+      text: input.segmentText,
+    }],
+    totalSegments: input.totalSegments,
+    entityRegistry: input.entityRegistry,
+    overlapSegmentText: input.previousSegmentText,
+  };
+}

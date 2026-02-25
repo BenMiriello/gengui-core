@@ -377,7 +377,7 @@ class TextAnalysisConsumer extends PubSubConsumer {
       return null;
     }
 
-    if (content.length > MAX_CONTENT_LENGTH) {
+    if (content.length > MAX_CONTENT_LENGTH * 100) {
       this.broadcast(documentId, errorEvent, {
         error: `Document is too long. The maximum length for analysis is ${MAX_CONTENT_LENGTH} characters.`,
       });
