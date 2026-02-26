@@ -5,6 +5,7 @@
  * in our CommonJS codebase. All Gemini usage should import from here.
  */
 
+import { env } from '../../config/env';
 import { logger } from '../../utils/logger';
 
 // Cached client instance
@@ -13,7 +14,7 @@ let initialized = false;
 
 async function createClient() {
   const { GoogleGenAI } = await import('@google/genai');
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = env.GEMINI_API_KEY;
   if (!apiKey) return null;
   return new GoogleGenAI({ apiKey });
 }
