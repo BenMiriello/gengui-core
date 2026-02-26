@@ -1,19 +1,9 @@
 import pino from 'pino';
-import { env } from '../config/env';
+import { randomUUID } from 'node:crypto';
+import { getMainLogConfig, getAILogConfig } from '../config/logging';
 
 export const logger = pino({
-  level: env.LOG_LEVEL,
-  transport:
-    env.NODE_ENV === 'development'
-      ? {
-          target: 'pino-pretty',
-          options: {
-            colorize: true,
-            translateTime: 'SYS:standard',
-            ignore: 'pid,hostname',
-          },
-        }
-      : undefined,
+  ...getMainLogConfig(),
   serializers: {
     error: pino.stdSerializers.err,
   },
@@ -22,3 +12,13 @@ export const logger = pino({
     remove: true,
   },
 });
+
+export const aiLogger = pino(getAILogConfig());
+
+export function generateAICallId(): string {
+  return `ai_${randomUUID()}`;
+}
+
+export function generateRequestId(): string {
+  return randomUUID();
+}

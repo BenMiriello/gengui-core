@@ -4,8 +4,10 @@
 
 import { getGeminiClient } from '../gemini/core';
 import { logger } from '../../utils/logger';
+import { logLLMCall } from '../../utils/logHelpers';
 import { CONFIG } from './config';
 import { buildSummaryPrompt, sleep } from './shared';
+import { getTextModelConfig } from '../../config/text-models';
 
 export async function generateSegmentSummary(
   segmentText: string,
@@ -37,9 +39,25 @@ export async function generateSegmentSummary(
     context: { segmentIndex, totalSegments },
   });
 
+  const callStartTime = Date.now();
   const result = await client.models.generateContent({
     model: CONFIG.summaryModel,
     contents: prompt,
+  });
+  const durationMs = Date.now() - callStartTime;
+
+  const modelConfig = getTextModelConfig(CONFIG.summaryModel);
+  const inputTokens = result.usageMetadata?.promptTokenCount || Math.ceil(prompt.length / modelConfig.charsPerToken);
+  const outputTokens = result.usageMetadata?.candidatesTokenCount || Math.ceil((result.text?.length || 0) / modelConfig.charsPerToken);
+
+  logLLMCall(logger, {
+    operation: 'generateSegmentSummary',
+    model: CONFIG.summaryModel,
+    promptTokens: inputTokens,
+    responseTokens: outputTokens,
+    durationMs,
+    prompt: process.env.LOG_LEVEL === 'debug' ? prompt.slice(0, 500) : undefined,
+    response: process.env.LOG_LEVEL === 'debug' ? result.text?.slice(0, 500) : undefined,
   });
 
   const summary = (result.text ?? '').trim();

@@ -23,7 +23,8 @@ import type {
   StoryEdgeType,
   StoryNodeType,
 } from '../../types/storyNodes';
-import { logger } from '../../utils/logger';
+import { logger, generateRequestId } from '../../utils/logger';
+import { logStageStart, logStageComplete } from '../../utils/logHelpers';
 import { generateEmbedding, generateEmbeddings } from '../embeddings';
 import {
   analyzeHigherOrder,
@@ -346,6 +347,26 @@ export const multiStagePipeline = {
       broadcastProgress = true,
     } = options;
 
+    // Generate correlation ID for this analysis run
+    const requestId = generateRequestId();
+    const childLogger = logger.child({
+      requestId,
+      documentId,
+      userId,
+      versionNumber,
+    });
+
+    childLogger.info(
+      {
+        segmentCount: segments.length,
+        contentLength: documentContent.length,
+        isInitialExtraction,
+      },
+      'Analysis pipeline started',
+    );
+
+    const pipelineStartTime = Date.now();
+
     const broadcast = (
       stage: AnalysisStage,
       entityCount?: number,
@@ -368,9 +389,8 @@ export const multiStagePipeline = {
     let checkpoint = await loadCheckpoint(documentId);
 
     if (checkpoint && !isCheckpointValid(checkpoint, versionNumber)) {
-      logger.info(
+      childLogger.info(
         {
-          documentId,
           checkpointVersion: checkpoint.documentVersion,
           currentVersion: versionNumber,
         },
@@ -381,20 +401,20 @@ export const multiStagePipeline = {
     }
 
     if (checkpoint) {
-      logger.info(
-        { documentId, lastStageCompleted: checkpoint.lastStageCompleted },
+      childLogger.info(
+        { lastStageCompleted: checkpoint.lastStageCompleted },
         'Resuming from checkpoint',
       );
     }
 
     // Stage 1: Segmentation + Sentence Embeddings
     if (shouldRunStage(checkpoint, 1)) {
+      const stage1StartTime = Date.now();
       await checkForInterruption(documentId);
       broadcast(1);
-      logger.info(
-        { documentId, segmentCount: segments.length },
-        'Stage 1: Processing segments',
-      );
+      logStageStart(childLogger, 1, 'Segmentation + Sentence Embeddings', {
+        segmentCount: segments.length,
+      });
 
       await sentenceService.processDocument(
         documentId,
@@ -406,15 +426,22 @@ export const multiStagePipeline = {
         documentVersion: versionNumber,
         lastStageCompleted: 1,
       });
+
+      const stage1DurationMs = Date.now() - stage1StartTime;
+      logStageComplete(childLogger, 1, 'Segmentation + Sentence Embeddings', stage1DurationMs, {
+        segmentCount: segments.length,
+      });
     } else {
-      logger.info({ documentId }, 'Skipping Stage 1 (already completed)');
+      childLogger.info('Skipping Stage 1 (already completed)');
     }
 
     // Stage 2: Segment Summarization
     if (shouldRunStage(checkpoint, 2)) {
       await checkForInterruption(documentId);
       broadcast(2);
-      logger.info({ documentId, segmentCount: segments.length }, 'Stage 2: Generating segment summaries');
+      logStageStart(childLogger, 2, 'Segment Summarization', {
+        segmentCount: segments.length,
+      });
 
       const startTime = Date.now();
 
@@ -504,26 +531,21 @@ export const multiStagePipeline = {
 
       const durationMs = Date.now() - startTime;
 
-      logger.info(
-        {
-          documentId,
-          totalSegments: segments.length,
-          successfulSummaries: successfulSummaries.length,
-          failedSummaries: segments.length - successfulSummaries.length,
-          regenerated: needsRegeneration.filter(Boolean).length,
-          reused: needsRegeneration.filter(n => !n).length,
-          durationMs,
-          avgMsPerSummary: Math.round(durationMs / segments.length),
-        },
-        'Stage 2 complete: Summary generation metrics'
-      );
+      logStageComplete(childLogger, 2, 'Segment Summarization', durationMs, {
+        totalSegments: segments.length,
+        successfulSummaries: successfulSummaries.length,
+        failedSummaries: segments.length - successfulSummaries.length,
+        regenerated: needsRegeneration.filter(Boolean).length,
+        reused: needsRegeneration.filter(n => !n).length,
+        avgMsPerSummary: Math.round(durationMs / segments.length),
+      });
 
       await saveCheckpoint(documentId, {
         lastStageCompleted: 2,
         summaryData: { segmentSummaries, documentSummary: documentSummaryText },
       });
     } else {
-      logger.info({ documentId }, 'Skipping Stage 2 (already completed)');
+      childLogger.info('Skipping Stage 2 (already completed)');
     }
 
     // Stage 3: Entity + Facet Extraction with LLM-First Merge Detection
@@ -533,9 +555,10 @@ export const multiStagePipeline = {
     let accumulatedMergeSignals: AccumulatedMergeSignal[];
 
     if (shouldRunStage(checkpoint, 3)) {
+      const stage3StartTime = Date.now();
       await checkForInterruption(documentId);
       broadcast(3);
-      logger.info({ documentId }, 'Stage 3: Extracting entities with LLM-first merge detection');
+      logStageStart(childLogger, 3, 'Entity Extraction');
 
       const progress = checkpoint?.stage3Progress;
       const completedSegments = new Set<number>(progress?.completedSegmentIndices || []);
@@ -856,15 +879,19 @@ export const multiStagePipeline = {
         }
       }
 
-      logger.info(
-        {
-          documentId,
-          extractedCount: extractedEntities.length,
-          uniqueEntities: runtimeRegistry.entries.size,
-          mergeSignals: accumulatedMergeSignals.length,
-        },
-        'Stage 3 complete: Entities extracted with merge detection',
-      );
+      const stage3DurationMs = Date.now() - stage3StartTime;
+      const totalEntities = extractedEntities.reduce((sum, e) => sum + 1, 0);
+      const totalFacets = extractedEntities.reduce((sum, e) => sum + e.facets.length, 0);
+      const totalMentions = extractedEntities.reduce((sum, e) => sum + e.mentions.length, 0);
+
+      logStageComplete(childLogger, 3, 'Entity Extraction', stage3DurationMs, {
+        extractedCount: extractedEntities.length,
+        uniqueEntities: runtimeRegistry.entries.size,
+        totalEntities,
+        totalFacets,
+        totalMentions,
+        mergeSignals: accumulatedMergeSignals.length,
+      });
 
       await saveCheckpoint(documentId, {
         lastStageCompleted: 3,
@@ -881,8 +908,8 @@ export const multiStagePipeline = {
       entityIdByName = new Map(Object.entries(checkpoint.stage3Output.entityIdByName || {}));
       aliasToEntityId = new Map(Object.entries(checkpoint.stage3Output.aliasToEntityId || {}));
       accumulatedMergeSignals = checkpoint.stage3Output.mergeSignals || [];
-      logger.info(
-        { documentId, cachedCount: extractedEntities.length },
+      childLogger.info(
+        { cachedCount: extractedEntities.length },
         'Skipping Stage 3 (using cached entities)',
       );
     } else {
@@ -893,25 +920,33 @@ export const multiStagePipeline = {
 
     // Stage 4: Text Grounding (algorithmic)
     if (shouldRunStage(checkpoint, 4)) {
+      const stage4StartTime = Date.now();
       await checkForInterruption(documentId);
       broadcast(4, extractedEntities.length);
-      logger.info({ documentId }, 'Stage 4: Grounding entities to text');
+      logStageStart(childLogger, 4, 'Text Grounding', {
+        entityCount: extractedEntities.length,
+      });
 
       await saveCheckpoint(documentId, { lastStageCompleted: 4 });
+
+      const stage4DurationMs = Date.now() - stage4StartTime;
+      logStageComplete(childLogger, 4, 'Text Grounding', stage4DurationMs, {
+        entityCount: extractedEntities.length,
+      });
     } else {
-      logger.info({ documentId }, 'Skipping Stage 4 (already completed)');
+      childLogger.info('Skipping Stage 4 (already completed)');
     }
 
     // Stage 5: Entity Creation with LLM-Determined Merges
     let resolvedEntities: ResolvedEntity[];
 
     if (shouldRunStage(checkpoint, 5)) {
+      const stage5StartTime = Date.now();
       await checkForInterruption(documentId);
       broadcast(5, extractedEntities.length);
-      logger.info(
-        { documentId },
-        'Stage 5: Creating entities with LLM-determined merges',
-      );
+      logStageStart(childLogger, 5, 'Entity Resolution', {
+        extractedCount: extractedEntities.length,
+      });
 
       resolvedEntities = [];
 
@@ -1113,15 +1148,12 @@ export const multiStagePipeline = {
         }
       }
 
-      logger.info(
-        {
-          documentId,
-          resolvedCount: resolvedEntities.length,
-          createdCount: createdEntityIds.size,
-          mergedCount: uniqueEntityIds.size - createdEntityIds.size,
-        },
-        'Stage 5 complete: Entities created',
-      );
+      const stage5DurationMs = Date.now() - stage5StartTime;
+      logStageComplete(childLogger, 5, 'Entity Resolution', stage5DurationMs, {
+        resolvedCount: resolvedEntities.length,
+        newEntities: createdEntityIds.size,
+        mergedEntities: uniqueEntityIds.size - createdEntityIds.size,
+      });
 
       await saveCheckpoint(documentId, {
         lastStageCompleted: 5,
@@ -1138,8 +1170,8 @@ export const multiStagePipeline = {
         }))
         .filter((e) => e.id);
 
-      logger.info(
-        { documentId, cachedEntities: entityIdByName.size },
+      childLogger.info(
+        { cachedEntities: entityIdByName.size },
         'Skipping Stage 5 (using cached entity mapping)',
       );
     } else {
@@ -1152,12 +1184,12 @@ export const multiStagePipeline = {
     const allRelationships: Stage4RelationshipsResult['relationships'] = [];
 
     if (shouldRunStage(checkpoint, 6)) {
+      const stage6StartTime = Date.now();
       await checkForInterruption(documentId);
       broadcast(6, entityIdByName.size);
-      logger.info(
-        { documentId },
-        'Stage 6: Extracting intra-segment relationships (batched)',
-      );
+      logStageStart(childLogger, 6, 'Intra-Segment Relationships', {
+        entityCount: entityIdByName.size,
+      });
 
       // Build alias lookup: entityId -> list of aliases
       const aliasesByEntityId = new Map<string, string[]>();
@@ -1256,29 +1288,26 @@ export const multiStagePipeline = {
           allRelationships.push(...batchResult.relationships);
         }
 
-        logger.info(
-          {
-            documentId,
-            relationshipCount: allRelationships.length,
-            batchCount: batches.length,
-          },
-          'Stage 6 complete: Intra-segment relationships extracted (batched)',
-        );
+        const stage6DurationMs = Date.now() - stage6StartTime;
+        logStageComplete(childLogger, 6, 'Intra-Segment Relationships', stage6DurationMs, {
+          relationshipCount: allRelationships.length,
+          batchCount: batches.length,
+        });
       }
 
       await saveCheckpoint(documentId, { lastStageCompleted: 6 });
     } else {
-      logger.info({ documentId }, 'Skipping Stage 6 (already completed)');
+      childLogger.info('Skipping Stage 6 (already completed)');
     }
 
     // Stage 7: Cross-Segment Relationships
     if (shouldRunStage(checkpoint, 7)) {
+      const stage7StartTime = Date.now();
       await checkForInterruption(documentId);
       broadcast(7, entityIdByName.size);
-      logger.info(
-        { documentId },
-        'Stage 7: Extracting cross-segment relationships',
-      );
+      logStageStart(childLogger, 7, 'Cross-Segment Relationships', {
+        entityCount: entityIdByName.size,
+      });
 
       // Build alias lookup: entityId -> list of aliases (for cross-segment relationships)
       const aliasesByEntityId = new Map<string, string[]>();
@@ -1336,11 +1365,6 @@ export const multiStagePipeline = {
         allRelationships.push(...crossSegmentResult.relationships);
       }
 
-      logger.info(
-        { documentId, totalRelationships: allRelationships.length },
-        'Stage 7 complete: Cross-segment relationships extracted',
-      );
-
       for (const rel of allRelationships) {
         try {
           await graphService.createStoryConnectionIdempotent(
@@ -1352,23 +1376,31 @@ export const multiStagePipeline = {
           );
         } catch (err: any) {
           if (!err?.message?.includes('would create a cycle')) {
-            logger.warn({ rel, error: err }, 'Failed to create relationship');
+            childLogger.warn({ rel, error: err }, 'Failed to create relationship');
           }
         }
       }
 
+      const stage7DurationMs = Date.now() - stage7StartTime;
+      logStageComplete(childLogger, 7, 'Cross-Segment Relationships', stage7DurationMs, {
+        totalRelationships: allRelationships.length,
+      });
+
       await saveCheckpoint(documentId, { lastStageCompleted: 7 });
     } else {
-      logger.info({ documentId }, 'Skipping Stage 7 (already completed)');
+      childLogger.info('Skipping Stage 7 (already completed)');
     }
 
     // Stage 8: Higher-Order Analysis
     let higherOrderResult: Stage5HigherOrderResult | null = null;
 
     if (shouldRunStage(checkpoint, 8)) {
+      const stage8StartTime = Date.now();
       await checkForInterruption(documentId);
       broadcast(8, entityIdByName.size);
-      logger.info({ documentId }, 'Stage 8: Analyzing higher-order structure');
+      logStageStart(childLogger, 8, 'Higher-Order Analysis', {
+        entityCount: entityIdByName.size,
+      });
 
       // Get events and characters for thread/arc analysis
       const events: Array<{
@@ -1507,28 +1539,28 @@ export const multiStagePipeline = {
         }
       }
 
-      logger.info(
-        {
-          documentId,
-          threadCount: higherOrderResult?.narrativeThreads.length || 0,
-          arcCount: new Set(
-            (higherOrderResult?.arcPhases || []).map((p) => p.characterId),
-          ).size,
-          arcPhaseCount: higherOrderResult?.arcPhases?.length || 0,
-        },
-        'Stage 8 complete: Higher-order analysis done',
-      );
+      const stage8DurationMs = Date.now() - stage8StartTime;
+      logStageComplete(childLogger, 8, 'Higher-Order Analysis', stage8DurationMs, {
+        threadCount: higherOrderResult?.narrativeThreads.length || 0,
+        arcCount: new Set(
+          (higherOrderResult?.arcPhases || []).map((p) => p.characterId),
+        ).size,
+        arcPhaseCount: higherOrderResult?.arcPhases?.length || 0,
+      });
 
       await saveCheckpoint(documentId, { lastStageCompleted: 8 });
     } else {
-      logger.info({ documentId }, 'Skipping Stage 8 (already completed)');
+      childLogger.info('Skipping Stage 8 (already completed)');
     }
 
     // Stage 9: CharacterState facet attachment
     if (shouldRunStage(checkpoint, 9)) {
+      const stage9StartTime = Date.now();
       await checkForInterruption(documentId);
       broadcast(9, entityIdByName.size, 'Processing character state facets...');
-      logger.info({ documentId }, 'Stage 9: Attaching state facets to CharacterStates');
+      logStageStart(childLogger, 9, 'CharacterState Facet Attachment', {
+        entityCount: entityIdByName.size,
+      });
 
       await processStateFacetAttachment(
         documentId,
@@ -1536,24 +1568,31 @@ export const multiStagePipeline = {
         entityIdByName,
       );
 
-      logger.info({ documentId }, 'Stage 9 complete: State facets attached');
+      const stage9DurationMs = Date.now() - stage9StartTime;
+      logStageComplete(childLogger, 9, 'CharacterState Facet Attachment', stage9DurationMs, {});
+
       await saveCheckpoint(documentId, { lastStageCompleted: 9 });
     } else {
-      logger.info({ documentId }, 'Skipping Stage 9 (already completed)');
+      childLogger.info('Skipping Stage 9 (already completed)');
     }
 
     // Stage 10: Conflict Detection
     if (shouldRunStage(checkpoint, 10)) {
+      const stage10StartTime = Date.now();
       await checkForInterruption(documentId);
       broadcast(10, entityIdByName.size, 'Detecting conflicts...');
-      logger.info({ documentId }, 'Stage 10: Detecting facet conflicts');
+      logStageStart(childLogger, 10, 'Conflict Detection', {
+        entityCount: entityIdByName.size,
+      });
 
       await detectFacetConflicts(documentId, userId);
 
-      logger.info({ documentId }, 'Stage 10 complete: Conflict detection done');
+      const stage10DurationMs = Date.now() - stage10StartTime;
+      logStageComplete(childLogger, 10, 'Conflict Detection', stage10DurationMs, {});
+
       await saveCheckpoint(documentId, { lastStageCompleted: 10 });
     } else {
-      logger.info({ documentId }, 'Skipping Stage 10 (already completed)');
+      childLogger.info('Skipping Stage 10 (already completed)');
     }
 
     await generateEntityDescriptions(documentId, userId, entityIdByName);
@@ -1564,6 +1603,18 @@ export const multiStagePipeline = {
     // Count unique characters with arcs
     const uniqueCharactersWithArcs = new Set(
       (higherOrderResult?.arcPhases || []).map((p) => p.characterId),
+    );
+
+    const pipelineDurationMs = Date.now() - pipelineStartTime;
+    childLogger.info(
+      {
+        durationMs: pipelineDurationMs,
+        entityCount: entityIdByName.size,
+        relationshipCount: allRelationships.length,
+        threadCount: higherOrderResult?.narrativeThreads.length || 0,
+        arcCount: uniqueCharactersWithArcs.size,
+      },
+      'Analysis pipeline completed',
     );
 
     return {

@@ -28,6 +28,7 @@ import type {
   StoryNodeType,
 } from '../../types/storyNodes';
 import { logger } from '../../utils/logger';
+import { logLLMCall } from '../../utils/logHelpers';
 import { getGeminiClient } from './core';
 import {
   stage1ExtractEntitiesSchema,
@@ -396,6 +397,20 @@ export async function extractEntitiesFromBatch(
 
       const matchCount = parsed.entities.filter((e) => e.existingMatch).length;
       const signalCount = parsed.mergeSignals?.length ?? 0;
+
+      // Log LLM call with token metrics
+      const inputTokens = result.usageMetadata?.promptTokenCount || estimatedInputTokens;
+      const outputTokens = result.usageMetadata?.candidatesTokenCount || Math.ceil(responseLength / charsPerToken);
+
+      logLLMCall(logger, {
+        operation: 'extractEntitiesFromBatch',
+        model: extractEntitiesPrompt.model,
+        promptTokens: inputTokens,
+        responseTokens: outputTokens,
+        durationMs: elapsed,
+        prompt: process.env.LOG_LEVEL === 'debug' ? prompt.slice(0, 500) : undefined,
+        response: process.env.LOG_LEVEL === 'debug' ? result.text?.slice(0, 500) : undefined,
+      });
 
       logger.info(
         {
@@ -825,6 +840,7 @@ RULES:
     'Stage 6: Output budget validated',
   );
 
+  const callStartTime = Date.now();
   try {
     const result = await client.models.generateContent({
       model: 'gemini-2.5-flash',
@@ -833,6 +849,20 @@ RULES:
         responseMimeType: 'application/json',
         responseJsonSchema: stage4ExtractRelationshipsSchema,
       },
+    });
+    const durationMs = Date.now() - callStartTime;
+
+    const inputTokens = result.usageMetadata?.promptTokenCount || Math.ceil(prompt.length / charsPerToken);
+    const outputTokens = result.usageMetadata?.candidatesTokenCount || estimatedOutputTokens;
+
+    logLLMCall(logger, {
+      operation: 'extractRelationshipsFromBatch',
+      model: 'gemini-2.5-flash',
+      promptTokens: inputTokens,
+      responseTokens: outputTokens,
+      durationMs,
+      prompt: process.env.LOG_LEVEL === 'debug' ? prompt.slice(0, 500) : undefined,
+      response: process.env.LOG_LEVEL === 'debug' ? result.text?.slice(0, 500) : undefined,
     });
 
     const parsed = parseResponse<Stage4RelationshipsResult>(
@@ -911,6 +941,7 @@ export async function extractCrossSegmentRelationships(
     existingRelationships,
   });
 
+  const callStartTime = Date.now();
   try {
     const result = await client.models.generateContent({
       model: extractCrossSegmentRelationshipsPrompt.model,
@@ -919,6 +950,21 @@ export async function extractCrossSegmentRelationships(
         responseMimeType: 'application/json',
         responseJsonSchema: stage4ExtractRelationshipsSchema,
       },
+    });
+    const durationMs = Date.now() - callStartTime;
+
+    const modelConfig = getTextModelConfig(extractCrossSegmentRelationshipsPrompt.model);
+    const inputTokens = result.usageMetadata?.promptTokenCount || Math.ceil(prompt.length / modelConfig.charsPerToken);
+    const outputTokens = result.usageMetadata?.candidatesTokenCount || Math.ceil((result.text?.length || 0) / modelConfig.charsPerToken);
+
+    logLLMCall(logger, {
+      operation: 'extractCrossSegmentRelationships',
+      model: extractCrossSegmentRelationshipsPrompt.model,
+      promptTokens: inputTokens,
+      responseTokens: outputTokens,
+      durationMs,
+      prompt: process.env.LOG_LEVEL === 'debug' ? prompt.slice(0, 500) : undefined,
+      response: process.env.LOG_LEVEL === 'debug' ? result.text?.slice(0, 500) : undefined,
     });
 
     const parsed = parseResponse<Stage4RelationshipsResult>(
@@ -1003,6 +1049,7 @@ export async function analyzeHigherOrder(
     documentSummary,
   });
 
+  const callStartTime = Date.now();
   try {
     const result = await client.models.generateContent({
       model: analyzeHigherOrderPrompt.model,
@@ -1011,6 +1058,21 @@ export async function analyzeHigherOrder(
         responseMimeType: 'application/json',
         responseJsonSchema: stage5HigherOrderSchema,
       },
+    });
+    const durationMs = Date.now() - callStartTime;
+
+    const modelConfig = getTextModelConfig(analyzeHigherOrderPrompt.model);
+    const inputTokens = result.usageMetadata?.promptTokenCount || Math.ceil(prompt.length / modelConfig.charsPerToken);
+    const outputTokens = result.usageMetadata?.candidatesTokenCount || Math.ceil((result.text?.length || 0) / modelConfig.charsPerToken);
+
+    logLLMCall(logger, {
+      operation: 'analyzeHigherOrder',
+      model: analyzeHigherOrderPrompt.model,
+      promptTokens: inputTokens,
+      responseTokens: outputTokens,
+      durationMs,
+      prompt: process.env.LOG_LEVEL === 'debug' ? prompt.slice(0, 500) : undefined,
+      response: process.env.LOG_LEVEL === 'debug' ? result.text?.slice(0, 500) : undefined,
     });
 
     const parsed = parseResponse<Stage5HigherOrderResult>(
@@ -1123,6 +1185,7 @@ export async function detectContradictionsInBatch(
     facets,
   });
 
+  const callStartTime = Date.now();
   try {
     const result = await client.models.generateContent({
       model: detectContradictionsPrompt.model,
@@ -1131,6 +1194,21 @@ export async function detectContradictionsInBatch(
         responseMimeType: 'application/json',
         responseJsonSchema: stage10DetectContradictionsSchema,
       },
+    });
+    const durationMs = Date.now() - callStartTime;
+
+    const modelConfig = getTextModelConfig(detectContradictionsPrompt.model);
+    const inputTokens = result.usageMetadata?.promptTokenCount || Math.ceil(prompt.length / modelConfig.charsPerToken);
+    const outputTokens = result.usageMetadata?.candidatesTokenCount || Math.ceil((result.text?.length || 0) / modelConfig.charsPerToken);
+
+    logLLMCall(logger, {
+      operation: 'detectContradictionsInBatch',
+      model: detectContradictionsPrompt.model,
+      promptTokens: inputTokens,
+      responseTokens: outputTokens,
+      durationMs,
+      prompt: process.env.LOG_LEVEL === 'debug' ? prompt.slice(0, 500) : undefined,
+      response: process.env.LOG_LEVEL === 'debug' ? result.text?.slice(0, 500) : undefined,
     });
 
     const parsed = parseResponse<Stage10ContradictionResult[]>(
