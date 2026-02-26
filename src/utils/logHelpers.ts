@@ -1,10 +1,18 @@
 /**
  * Reusable logging patterns for consistent instrumentation.
+ *
+ * Standard mode (LOG_VERBOSE=false):
+ *   - INFO: Token counts, duration, cost only
+ *   - DEBUG: Adds 500-char truncated previews
+ *
+ * Verbose mode (LOG_VERBOSE=true, LOCAL ONLY):
+ *   - Logs FULL prompts and responses
+ *   - Blocked in production for PII safety
  */
 
 import type { Logger } from 'pino';
-import { aiLogger, generateAICallId } from './logger';
 import { estimateCost } from './costEstimation';
+import { isVerboseLoggingEnabled } from '../config/logging';
 
 interface LLMCallMetadata {
   operation: string;
@@ -16,54 +24,64 @@ interface LLMCallMetadata {
   response?: string;
 }
 
+/**
+ * Log LLM call with token counts and cost tracking.
+ *
+ * Token counts are REAL data from API usageMetadata when available.
+ * Fallback estimates are only used if API doesn't report counts.
+ *
+ * Cost estimates use verified pricing from https://ai.google.dev/pricing
+ *
+ * Respects LOG_VERBOSE env var (local only):
+ * - false: Truncated 500-char previews at DEBUG
+ * - true: Full prompts/responses (never in production)
+ */
 export function logLLMCall(
-  mainLogger: Logger,
+  logger: Logger,
   metadata: LLMCallMetadata,
-): string {
-  const aiCallId = generateAICallId();
-  const { prompt, response, ...metadataWithoutContent } = metadata;
+): void {
+  const { prompt, response, operation, model, promptTokens, responseTokens, durationMs } = metadata;
+  const isVerbose = isVerboseLoggingEnabled();
 
-  // Main log: metadata only
-  mainLogger.info(
+  // INFO: Token counts and cost (always)
+  logger.info(
     {
-      operation: metadata.operation,
-      aiCallId,
-      inputTokens: metadata.promptTokens,
-      outputTokens: metadata.responseTokens,
-      totalTokens: metadata.promptTokens + metadata.responseTokens,
-      durationMs: metadata.durationMs,
-      costEstimate: estimateCost(
-        metadata.promptTokens,
-        metadata.responseTokens,
-        metadata.model,
-      ),
+      operation,
+      model,
+      inputTokens: promptTokens,
+      outputTokens: responseTokens,
+      totalTokens: promptTokens + responseTokens,
+      durationMs,
+      costEstimate: estimateCost(promptTokens, responseTokens, model),
     },
     'LLM call completed',
   );
 
-  // AI log: full details (if enabled)
-  if (prompt && response) {
-    const bindings = mainLogger.bindings();
-    aiLogger.debug(
-      {
-        aiCallId,
-        requestId: bindings.requestId,
-        documentId: bindings.documentId,
-        operation: metadata.operation,
-        model: metadata.model,
-        prompt,
-        response,
-        metadata: {
-          promptTokens: metadata.promptTokens,
-          responseTokens: metadata.responseTokens,
-          durationMs: metadata.durationMs,
+  // DEBUG: Prompt/response content
+  if (prompt && response && logger.level === 'debug') {
+    if (isVerbose) {
+      // VERBOSE: Full content (local only)
+      logger.debug(
+        {
+          operation,
+          prompt,
+          response,
+          _verbose: true,
         },
-      },
-      'AI interaction',
-    );
+        'LLM call (VERBOSE)',
+      );
+    } else {
+      // STANDARD: Truncated previews only
+      logger.debug(
+        {
+          operation,
+          promptPreview: prompt.slice(0, 500),
+          responsePreview: response.slice(0, 500),
+        },
+        'LLM call preview',
+      );
+    }
   }
-
-  return aiCallId;
 }
 
 export function logStageStart(
@@ -100,4 +118,50 @@ export function logStageComplete(
     },
     `Stage ${stage}: ${stageName} completed`,
   );
+}
+
+/**
+ * Log entity extraction results.
+ *
+ * Standard mode: Counts only (PII-safe)
+ * Verbose mode: Includes entity names and sample facets (local only)
+ */
+export function logEntityExtraction(
+  logger: Logger,
+  entities: Array<{ name: string; type: string; facets: Array<{ type: string; content: string }> }>,
+  context?: Record<string, any>
+): void {
+  const isVerbose = isVerboseLoggingEnabled();
+
+  if (isVerbose) {
+    // VERBOSE: Include actual entity names and facets
+    logger.debug(
+      {
+        entityCount: entities.length,
+        entities: entities.map((e) => ({
+          name: e.name,
+          type: e.type,
+          facetCount: e.facets.length,
+          sampleFacets: e.facets.slice(0, 3).map((f) => ({ type: f.type, content: f.content })),
+        })),
+        _verbose: true,
+        ...context,
+      },
+      'Entities extracted (VERBOSE)',
+    );
+  } else {
+    // STANDARD: Counts only (PII-safe)
+    logger.debug(
+      {
+        entityCount: entities.length,
+        averageFacetsPerEntity: (entities.reduce((sum, e) => sum + e.facets.length, 0) / entities.length).toFixed(1),
+        typeDistribution: entities.reduce((acc, e) => {
+          acc[e.type] = (acc[e.type] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>),
+        ...context,
+      },
+      'Entities extracted (counts)',
+    );
+  }
 }

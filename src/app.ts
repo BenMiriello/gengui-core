@@ -4,6 +4,7 @@ import express from 'express';
 import helmet from 'helmet';
 import { env } from './config/env';
 import { errorHandler } from './middleware/errorHandler';
+import { requestLogger } from './middleware/requestLogger';
 import adminRoutes from './routes/admin';
 import authRoutes from './routes/auth';
 import customStylePromptsRoutes from './routes/customStylePrompts';
@@ -68,16 +69,17 @@ export function createApp() {
     });
   });
 
-  app.use((req, _res, next) => {
-    // Skip logging for high-frequency endpoints
+  // Request logging with requestId correlation
+  app.use((req, res, next) => {
     const isHeartbeat = req.path.includes('/heartbeat');
     const isMediaUrl = req.path.match(/\/api\/media\/[^/]+\/url$/);
     const isHealthCheck = req.path === '/health';
 
     if (!isHeartbeat && !isMediaUrl && !isHealthCheck) {
-      logger.info({ method: req.method, path: req.path }, 'Request');
+      requestLogger(req, res, next);
+    } else {
+      next();
     }
-    next();
   });
 
   app.use('/api', authRoutes);

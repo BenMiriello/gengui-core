@@ -67,7 +67,15 @@ export class AuthService {
     const token = await this.createEmailVerificationToken(user.id, email);
     await emailService.sendVerificationEmail(email, token);
 
-    logger.info({ userId: user.id, email, username }, 'User signed up');
+    logger.info(
+      {
+        event: 'auth_signup',
+        userId: user.id,
+        email,
+        username,
+      },
+      'User signed up',
+    );
 
     return {
       id: user.id,
@@ -91,6 +99,14 @@ export class AuthService {
       .limit(1);
 
     if (!user || !user.passwordHash) {
+      logger.warn(
+        {
+          event: 'auth_login_failed',
+          attemptedIdentifier: emailOrUsername,
+          reason: 'user_not_found',
+        },
+        'Login attempt failed: user not found',
+      );
       throw new UnauthorizedError('Invalid credentials');
     }
 
@@ -125,7 +141,12 @@ export class AuthService {
           .where(eq(users.id, user.id));
 
         logger.warn(
-          { userId: user.id, attempts: newAttempts },
+          {
+            event: 'auth_account_locked',
+            userId: user.id,
+            attempts: newAttempts,
+            lockedUntil: lockedUntil.toISOString(),
+          },
           'Account locked due to failed login attempts',
         );
         throw new UnauthorizedError(
@@ -136,6 +157,17 @@ export class AuthService {
           .update(users)
           .set({ failedLoginAttempts: newAttempts })
           .where(eq(users.id, user.id));
+
+        logger.warn(
+          {
+            event: 'auth_login_failed',
+            userId: user.id,
+            reason: 'invalid_password',
+            attempts: newAttempts,
+            attemptsRemaining,
+          },
+          'Login attempt failed: invalid password',
+        );
 
         if (newAttempts >= 5) {
           let message = `Invalid credentials. ${attemptsRemaining} attempt${attemptsRemaining !== 1 ? 's' : ''} remaining.`;
@@ -156,7 +188,15 @@ export class AuthService {
       .set({ failedLoginAttempts: 0, lockedUntil: null })
       .where(eq(users.id, user.id));
 
-    logger.info({ userId: user.id }, 'User logged in');
+    logger.info(
+      {
+        event: 'auth_login',
+        userId: user.id,
+        method: 'password',
+        emailVerified: user.emailVerified,
+      },
+      'User logged in',
+    );
 
     return {
       id: user.id,
@@ -236,8 +276,23 @@ export class AuthService {
   }
 
   async deleteSession(token: string) {
+    const [session] = await db
+      .select({ userId: sessions.userId })
+      .from(sessions)
+      .where(eq(sessions.token, token))
+      .limit(1);
+
     await db.delete(sessions).where(eq(sessions.token, token));
-    logger.info('Session deleted');
+
+    if (session) {
+      logger.info(
+        {
+          event: 'auth_logout',
+          userId: session.userId,
+        },
+        'User logged out',
+      );
+    }
   }
 
   async deleteAllUserSessions(userId: string) {

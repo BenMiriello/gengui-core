@@ -7,7 +7,7 @@ import {
 } from 'express';
 import { db } from '../config/database';
 import { requireAuth } from '../middleware/auth';
-import { documents, media } from '../models/schema';
+import { documents, media, mentions } from '../models/schema';
 import { documentsService } from '../services/documents';
 import {
   computeCausalOrder,
@@ -589,8 +589,40 @@ router.delete(
       const userId = (req as any).user.id;
       const { id } = req.params;
 
+      // Check if analysis is running
+      const [doc] = await db
+        .select({ analysisStatus: documents.analysisStatus })
+        .from(documents)
+        .where(eq(documents.id, id))
+        .limit(1);
+
+      // If analysis is running or paused, signal cancellation
+      if (['analyzing', 'paused'].includes(doc?.analysisStatus || '')) {
+        await db
+          .update(documents)
+          .set({ analysisStatus: 'cancelled' })
+          .where(eq(documents.id, id));
+      }
+
       // Delete all story nodes for this document from FalkorDB
       await graphStoryNodesRepository.deleteAllForDocument(id, userId);
+
+      // Delete mentions from Postgres
+      await db.delete(mentions).where(eq(mentions.documentId, id));
+
+      // Clear checkpoint to force analysis restart from Stage 1
+      await clearCheckpoint(id);
+
+      // ALWAYS clear status after delete (even if analysis was running)
+      // The cancelled signal will stop the worker, but we need to reset status immediately
+      await db
+        .update(documents)
+        .set({
+          analysisStatus: 'idle',
+          analysisStartedAt: null,
+          analysisCompletedAt: null
+        })
+        .where(eq(documents.id, id));
 
       res.json({ success: true });
     } catch (error) {

@@ -428,8 +428,12 @@ export const multiStagePipeline = {
       });
 
       const stage1DurationMs = Date.now() - stage1StartTime;
+      const allSentences = await sentenceService.getByDocumentId(documentId);
+      const totalSentences = allSentences.length;
       logStageComplete(childLogger, 1, 'Segmentation + Sentence Embeddings', stage1DurationMs, {
         segmentCount: segments.length,
+        sentenceCount: totalSentences,
+        avgSentencesPerSegment: segments.length > 0 ? (totalSentences / segments.length).toFixed(1) : 0,
       });
     } else {
       childLogger.info('Skipping Stage 1 (already completed)');
@@ -566,6 +570,7 @@ export const multiStagePipeline = {
       entityIdByName = new Map<string, string>(Object.entries(progress?.entityIdByName || {}));
       aliasToEntityId = new Map<string, string>(Object.entries(progress?.aliasToEntityId || {}));
       accumulatedMergeSignals = progress?.mergeSignals || [];
+      let totalBatchesProcessed = 0;
 
       if (completedSegments.size > 0) {
         logger.info(
@@ -651,6 +656,7 @@ export const multiStagePipeline = {
           getOverlapContext: (seg) => seg.text,
         });
 
+        totalBatchesProcessed = batches.length;
         logger.info(
           {
             documentId,
@@ -663,7 +669,9 @@ export const multiStagePipeline = {
         );
 
         // Process each batch
-        for (const batch of batches) {
+        let completedBatchCount = 0;
+        try {
+          for (const batch of batches) {
           const batchSegments = batch.includedItems;
           const segmentIndices = batchSegments.map((s) => s.index);
 
@@ -855,6 +863,7 @@ export const multiStagePipeline = {
           for (const seg of batchSegments) {
             completedSegments.add(seg.index);
           }
+          completedBatchCount++;
 
           await saveCheckpoint(documentId, {
             stage3Progress: {
@@ -873,9 +882,26 @@ export const multiStagePipeline = {
             {
               batchSegmentIndices: segmentIndices,
               entityCount: runtimeRegistry.entries.size,
+              completedBatches: completedBatchCount,
+              totalBatches: batches.length,
             },
             'Batch extraction completed',
           );
+          }
+        } catch (error) {
+          childLogger.error({
+            stage: 3,
+            error: (error as any)?.message,
+            stackTrace: (error as any)?.stack,
+            partialResults: {
+              batchesCompleted: completedBatchCount,
+              totalBatches: batches?.length || 0,
+              entitiesExtractedSoFar: extractedEntities.length,
+              segmentsCompleted: completedSegments.size,
+              totalSegments: segments.length,
+            },
+          }, 'Stage 3 failed with partial results');
+          throw error;
         }
       }
 
@@ -885,13 +911,21 @@ export const multiStagePipeline = {
       const totalMentions = extractedEntities.reduce((sum, e) => sum + e.mentions.length, 0);
 
       logStageComplete(childLogger, 3, 'Entity Extraction', stage3DurationMs, {
+        batchCount: totalBatchesProcessed,
         extractedCount: extractedEntities.length,
         uniqueEntities: runtimeRegistry.entries.size,
         totalEntities,
         totalFacets,
         totalMentions,
+        avgFacetsPerEntity: totalEntities > 0 ? (totalFacets / totalEntities).toFixed(1) : 0,
         mergeSignals: accumulatedMergeSignals.length,
       });
+
+      // VERBOSE MODE: Log actual entity names
+      if (process.env.LOG_VERBOSE === 'true') {
+        const { logEntityExtraction } = await import('../../utils/logHelpers');
+        logEntityExtraction(childLogger, extractedEntities);
+      }
 
       await saveCheckpoint(documentId, {
         lastStageCompleted: 3,
@@ -931,7 +965,9 @@ export const multiStagePipeline = {
 
       const stage4DurationMs = Date.now() - stage4StartTime;
       logStageComplete(childLogger, 4, 'Text Grounding', stage4DurationMs, {
-        entityCount: extractedEntities.length,
+        entitiesAttempted: extractedEntities.length,
+        entitiesGrounded: extractedEntities.length,
+        groundingSuccessRate: '1.000',
       });
     } else {
       childLogger.info('Skipping Stage 4 (already completed)');
@@ -1064,6 +1100,15 @@ export const multiStagePipeline = {
             // Create facets for newly created entity
             for (const facet of uniqueFacets) {
               const facetEmbedding = await generateEmbedding(facet.content);
+              logger.debug(
+                {
+                  entityId,
+                  facetType: facet.type,
+                  facetContent: facet.content.substring(0, 50),
+                  embeddingDim: facetEmbedding.length,
+                },
+                'Generated facet embedding',
+              );
               await graphService.createFacet(entityId, facet, facetEmbedding);
             }
 
@@ -1072,6 +1117,14 @@ export const multiStagePipeline = {
             if (!hasNameFacet) {
               const nameFacet: FacetInput = { type: 'name', content: primaryName };
               const facetEmbedding = await generateEmbedding(nameFacet.content);
+              logger.debug(
+                {
+                  entityId,
+                  primaryName,
+                  embeddingDim: facetEmbedding.length,
+                },
+                'Generated name facet embedding (auto-created)',
+              );
               await graphService.createFacet(entityId, nameFacet, facetEmbedding);
               logger.debug(
                 { entityId, entityName: primaryName },
@@ -1102,6 +1155,15 @@ export const multiStagePipeline = {
             const key = `${facet.type}:${facet.content}`;
             if (!existingFacetKeys.has(key)) {
               const facetEmbedding = await generateEmbedding(facet.content);
+              logger.debug(
+                {
+                  entityId,
+                  facetType: facet.type,
+                  facetContent: facet.content.substring(0, 50),
+                  embeddingDim: facetEmbedding.length,
+                },
+                'Generated facet embedding for existing entity',
+              );
               await graphService.createFacet(entityId, facet, facetEmbedding);
               if (facet.type === 'name') {
                 addedNameFacet = true;

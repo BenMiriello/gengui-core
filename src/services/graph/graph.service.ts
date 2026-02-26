@@ -917,7 +917,7 @@ class GraphService {
     documentId: string,
     userId: string,
   ): Promise<void> {
-    // Also delete narrative threads for this document
+    // Delete narrative threads for this document
     await this.query(
       `
       MATCH (nt:NarrativeThread)
@@ -926,12 +926,27 @@ class GraphService {
       `,
       { documentId, userId },
     );
-    const cypher = `
+
+    // Delete facets attached to story nodes
+    await this.query(
+      `
+      MATCH (n:StoryNode)-[:HAS_FACET]->(f:Facet)
+      WHERE n.documentId = $documentId AND n.userId = $userId
+      DELETE f
+      `,
+      { documentId, userId },
+    );
+
+    // Delete story nodes and their edges
+    await this.query(
+      `
       MATCH (n:StoryNode)
       WHERE n.documentId = $documentId AND n.userId = $userId
       DETACH DELETE n
-    `;
-    await this.query(cypher, { documentId, userId });
+      `,
+      { documentId, userId },
+    );
+
     logger.info(
       { documentId, userId },
       'All story nodes deleted from FalkorDB',

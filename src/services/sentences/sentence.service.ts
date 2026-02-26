@@ -113,14 +113,13 @@ export const sentenceService = {
     embedding: number[],
   ): Promise<void> {
     try {
-      await db.insert(sentenceEmbeddings).values({
-        documentId,
-        segmentId,
-        sentenceStart: sentence.start,
-        sentenceEnd: sentence.end,
-        contentHash: sentence.contentHash,
-        embedding: JSON.stringify(embedding),
-      });
+      const embeddingStr = `[${embedding.join(',')}]`;
+      await db.execute(sql`
+        INSERT INTO sentence_embeddings
+          (document_id, segment_id, sentence_start, sentence_end, content_hash, embedding)
+        VALUES
+          (${documentId}, ${segmentId}, ${sentence.start}, ${sentence.end}, ${sentence.contentHash}, ${embeddingStr}::vector)
+      `);
     } catch (err) {
       logger.warn(
         { documentId, segmentId, error: err },
@@ -137,20 +136,17 @@ export const sentenceService = {
   ): Promise<Array<{ contentHash: string; embedding: number[] }>> {
     if (hashes.length === 0) return [];
 
-    const rows = await db
-      .selectDistinct({
-        contentHash: sentenceEmbeddings.contentHash,
-        embedding: sentenceEmbeddings.embedding,
-      })
-      .from(sentenceEmbeddings)
-      .where(inArray(sentenceEmbeddings.contentHash, hashes));
+    const rows = await db.execute(sql`
+      SELECT DISTINCT
+        content_hash,
+        embedding::text as embedding_text
+      FROM sentence_embeddings
+      WHERE content_hash IN (${sql.join(hashes.map((h) => sql`${h}`), sql`, `)})
+    `);
 
-    return rows.map((row) => ({
-      contentHash: row.contentHash,
-      embedding:
-        typeof row.embedding === 'string'
-          ? JSON.parse(row.embedding)
-          : row.embedding,
+    return (rows as any[]).map((row) => ({
+      contentHash: row.content_hash,
+      embedding: JSON.parse(row.embedding_text),
     }));
   },
 
@@ -160,12 +156,22 @@ export const sentenceService = {
   async getByDocumentId(
     documentId: string,
   ): Promise<StoredSentenceEmbedding[]> {
-    const rows = await db
-      .select()
-      .from(sentenceEmbeddings)
-      .where(eq(sentenceEmbeddings.documentId, documentId));
+    const rows = await db.execute(sql`
+      SELECT
+        id,
+        document_id,
+        segment_id,
+        sentence_start,
+        sentence_end,
+        content_hash,
+        embedding::text as embedding_text,
+        created_at,
+        updated_at
+      FROM sentence_embeddings
+      WHERE document_id = ${documentId}
+    `);
 
-    return rows.map(rowToStoredSentence);
+    return (rows as any[]).map(rowToStoredSentenceFromRaw);
   },
 
   /**
@@ -177,17 +183,23 @@ export const sentenceService = {
   ): Promise<StoredSentenceEmbedding[]> {
     if (segmentIds.length === 0) return [];
 
-    const rows = await db
-      .select()
-      .from(sentenceEmbeddings)
-      .where(
-        and(
-          eq(sentenceEmbeddings.documentId, documentId),
-          inArray(sentenceEmbeddings.segmentId, segmentIds),
-        ),
-      );
+    const rows = await db.execute(sql`
+      SELECT
+        id,
+        document_id,
+        segment_id,
+        sentence_start,
+        sentence_end,
+        content_hash,
+        embedding::text as embedding_text,
+        created_at,
+        updated_at
+      FROM sentence_embeddings
+      WHERE document_id = ${documentId}
+        AND segment_id IN (${sql.join(segmentIds.map((id) => sql`${id}`), sql`, `)})
+    `);
 
-    return rows.map(rowToStoredSentence);
+    return (rows as any[]).map(rowToStoredSentenceFromRaw);
   },
 
   /**
@@ -334,5 +346,19 @@ function rowToStoredSentence(
         : row.embedding,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+  };
+}
+
+function rowToStoredSentenceFromRaw(row: any): StoredSentenceEmbedding {
+  return {
+    id: row.id,
+    documentId: row.document_id,
+    segmentId: row.segment_id,
+    sentenceStart: row.sentence_start,
+    sentenceEnd: row.sentence_end,
+    contentHash: row.content_hash,
+    embedding: JSON.parse(row.embedding_text),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   };
 }

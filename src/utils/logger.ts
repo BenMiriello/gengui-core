@@ -1,23 +1,53 @@
 import pino from 'pino';
 import { randomUUID } from 'node:crypto';
-import { getMainLogConfig, getAILogConfig } from '../config/logging';
+import { getLogConfig } from '../config/logging';
+import { createRotatingLogStream } from './logStream';
 
-export const logger = pino({
-  ...getMainLogConfig(),
-  serializers: {
-    error: pino.stdSerializers.err,
-  },
-  redact: {
-    paths: ['password', 'token', 'authorization', 'accessKey', 'secretKey'],
-    remove: true,
-  },
-});
+const isDevelopment = process.env.NODE_ENV === 'development';
 
-export const aiLogger = pino(getAILogConfig());
+// In development, use multistream for both console and rotating file
+const loggerInstance = isDevelopment
+  ? pino(
+      {
+        level: process.env.LOG_LEVEL || 'debug',
+        serializers: {
+          error: pino.stdSerializers.err,
+        },
+        redact: {
+          paths: ['password', 'token', 'authorization', 'accessKey', 'secretKey'],
+          remove: true,
+        },
+      },
+      pino.multistream([
+        {
+          level: process.env.LOG_LEVEL || 'debug',
+          stream: pino.transport({
+            target: 'pino-pretty',
+            options: {
+              colorize: true,
+              translateTime: 'HH:MM:ss',
+              ignore: 'pid,hostname',
+            },
+          }),
+        },
+        {
+          level: process.env.LOG_LEVEL || 'debug',
+          stream: createRotatingLogStream(),
+        },
+      ])
+    )
+  : pino({
+      ...getLogConfig(),
+      serializers: {
+        error: pino.stdSerializers.err,
+      },
+      redact: {
+        paths: ['password', 'token', 'authorization', 'accessKey', 'secretKey'],
+        remove: true,
+      },
+    });
 
-export function generateAICallId(): string {
-  return `ai_${randomUUID()}`;
-}
+export const logger = loggerInstance;
 
 export function generateRequestId(): string {
   return randomUUID();

@@ -63,6 +63,7 @@ export async function updateNodes(
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    const callStartTime = Date.now();
     try {
       const result = await client.models.generateContent({
         model: updateNodesPrompt.model,
@@ -72,9 +73,24 @@ export async function updateNodes(
           responseJsonSchema: updateNodesResponseSchema,
         },
       });
+      const durationMs = Date.now() - callStartTime;
 
       const parsed = parseResponse<NodeUpdatesResult>(result, 'updateNodes');
       validateUpdateResponse(parsed, existingNodes);
+
+      const modelConfig = getTextModelConfig(updateNodesPrompt.model);
+      const inputTokens = result.usageMetadata?.promptTokenCount || Math.ceil(prompt.length / modelConfig.charsPerToken);
+      const outputTokens = result.usageMetadata?.candidatesTokenCount || Math.ceil((result.text?.length || 0) / modelConfig.charsPerToken);
+
+      logLLMCall(logger, {
+        operation: 'updateNodes',
+        model: updateNodesPrompt.model,
+        promptTokens: inputTokens,
+        responseTokens: outputTokens,
+        durationMs,
+        prompt: process.env.LOG_LEVEL === 'debug' ? prompt.slice(0, 500) : undefined,
+        response: process.env.LOG_LEVEL === 'debug' ? result.text?.slice(0, 500) : undefined,
+      });
 
       logger.info(
         {
@@ -93,6 +109,7 @@ export async function updateNodes(
           attempt: attempt + 1,
           maxRetries: MAX_RETRIES,
           error: error?.message,
+          durationMs: Date.now() - callStartTime,
         },
         'updateNodes attempt failed',
       );
@@ -437,6 +454,7 @@ export async function extractEntitiesFromBatch(
           maxRetries: MAX_RETRIES,
           error: error?.message,
           elapsedMs: Date.now() - startTime,
+          retryDelayMs: attempt < MAX_RETRIES - 1 ? RETRY_DELAYS[attempt] : undefined,
         },
         'Stage 3 batch extraction attempt failed, retrying',
       );
@@ -514,6 +532,7 @@ export async function resolveEntity(
 
   const prompt = resolveEntityPrompt.build(input);
 
+  const callStartTime = Date.now();
   try {
     const result = await client.models.generateContent({
       model: resolveEntityPrompt.model,
@@ -523,11 +542,26 @@ export async function resolveEntity(
         responseJsonSchema: stage3ResolveEntitySchema,
       },
     });
+    const durationMs = Date.now() - callStartTime;
 
     const parsed = parseResponse<Stage3ResolutionResult>(
       result,
       'resolveEntity',
     );
+
+    const modelConfig = getTextModelConfig(resolveEntityPrompt.model);
+    const inputTokens = result.usageMetadata?.promptTokenCount || Math.ceil(prompt.length / modelConfig.charsPerToken);
+    const outputTokens = result.usageMetadata?.candidatesTokenCount || Math.ceil((result.text?.length || 0) / modelConfig.charsPerToken);
+
+    logLLMCall(logger, {
+      operation: 'resolveEntity',
+      model: resolveEntityPrompt.model,
+      promptTokens: inputTokens,
+      responseTokens: outputTokens,
+      durationMs,
+      prompt: process.env.LOG_LEVEL === 'debug' ? prompt.slice(0, 500) : undefined,
+      response: process.env.LOG_LEVEL === 'debug' ? result.text?.slice(0, 500) : undefined,
+    });
 
     logger.info(
       {
@@ -540,6 +574,12 @@ export async function resolveEntity(
 
     return parsed;
   } catch (error) {
+    logger.error({
+      operation: 'resolveEntity',
+      status: 'failed',
+      error: (error as any)?.message,
+      durationMs: Date.now() - callStartTime,
+    }, 'LLM call failed');
     throw handleApiError(error, 'Stage 3 resolution');
   }
 }
@@ -588,6 +628,7 @@ export async function batchResolveEntities(
     documentContext,
   });
 
+  const callStartTime = Date.now();
   try {
     const result = await client.models.generateContent({
       model: batchResolveEntitiesPrompt.model,
@@ -597,11 +638,26 @@ export async function batchResolveEntities(
         responseJsonSchema: stage3BatchResolveSchema,
       },
     });
+    const durationMs = Date.now() - callStartTime;
 
     const parsed = parseResponse<Stage3BatchResolutionResult>(
       result,
       'batchResolveEntities',
     );
+
+    const modelConfig = getTextModelConfig(batchResolveEntitiesPrompt.model);
+    const inputTokens = result.usageMetadata?.promptTokenCount || Math.ceil(prompt.length / modelConfig.charsPerToken);
+    const outputTokens = result.usageMetadata?.candidatesTokenCount || Math.ceil((result.text?.length || 0) / modelConfig.charsPerToken);
+
+    logLLMCall(logger, {
+      operation: 'batchResolveEntities',
+      model: batchResolveEntitiesPrompt.model,
+      promptTokens: inputTokens,
+      responseTokens: outputTokens,
+      durationMs,
+      prompt: process.env.LOG_LEVEL === 'debug' ? prompt.slice(0, 500) : undefined,
+      response: process.env.LOG_LEVEL === 'debug' ? result.text?.slice(0, 500) : undefined,
+    });
 
     logger.info(
       {
@@ -613,6 +669,12 @@ export async function batchResolveEntities(
 
     return parsed;
   } catch (error) {
+    logger.error({
+      operation: 'batchResolveEntities',
+      status: 'failed',
+      error: (error as any)?.message,
+      durationMs: Date.now() - callStartTime,
+    }, 'LLM call failed');
     throw handleApiError(error, 'Stage 3 batch resolution');
   }
 }
@@ -655,6 +717,7 @@ export async function extractRelationshipsFromSegment(
     resolvedEntities,
   });
 
+  const callStartTime = Date.now();
   try {
     const result = await client.models.generateContent({
       model: extractRelationshipsPrompt.model,
@@ -664,11 +727,26 @@ export async function extractRelationshipsFromSegment(
         responseJsonSchema: stage4ExtractRelationshipsSchema,
       },
     });
+    const durationMs = Date.now() - callStartTime;
 
     const parsed = parseResponse<Stage4RelationshipsResult>(
       result,
       'extractRelationshipsFromSegment',
     );
+
+    const modelConfig = getTextModelConfig(extractRelationshipsPrompt.model);
+    const inputTokens = result.usageMetadata?.promptTokenCount || Math.ceil(prompt.length / modelConfig.charsPerToken);
+    const outputTokens = result.usageMetadata?.candidatesTokenCount || Math.ceil((result.text?.length || 0) / modelConfig.charsPerToken);
+
+    logLLMCall(logger, {
+      operation: 'extractRelationshipsFromSegment',
+      model: extractRelationshipsPrompt.model,
+      promptTokens: inputTokens,
+      responseTokens: outputTokens,
+      durationMs,
+      prompt: process.env.LOG_LEVEL === 'debug' ? prompt.slice(0, 500) : undefined,
+      response: process.env.LOG_LEVEL === 'debug' ? result.text?.slice(0, 500) : undefined,
+    });
 
     logger.info(
       {
@@ -680,6 +758,12 @@ export async function extractRelationshipsFromSegment(
 
     return parsed;
   } catch (error) {
+    logger.error({
+      operation: 'extractRelationshipsFromSegment',
+      status: 'failed',
+      error: (error as any)?.message,
+      durationMs: Date.now() - callStartTime,
+    }, 'LLM call failed');
     throw handleApiError(error, 'Stage 4 relationship extraction');
   }
 }
@@ -1126,6 +1210,7 @@ export async function refineThreads(
     documentTitle,
   });
 
+  const callStartTime = Date.now();
   try {
     const result = await client.models.generateContent({
       model: refineThreadsPrompt.model,
@@ -1135,11 +1220,26 @@ export async function refineThreads(
         responseJsonSchema: stage5RefineThreadsSchema,
       },
     });
+    const durationMs = Date.now() - callStartTime;
 
     const parsed = parseResponse<Stage5ThreadRefinementResult>(
       result,
       'refineThreads',
     );
+
+    const modelConfig = getTextModelConfig(refineThreadsPrompt.model);
+    const inputTokens = result.usageMetadata?.promptTokenCount || Math.ceil(prompt.length / modelConfig.charsPerToken);
+    const outputTokens = result.usageMetadata?.candidatesTokenCount || Math.ceil((result.text?.length || 0) / modelConfig.charsPerToken);
+
+    logLLMCall(logger, {
+      operation: 'refineThreads',
+      model: refineThreadsPrompt.model,
+      promptTokens: inputTokens,
+      responseTokens: outputTokens,
+      durationMs,
+      prompt: process.env.LOG_LEVEL === 'debug' ? prompt.slice(0, 500) : undefined,
+      response: process.env.LOG_LEVEL === 'debug' ? result.text?.slice(0, 500) : undefined,
+    });
 
     logger.info(
       {
@@ -1151,6 +1251,12 @@ export async function refineThreads(
 
     return parsed;
   } catch (error) {
+    logger.error({
+      operation: 'refineThreads',
+      status: 'failed',
+      error: (error as any)?.message,
+      durationMs: Date.now() - callStartTime,
+    }, 'LLM call failed');
     throw handleApiError(error, 'Stage 5 thread refinement');
   }
 }

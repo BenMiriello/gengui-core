@@ -139,11 +139,15 @@ class TextAnalysisConsumer extends PubSubConsumer {
         error?.message || 'Operation failed. Please try again.';
       logger.error({ error, documentId, errorMessage }, 'Text analysis failed');
 
-      // Mark analysis as failed
+      // Mark analysis as failed and clear checkpoint
       if (updateMode !== 'true') {
         await db
           .update(documents)
-          .set({ analysisStatus: 'failed', analysisStartedAt: null })
+          .set({
+            analysisStatus: 'failed',
+            analysisStartedAt: null,
+            analysisCheckpoint: null,
+          })
           .where(eq(documents.id, documentId));
 
         // Broadcast status change

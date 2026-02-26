@@ -1,3 +1,5 @@
+import type { Logger } from 'pino';
+
 declare global {
   namespace Express {
     interface Request {
@@ -10,6 +12,8 @@ declare global {
         createdAt?: string;
       };
       sessionId?: string;
+      id?: string;
+      log?: Logger;
     }
   }
 }
