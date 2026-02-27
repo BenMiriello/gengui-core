@@ -46,13 +46,32 @@ interface ExtractEntitiesInput {
 
 /**
  * Format entity registry for prompt inclusion.
- * Tiered format based on available information.
+ * Compact single-line format reduces token usage by ~30-40%.
  */
-function formatEntityRegistry(registry: EntityRegistryEntry[]): string {
+function formatEntityRegistry(
+  registry: EntityRegistryEntry[],
+  useCompact = true,
+): string {
   if (!registry || registry.length === 0) {
     return 'No existing entities yet.';
   }
 
+  if (useCompact) {
+    return registry
+      .map((e) => {
+        let entry = `[${e.registryIndex}] ${e.type.toUpperCase()}: "${e.name}"`;
+        if (e.aliases && e.aliases.length > 0) {
+          entry += ` (aka: ${e.aliases.join(', ')})`;
+        }
+        if (e.summary) {
+          entry += ` | ${e.summary}`;
+        }
+        return entry;
+      })
+      .join('\n');
+  }
+
+  // Multi-line fallback (if compact causes issues)
   return registry
     .map((e) => {
       let entry = `[${e.registryIndex}] ${e.type.toUpperCase()}: "${e.name}"`;
@@ -83,7 +102,7 @@ function formatSegments(segments: SegmentInput[], totalSegments: number): string
 export const extractEntitiesPrompt: PromptDefinition<ExtractEntitiesInput> = {
   id: 'stage2-extract-entities-batch',
   version: 3,
-  model: process.env.ENTITY_EXTRACTION_MODEL || 'gemini-2.5-flash',
+  model: process.env.ENTITY_EXTRACTION_MODEL || 'gemini-2.5-flash-lite',
   description:
     'Stage 2: Extract entities with LLM-first merge detection (batch support)',
 

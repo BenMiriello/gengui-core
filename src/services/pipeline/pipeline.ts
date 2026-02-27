@@ -400,6 +400,47 @@ export const multiStagePipeline = {
       checkpoint = null;
     }
 
+    // Defensive: Validate checkpoint matches document state
+    if (checkpoint) {
+      const [doc] = await db
+        .select({
+          analysisStatus: documents.analysisStatus,
+          analysisCheckpoint: documents.analysisCheckpoint,
+        })
+        .from(documents)
+        .where(eq(documents.id, documentId))
+        .limit(1);
+
+      // If status is not analyzing/paused, checkpoint is stale
+      if (
+        doc?.analysisStatus !== 'analyzing' &&
+        doc?.analysisStatus !== 'paused'
+      ) {
+        childLogger.warn(
+          {
+            status: doc?.analysisStatus,
+            checkpointStage: checkpoint.lastStageCompleted,
+          },
+          'Found stale checkpoint for non-analyzing document - clearing',
+        );
+        await clearCheckpoint(documentId);
+        checkpoint = null;
+      }
+
+      // If checkpoint shows previous failure, clear for fresh start
+      if (checkpoint?.failedAtStage) {
+        childLogger.warn(
+          {
+            failedAtStage: checkpoint.failedAtStage,
+            reason: checkpoint.failureReason,
+          },
+          'Checkpoint shows previous failure - clearing for fresh start',
+        );
+        await clearCheckpoint(documentId);
+        checkpoint = null;
+      }
+    }
+
     if (checkpoint) {
       childLogger.info(
         { lastStageCompleted: checkpoint.lastStageCompleted },
@@ -483,7 +524,9 @@ export const multiStagePipeline = {
           const summary = await generateSegmentSummaryWithRetry(
             segmentText,
             index,
-            segments.length
+            segments.length,
+            userId,
+            documentId
           );
           return { segmentId: segment.id, summary };
         },
@@ -514,6 +557,8 @@ export const multiStagePipeline = {
       try {
         documentSummaryText = await generateDocumentSummary(
           segmentSummaries.map(s => s.summary),
+          userId,
+          documentId,
           documentTitle,
         );
       } catch (error) {
@@ -745,6 +790,8 @@ export const multiStagePipeline = {
           const result = await extractEntitiesFromBatch(
             segmentInputs,
             segments.length,
+            userId,
+            documentId,
             entityRegistry,
             overlapText,
             segmentSummariesForPrompt,
@@ -1341,7 +1388,7 @@ export const multiStagePipeline = {
               `Processing relationship batch ${batchIdx + 1}/${batches.length}...`,
             );
 
-            return extractRelationshipsFromBatch(batch.includedItems, doc?.summary ?? undefined);
+            return extractRelationshipsFromBatch(batch.includedItems, userId, documentId, doc?.summary ?? undefined);
           }),
         );
 
@@ -1422,6 +1469,8 @@ export const multiStagePipeline = {
             toId: r.toId,
             edgeType: r.edgeType,
           })),
+          userId,
+          documentId,
         );
 
         allRelationships.push(...crossSegmentResult.relationships);
@@ -1563,6 +1612,8 @@ export const multiStagePipeline = {
           events,
           characters,
           threadCandidates,
+          userId,
+          documentId,
           documentTitle,
         );
 
@@ -2152,6 +2203,8 @@ async function detectFacetConflicts(
           entity.name,
           facetType,
           typeFacets.map((f) => ({ content: f.content })),
+          userId,
+          documentId,
         );
 
         // Map LLM results back to facet IDs and add to conflicts list
@@ -2299,9 +2352,19 @@ async function generateEntityDescriptions(
   }
 
   const llmGenerate = async (prompt: string): Promise<string> => {
+    const modelConfig = getTextModelConfig('gemini-2.5-flash-lite');
+    const maxOutputTokens = modelConfig.maxOutputTokens;
+    if (!maxOutputTokens) {
+      throw new Error(`Model missing maxOutputTokens configuration`);
+    }
+
     const result = await client.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-2.5-flash-lite',
       contents: prompt,
+      config: {
+        maxOutputTokens,
+        thinkingConfig: { thinkingBudget: 0 },
+      },
     });
     return result.text ?? '';
   };

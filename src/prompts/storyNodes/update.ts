@@ -9,7 +9,7 @@ interface UpdateInput {
 export const updateNodesPrompt: PromptDefinition<UpdateInput> = {
   id: 'story-nodes-update',
   version: 2,
-  model: 'gemini-2.5-flash',
+  model: 'gemini-2.5-flash-lite',
   description:
     'Analyze document for incremental changes to existing story nodes with rich relationships',
 

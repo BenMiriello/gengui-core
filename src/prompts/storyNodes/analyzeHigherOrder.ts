@@ -47,7 +47,7 @@ export const analyzeHigherOrderPrompt: PromptDefinition<AnalyzeHigherOrderInput>
   {
     id: 'stage5-analyze-higher-order',
     version: 1,
-    model: 'gemini-2.5-flash',
+    model: 'gemini-2.5-flash-lite',
     description: 'Stage 5: Identify narrative threads and character arcs',
 
     build: ({ events, characters, threadCandidates, documentSummary }) => {
@@ -193,7 +193,7 @@ interface RefineThreadsInput {
 export const refineThreadsPrompt: PromptDefinition<RefineThreadsInput> = {
   id: 'stage5-refine-threads',
   version: 1,
-  model: 'gemini-2.5-flash',
+  model: 'gemini-2.5-flash-lite',
   description: 'Stage 5: Name and refine algorithmically detected threads',
 
   build: ({ algorithmicThreads, documentTitle }) => {

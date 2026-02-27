@@ -40,6 +40,10 @@ const PRICING = {
     inputCost: 0.10,
     outputCost: 0.40,
   },
+  'gemini-2.5-flash-lite': {
+    inputCost: 0.10,
+    outputCost: 0.40,
+  },
 } as const;
 
 export function estimateCost(
