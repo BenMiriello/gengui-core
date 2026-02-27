@@ -7,7 +7,7 @@ import {
 } from 'express';
 import { db } from '../config/database';
 import { requireAuth } from '../middleware/auth';
-import { documents, media, mentions } from '../models/schema';
+import { documents, media, mentions, analysisSnapshots } from '../models/schema';
 import { documentsService } from '../services/documents';
 import {
   computeCausalOrder,
@@ -26,6 +26,7 @@ import { loadCheckpoint, clearCheckpoint } from '../services/pipeline/checkpoint
 import { graphStoryNodesRepository } from '../services/storyNodes';
 import { versioningService } from '../services/versioning';
 import { mentionService } from '../services/mentions/mention.service';
+import { logger } from '../utils/logger';
 
 const router = Router();
 
@@ -589,43 +590,82 @@ router.delete(
       const userId = (req as any).user.id;
       const { id } = req.params;
 
-      // Check if analysis is running
-      const [doc] = await db
-        .select({ analysisStatus: documents.analysisStatus })
+      logger.info({ documentId: id, userId }, 'DELETE story-nodes called');
+
+      // Check state BEFORE delete
+      const [docBefore] = await db
+        .select({
+          analysisStatus: documents.analysisStatus,
+          hasCheckpoint: documents.analysisCheckpoint,
+        })
         .from(documents)
         .where(eq(documents.id, id))
         .limit(1);
 
-      // If analysis is running or paused, signal cancellation
-      if (['analyzing', 'paused'].includes(doc?.analysisStatus || '')) {
-        await db
-          .update(documents)
-          .set({ analysisStatus: 'cancelled' })
-          .where(eq(documents.id, id));
-      }
+      logger.info(
+        {
+          documentId: id,
+          statusBefore: docBefore?.analysisStatus,
+          hasCheckpointBefore: !!docBefore?.hasCheckpoint,
+        },
+        'State before delete'
+      );
 
-      // Delete all story nodes for this document from FalkorDB
+      // Phase 1: Delete FalkorDB data (OUTSIDE transaction - separate database)
+      logger.info({ documentId: id }, 'Starting FalkorDB delete');
       await graphStoryNodesRepository.deleteAllForDocument(id, userId);
+      logger.info({ documentId: id }, 'FalkorDB delete completed');
 
-      // Delete mentions from Postgres
-      await db.delete(mentions).where(eq(mentions.documentId, id));
+      // Phase 2: Update PostgreSQL atomically
+      await db.transaction(async (tx) => {
+        // Delete mentions from Postgres
+        const mentionResult = await tx.delete(mentions).where(eq(mentions.documentId, id));
+        logger.info({ documentId: id, mentionsDeleted: mentionResult }, 'Mentions deleted');
 
-      // Clear checkpoint to force analysis restart from Stage 1
-      await clearCheckpoint(id);
+        // Delete analysis snapshots
+        const snapshotResult = await tx.delete(analysisSnapshots).where(eq(analysisSnapshots.documentId, id));
+        logger.info({ documentId: id, snapshotsDeleted: snapshotResult }, 'Analysis snapshots deleted');
 
-      // ALWAYS clear status after delete (even if analysis was running)
-      // The cancelled signal will stop the worker, but we need to reset status immediately
-      await db
-        .update(documents)
-        .set({
-          analysisStatus: 'idle',
-          analysisStartedAt: null,
-          analysisCompletedAt: null
+        // Clear ALL analysis data including summaries
+        const updateResult = await tx
+          .update(documents)
+          .set({
+            analysisStatus: 'idle',
+            analysisStartedAt: null,
+            analysisCompletedAt: null,
+            analysisCheckpoint: null,
+            segmentSequence: [],
+            summary: null,
+            summaryEditChainLength: 0,
+            summaryUpdatedAt: null,
+          })
+          .where(eq(documents.id, id));
+
+        logger.info({ documentId: id, rowsUpdated: updateResult }, 'Document analysis data cleared');
+      });
+
+      // Verify state AFTER delete
+      const [docAfter] = await db
+        .select({
+          analysisStatus: documents.analysisStatus,
+          hasCheckpoint: documents.analysisCheckpoint,
         })
-        .where(eq(documents.id, id));
+        .from(documents)
+        .where(eq(documents.id, id))
+        .limit(1);
+
+      logger.info(
+        {
+          documentId: id,
+          statusAfter: docAfter?.analysisStatus,
+          hasCheckpointAfter: !!docAfter?.hasCheckpoint,
+        },
+        'State after delete - DELETE COMPLETED'
+      );
 
       res.json({ success: true });
     } catch (error) {
+      logger.error({ error, documentId: req.params.id }, 'DELETE story-nodes FAILED');
       next(error);
     }
   },
