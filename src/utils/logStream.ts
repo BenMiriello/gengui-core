@@ -1,32 +1,33 @@
 /**
  * Rotating log stream for development.
- * Creates daily log files: app-2026-02-25.jsonl
+ * DISABLED: rotating-file-stream is ESM-only and causes import issues in CommonJS context.
+ * TODO: Re-enable when migrating to ESM or find CommonJS-compatible alternative.
  */
 
-import path from 'node:path';
-import { mkdirSync } from 'node:fs';
+// import path from 'node:path';
+// import { mkdirSync } from 'node:fs';
+// import { createStream } from 'rotating-file-stream';
 
-export async function createRotatingLogStream() {
-  const { createStream } = await import('rotating-file-stream');
-  const logsDir = path.join(process.cwd(), 'logs');
-  mkdirSync(logsDir, { recursive: true });
+// export function createRotatingLogStream() {
+//   const logsDir = path.join(process.cwd(), 'logs');
+//   mkdirSync(logsDir, { recursive: true });
 
-  return createStream(
-    (time) => {
-      if (!time) {
-        // Current log file
-        const date = new Date().toISOString().split('T')[0];
-        return `app-${date}.jsonl`;
-      }
-      // Rotated log file (add timestamp to differentiate)
-      const date = (time as Date).toISOString().split('T')[0];
-      return `app-${date}.jsonl`;
-    },
-    {
-      interval: '1d', // Rotate daily
-      path: logsDir,
-      maxFiles: 30, // Keep 30 days of logs
-      compress: 'gzip', // Compress old logs
-    }
-  );
-}
+//   return createStream(
+//     (time) => {
+//       if (!time) {
+//         const date = new Date().toISOString().split('T')[0];
+//         return `app-${date}.jsonl`;
+//       }
+//       const date = (time as Date).toISOString().split('T')[0];
+//       return `app-${date}.jsonl`;
+//     },
+//     {
+//       interval: '1d',
+//       path: logsDir,
+//       maxFiles: 30,
+//       compress: 'gzip',
+//     }
+//   );
+// }
+
+export {}; // Make this a module

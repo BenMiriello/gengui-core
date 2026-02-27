@@ -1,11 +1,11 @@
 import pino from 'pino';
 import { randomUUID } from 'node:crypto';
 import { getLogConfig } from '../config/logging';
-import { createRotatingLogStream } from './logStream';
 
 const isDevelopment = process.env.NODE_ENV === 'development';
 
-// In development, use multistream for both console and rotating file
+// In development, use pino-pretty for console output
+// File logging disabled due to ESM import issues with rotating-file-stream
 const loggerInstance = isDevelopment
   ? pino(
       {
@@ -18,23 +18,14 @@ const loggerInstance = isDevelopment
           remove: true,
         },
       },
-      pino.multistream([
-        {
-          level: process.env.LOG_LEVEL || 'debug',
-          stream: pino.transport({
-            target: 'pino-pretty',
-            options: {
-              colorize: true,
-              translateTime: 'HH:MM:ss',
-              ignore: 'pid,hostname',
-            },
-          }),
+      pino.transport({
+        target: 'pino-pretty',
+        options: {
+          colorize: true,
+          translateTime: 'HH:MM:ss',
+          ignore: 'pid,hostname',
         },
-        {
-          level: process.env.LOG_LEVEL || 'debug',
-          stream: createRotatingLogStream(),
-        },
-      ])
+      })
     )
   : pino({
       ...getLogConfig(),

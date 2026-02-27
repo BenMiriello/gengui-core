@@ -18,6 +18,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '../../config/database';
 import { documents } from '../../models/schema';
 import type {
+  ArcType,
   FacetInput,
   FacetType,
   StoryEdgeType,
@@ -48,12 +49,15 @@ import { graphService } from '../graph/graph.service';
 import { recomputeAndUpdatePrimaryName } from '../graph/entityNames.js';
 import { mentionService } from '../mentions';
 import type { Segment } from '../segments';
+import { segmentService } from '../segments';
 import { sentenceService } from '../sentences';
 import { sseService } from '../sse';
 import {
   graphStoryNodesRepository,
   recomputeEntityEmbeddingWithMentionWeights,
 } from '../storyNodes';
+import { computeCausalOrder } from '../graph/graph.analysis';
+import type { StoredFacet, StoredStoryNode } from '../graph/graph.types';
 import {
   clearCheckpoint,
   isCheckpointValid,
@@ -2135,6 +2139,85 @@ function findStateForPosition<T extends { id: string; documentOrder: number }>(
 }
 
 /**
+ * Character context for facet conflict detection.
+ * Provides state-centric fabula timeline with events, transitions, and edges.
+ */
+interface CharacterContext {
+  entityId: string;
+  entityName: string;
+  entityType: string;
+  description: string | null;
+  aliases: string[] | null;
+
+  states: Array<{
+    id: string;
+    name: string;
+    phaseIndex: number;
+    causalOrder: number;
+    documentOrder: number;
+    segmentIds: string[];
+    segmentSummary: string | null;
+    facets: Array<{
+      id: string;
+      type: FacetType;
+      content: string;
+      mentionCount: number;
+      segmentRange: string;
+    }>;
+    events: Array<{
+      id: string;
+      name: string;
+      description: string | null;
+      causalOrder: number;
+      outgoingEdges: Array<{
+        type: StoryEdgeType;
+        toNodeName: string;
+      }>;
+    }>;
+    transitionTo: {
+      toStateId: string;
+      toStateName: string;
+      triggerEventId: string | null;
+      triggerEventName: string | null;
+      triggerEventDescription: string | null;
+      gapDetected: boolean;
+    } | null;
+  }>;
+
+  permanentFacets: Array<{
+    id: string;
+    type: FacetType;
+    content: string;
+    mentionCount: number;
+    statesPresent: number[];
+    firstPosition?: number | null;
+    lastPosition?: number | null;
+  }>;
+
+  arcs: Array<{
+    id: string;
+    name: string;
+    arcType: ArcType;
+    summary: string | null;
+    stateIndices: number[];
+  }>;
+
+  causalEdges: Array<{
+    edgeType: 'CAUSES' | 'ENABLES' | 'PREVENTS' | 'HAPPENS_BEFORE';
+    toNodeName: string;
+    description: string | null;
+  }>;
+
+  narrativeEdges: Array<{
+    edgeType: StoryEdgeType;
+    toNodeName: string;
+    description: string | null;
+  }>;
+
+  allFacets: StoredFacet[];
+}
+
+/**
  * Conflict type taxonomy.
  * Based on TDD 2026-02-23_temporal-state-design.md Section 6.
  */
@@ -2155,6 +2238,610 @@ interface DetectedConflict {
 }
 
 /**
+ * Group facets by type.
+ */
+function groupFacetsByType(facets: StoredFacet[]): Map<FacetType, StoredFacet[]> {
+  const map = new Map<FacetType, StoredFacet[]>();
+  for (const facet of facets) {
+    const existing = map.get(facet.type) || [];
+    existing.push(facet);
+    map.set(facet.type, existing);
+  }
+  return map;
+}
+
+// NOTE: assessCausationQuality function from TDD not currently used.
+// Reserved for future implementation to detect weak causation in trigger events.
+// See TDD lines 1126-1158 for implementation if needed.
+
+/**
+ * Build character context with state-centric fabula timeline.
+ */
+async function buildCharacterContext(
+  entity: StoredStoryNode,
+  segments: Segment[],
+  causalOrderMap: Map<string, number>,
+  documentId: string,
+  userId: string,
+): Promise<CharacterContext> {
+  const states = await graphService.getCharacterStates(entity.id);
+  const transitions = await graphService.getStateTransitions(entity.id);
+  const arcs = await graphService.getCharacterArcs(entity.id);
+
+  if (states.length === 0) {
+    return buildSimplifiedContext(entity, segments, causalOrderMap, documentId, userId);
+  }
+
+  const transitionMap = new Map(
+    transitions.map(t => [t.fromStateId, t])
+  );
+
+  const allDocEvents = await graphStoryNodesRepository.getActiveNodes(
+    documentId,
+    userId
+  );
+  const events = allDocEvents.filter(n => n.type === 'event');
+
+  const stateContexts = [];
+  const allStateFacetIds = new Set<string>();
+
+  for (const state of states) {
+    const stateFacets = await graphService.getFacetsForState(state.id);
+
+    const facetsWithMentions = await Promise.all(
+      stateFacets.map(async (facet) => {
+        const mentions = await mentionService.getByNodeIdWithAbsolutePositions(
+          facet.id,
+          segments
+        );
+        const keyMentions = mentions.filter(m => m.source === 'extraction');
+
+        const segmentIndices = keyMentions
+          .map(m => segments.findIndex(s => s.id === m.segmentId))
+          .filter(idx => idx !== -1)
+          .sort((a, b) => a - b);
+
+        const segmentRange = segmentIndices.length > 0
+          ? segmentIndices.length === 1
+            ? `${segmentIndices[0]}`
+            : `${segmentIndices[0]}-${segmentIndices[segmentIndices.length - 1]}`
+          : 'unknown';
+
+        return {
+          id: facet.id,
+          type: facet.type,
+          content: facet.content,
+          mentionCount: keyMentions.length,
+          segmentRange,
+        };
+      })
+    );
+
+    stateFacets.forEach(f => allStateFacetIds.add(f.id));
+
+    const stateEvents = events
+      .filter(e => {
+        const eCausal = causalOrderMap.get(e.id);
+        if (!eCausal) return false;
+
+        const stateStart = state.causalOrder;
+        const stateEnd = transitionMap.get(state.id)?.toStateId
+          ? states.find(s => s.id === transitionMap.get(state.id)!.toStateId)?.causalOrder ?? Infinity
+          : Infinity;
+
+        return eCausal >= stateStart && eCausal < stateEnd;
+      });
+
+    const eventsWithEdges = await Promise.all(
+      stateEvents.map(async (event) => {
+        const edges = await graphService.getConnectionsFromNode(event.id);
+        const outgoingEdges = edges.map(e => ({
+          type: e.edgeType,
+          toNodeName: allDocEvents.find(n => n.id === e.toNodeId)?.name ?? 'unknown',
+        }));
+
+        return {
+          id: event.id,
+          name: event.name,
+          description: event.description,
+          causalOrder: causalOrderMap.get(event.id) ?? state.causalOrder,
+          outgoingEdges,
+        };
+      })
+    );
+
+    const transition = transitionMap.get(state.id);
+    let transitionInfo = null;
+
+    if (transition) {
+      const toState = states.find(s => s.id === transition.toStateId);
+      let triggerEvent = null;
+
+      if (transition.triggerEventId) {
+        triggerEvent = events.find(e => e.id === transition.triggerEventId);
+      }
+
+      transitionInfo = {
+        toStateId: transition.toStateId,
+        toStateName: toState?.name ?? 'unknown',
+        triggerEventId: transition.triggerEventId,
+        triggerEventName: triggerEvent?.name ?? null,
+        triggerEventDescription: triggerEvent?.description ?? null,
+        gapDetected: transition.gapDetected,
+      };
+    }
+
+    const stateSegmentIndices = facetsWithMentions
+      .flatMap(f => {
+        const range = f.segmentRange.split('-');
+        const start = parseInt(range[0]);
+        const end = range.length > 1 ? parseInt(range[1]) : start;
+        return Array.from({ length: end - start + 1 }, (_, i) => start + i);
+      })
+      .filter((v, i, a) => a.indexOf(v) === i)
+      .sort((a, b) => a - b);
+
+    const segmentIds = stateSegmentIndices.map(idx => segments[idx]?.id).filter(Boolean);
+    const firstSegment = segments[stateSegmentIndices[0]];
+
+    stateContexts.push({
+      id: state.id,
+      name: state.name,
+      phaseIndex: state.phaseIndex,
+      causalOrder: state.causalOrder,
+      documentOrder: state.documentOrder,
+      segmentIds,
+      segmentSummary: firstSegment?.summary ?? null,
+      facets: facetsWithMentions,
+      events: eventsWithEdges,
+      transitionTo: transitionInfo,
+    });
+  }
+
+  const allEntityFacets = await graphService.getFacetsForEntity(entity.id);
+  const permanentFacets = allEntityFacets.filter(f => !allStateFacetIds.has(f.id));
+
+  const permanentFacetsWithContext = await Promise.all(
+    permanentFacets.map(async (facet) => {
+      const mentions = await mentionService.getByNodeIdWithAbsolutePositions(
+        facet.id,
+        segments
+      );
+      const keyMentions = mentions.filter(m => m.source === 'extraction');
+
+      const statesPresent = states
+        .filter(state => {
+          const nextState = states[state.phaseIndex + 1];
+          const stateEnd = nextState?.documentOrder ?? Infinity;
+
+          return keyMentions.some(
+            m => m.absoluteStart >= state.documentOrder && m.absoluteStart < stateEnd
+          );
+        })
+        .map(s => s.phaseIndex);
+
+      return {
+        id: facet.id,
+        type: facet.type,
+        content: facet.content,
+        mentionCount: keyMentions.length,
+        statesPresent,
+      };
+    })
+  );
+
+  const arcsWithStates = await Promise.all(
+    arcs.map(async (arc) => {
+      const arcStates = await graphService.getArcStates(arc.id);
+      const stateIndices = arcStates.map(s => s.phaseIndex).sort((a, b) => a - b);
+
+      return {
+        id: arc.id,
+        name: arc.name,
+        arcType: arc.arcType,
+        summary: arc.summary,
+        stateIndices,
+      };
+    })
+  );
+
+  const edges = await graphService.getConnectionsFromNode(entity.id);
+
+  const causalEdges = edges
+    .filter(e => ['CAUSES', 'ENABLES', 'PREVENTS', 'HAPPENS_BEFORE'].includes(e.edgeType))
+    .map(e => ({
+      edgeType: e.edgeType as 'CAUSES' | 'ENABLES' | 'PREVENTS' | 'HAPPENS_BEFORE',
+      toNodeName: allDocEvents.find(n => n.id === e.toNodeId)?.name ?? 'unknown',
+      description: e.description,
+    }));
+
+  const narrativeEdges = edges
+    .filter(e => !['CAUSES', 'ENABLES', 'PREVENTS', 'HAPPENS_BEFORE'].includes(e.edgeType))
+    .map(e => ({
+      edgeType: e.edgeType,
+      toNodeName: allDocEvents.find(n => n.id === e.toNodeId)?.name ?? 'unknown',
+      description: e.description,
+    }));
+
+  return {
+    entityId: entity.id,
+    entityName: entity.name,
+    entityType: entity.type,
+    description: entity.description,
+    aliases: entity.aliases,
+    states: stateContexts,
+    permanentFacets: permanentFacetsWithContext,
+    arcs: arcsWithStates,
+    causalEdges,
+    narrativeEdges,
+    allFacets: allEntityFacets,
+  };
+}
+
+/**
+ * Build simplified context for entities without CharacterStates.
+ */
+async function buildSimplifiedContext(
+  entity: StoredStoryNode,
+  segments: Segment[],
+  _causalOrderMap: Map<string, number>,
+  documentId: string,
+  userId: string,
+): Promise<CharacterContext> {
+  const allFacets = await graphService.getFacetsForEntity(entity.id);
+
+  const facetsWithPositions = await Promise.all(
+    allFacets.map(async (facet) => {
+      const mentions = await mentionService.getByNodeIdWithAbsolutePositions(
+        facet.id,
+        segments
+      );
+      const keyMentions = mentions.filter(m => m.source === 'extraction');
+
+      const positions = keyMentions.map(m => m.absoluteStart).sort((a, b) => a - b);
+      const firstPos = positions[0] ?? null;
+      const lastPos = positions[positions.length - 1] ?? null;
+
+      return {
+        facet,
+        firstPosition: firstPos,
+        lastPosition: lastPos,
+        mentionCount: keyMentions.length,
+      };
+    })
+  );
+
+  const allDocEvents = await graphStoryNodesRepository.getActiveNodes(
+    documentId,
+    userId
+  );
+
+  const edges = await graphService.getConnectionsFromNode(entity.id);
+  const causalEdges = edges
+    .filter(e => ['CAUSES', 'ENABLES', 'PREVENTS', 'HAPPENS_BEFORE'].includes(e.edgeType))
+    .map(e => ({
+      edgeType: e.edgeType as 'CAUSES' | 'ENABLES' | 'PREVENTS' | 'HAPPENS_BEFORE',
+      toNodeName: allDocEvents.find(n => n.id === e.toNodeId)?.name ?? 'unknown',
+      description: e.description,
+    }));
+
+  const narrativeEdges = edges
+    .filter(e => !['CAUSES', 'ENABLES', 'PREVENTS', 'HAPPENS_BEFORE'].includes(e.edgeType))
+    .map(e => ({
+      edgeType: e.edgeType,
+      toNodeName: allDocEvents.find(n => n.id === e.toNodeId)?.name ?? 'unknown',
+      description: e.description,
+    }));
+
+  return {
+    entityId: entity.id,
+    entityName: entity.name,
+    entityType: entity.type,
+    description: entity.description,
+    aliases: entity.aliases,
+    states: [],
+    permanentFacets: facetsWithPositions.map(f => ({
+      id: f.facet.id,
+      type: f.facet.type,
+      content: f.facet.content,
+      mentionCount: f.mentionCount,
+      statesPresent: [],
+      firstPosition: f.firstPosition,
+      lastPosition: f.lastPosition,
+    })),
+    arcs: [],
+    causalEdges,
+    narrativeEdges,
+    allFacets,
+  };
+}
+
+/**
+ * Build context-aware prompt for facet conflict detection.
+ */
+function buildContextPrompt(
+  entityName: string,
+  facetType: FacetType,
+  facets: StoredFacet[],
+  context: CharacterContext,
+): string {
+  let prompt = '';
+
+  prompt += `## DOCUMENT CONTEXT\n`;
+  if (context.description) {
+    prompt += `Document summary: ${context.description}\n`;
+  }
+  prompt += `\n`;
+
+  prompt += `## CHARACTER: ${entityName}\n`;
+  prompt += `Entity type: ${context.entityType}\n`;
+  prompt += `Primary name: "${entityName}"\n`;
+
+  if (context.aliases && context.aliases.length > 0) {
+    prompt += `Known aliases: ${context.aliases.map(a => `"${a}"`).join(', ')}\n`;
+  }
+
+  if (context.description) {
+    prompt += `Entity description: ${context.description}\n`;
+  }
+  prompt += `\n`;
+
+  if (context.states.length > 0) {
+    prompt += `## CHARACTER ARC STRUCTURE\n`;
+    prompt += `This character has ${context.states.length} distinct states representing their evolution:\n`;
+
+    context.states.forEach(state => {
+      prompt += `  State ${state.phaseIndex + 1}: "${state.name}" (phase ${state.phaseIndex})\n`;
+    });
+    prompt += `\n`;
+
+    if (context.arcs.length > 0) {
+      context.arcs.forEach(arc => {
+        prompt += `Arc: "${arc.name}" (arcType: ${arc.arcType})\n`;
+        if (arc.summary) {
+          prompt += `Arc summary: ${arc.summary}\n`;
+        }
+        prompt += `Arc includes states: ${arc.stateIndices.map(i => i + 1).join(', ')}\n`;
+
+        if (context.arcs.length > 1) {
+          const otherArcs = context.arcs.filter(a => a.id !== arc.id);
+          const overlaps = arc.stateIndices.filter(idx =>
+            otherArcs.some(other => other.stateIndices.includes(idx))
+          );
+
+          if (overlaps.length > 0) {
+            prompt += `Note: States ${overlaps.map(i => i + 1).join(', ')} belong to multiple arcs (character in simultaneous arcs)\n`;
+          }
+        }
+        prompt += `\n`;
+      });
+    }
+  }
+
+  context.states.forEach((state) => {
+    prompt += `## STATE ${state.phaseIndex + 1}: "${state.name}"\n`;
+    prompt += `Phase index: ${state.phaseIndex}\n`;
+    prompt += `Causal order position: ${state.causalOrder}\n`;
+    prompt += `Document order range: ${state.documentOrder}`;
+
+    if (state.transitionTo) {
+      const nextState = context.states.find(s => s.id === state.transitionTo!.toStateId);
+      if (nextState) {
+        prompt += `-${nextState.documentOrder}`;
+      }
+    }
+    prompt += `\n`;
+
+    if (state.segmentIds.length > 0) {
+      prompt += `Segments: [segments referenced]\n`;
+    }
+
+    if (state.segmentSummary) {
+      prompt += `Context: ${state.segmentSummary}\n`;
+    }
+    prompt += `\n`;
+
+    prompt += `Facets in this state:\n`;
+    const facetsByType = new Map<FacetType, typeof state.facets>();
+    state.facets.forEach(f => {
+      const existing = facetsByType.get(f.type) || [];
+      existing.push(f);
+      facetsByType.set(f.type, existing);
+    });
+
+    for (const [type, typeFacets] of facetsByType) {
+      const facetStrings = typeFacets.map(f =>
+        `"${f.content}" (${f.mentionCount} mentions${f.segmentRange ? `, segments ${f.segmentRange}` : ''})`
+      );
+      prompt += `  • ${type} facets: ${facetStrings.join(', ')}\n`;
+    }
+
+    if (facetsByType.size === 0) {
+      prompt += `  • none\n`;
+    }
+    prompt += `\n`;
+
+    if (state.events.length > 0) {
+      prompt += `Events within this state (causal order):\n`;
+      state.events.forEach(event => {
+        prompt += `  • Event at causal:${event.causalOrder} "${event.name}"\n`;
+        prompt += `    - Node type: event\n`;
+        if (event.description) {
+          prompt += `    - Description: ${event.description}\n`;
+        }
+        if (event.outgoingEdges.length > 0) {
+          const edgeStr = event.outgoingEdges
+            .map(e => `${e.type}→"${e.toNodeName}"`)
+            .join(', ');
+          prompt += `    - Outgoing edges: ${edgeStr}\n`;
+        }
+      });
+      prompt += `\n`;
+    }
+
+    if (state.transitionTo) {
+      prompt += `State transition:\n`;
+      prompt += `  → Transitions to State ${context.states.findIndex(s => s.id === state.transitionTo!.toStateId) + 1}: "${state.transitionTo.toStateName}"\n`;
+
+      if (state.transitionTo.triggerEventId && state.transitionTo.triggerEventName) {
+        prompt += `  → Trigger event: "${state.transitionTo.triggerEventName}"\n`;
+        if (state.transitionTo.triggerEventDescription) {
+          prompt += `  → Event description: ${state.transitionTo.triggerEventDescription}\n`;
+        }
+        prompt += `  → Gap detected: false (transition has clear cause)\n`;
+      } else if (state.transitionTo.gapDetected) {
+        prompt += `  → Trigger event: null\n`;
+        prompt += `  → Gap detected: TRUE ⚠️ PLOT HOLE DETECTED\n`;
+        prompt += `  → Warning: No triggering event found for this state change. This may indicate: missing event extraction, implicit transition, or genuine plot gap.\n`;
+      }
+      prompt += `\n`;
+    } else {
+      prompt += `State transition: none (final state)\n\n`;
+    }
+  });
+
+  if (context.permanentFacets.length > 0) {
+    prompt += `## PERMANENT FACETS (span multiple states)\n`;
+    prompt += `These facets are attached to the character entity, not specific states. They remain valid across the entire narrative:\n`;
+
+    context.permanentFacets.forEach(facet => {
+      prompt += `  • ${facet.type}: "${facet.content}" (`;
+      if (facet.statesPresent.length > 0) {
+        prompt += `mentioned in states ${facet.statesPresent.map(i => i + 1).join(', ')}`;
+      } else {
+        prompt += `consistent throughout`;
+      }
+      prompt += `)\n`;
+    });
+    prompt += `\n`;
+  }
+
+  if (context.causalEdges.length > 0) {
+    prompt += `## CAUSAL EDGES FROM CHARACTER\n`;
+    prompt += `Edges showing how this character causes or enables other events:\n`;
+
+    context.causalEdges.forEach(edge => {
+      prompt += `  • ${entityName} ${edge.edgeType}→ "${edge.toNodeName}"`;
+      if (edge.description) {
+        prompt += ` (${edge.description})`;
+      }
+      prompt += `\n`;
+    });
+    prompt += `\n`;
+  }
+
+  if (context.narrativeEdges.length > 0) {
+    prompt += `## NARRATIVE EDGES\n`;
+    prompt += `Non-causal relationships:\n`;
+
+    const edgesByType = new Map<StoryEdgeType, typeof context.narrativeEdges>();
+    context.narrativeEdges.forEach(e => {
+      const existing = edgesByType.get(e.edgeType) || [];
+      existing.push(e);
+      edgesByType.set(e.edgeType, existing);
+    });
+
+    for (const [type, edges] of edgesByType) {
+      const targets = edges.map(e => `"${e.toNodeName}"`).join(', ');
+      prompt += `  • ${type}→ ${targets}\n`;
+    }
+    prompt += `\n`;
+  }
+
+  prompt += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+
+  prompt += `## FACETS TO ANALYZE (facet type: ${facetType})\n\n`;
+  prompt += `Your task: Analyze the following facets for contradictions.\n\n`;
+
+  facets.forEach((facet, idx) => {
+    prompt += `[${idx}] "${facet.content}"\n`;
+
+    const permanent = context.permanentFacets.find(pf => pf.id === facet.id);
+    if (permanent) {
+      prompt += `    - Attachment: Permanent (entity-level)\n`;
+      prompt += `    - Valid across: All states\n`;
+    } else {
+      const state = context.states.find(s =>
+        s.facets.some(f => f.id === facet.id)
+      );
+
+      if (state) {
+        const stateFacet = state.facets.find(f => f.id === facet.id)!;
+        prompt += `    - State: State ${state.phaseIndex + 1} "${state.name}"\n`;
+        prompt += `    - Causal position: ${state.causalOrder}`;
+
+        if (state.transitionTo) {
+          const nextState = context.states.find(s => s.id === state.transitionTo!.toStateId);
+          if (nextState) {
+            prompt += `-${nextState.causalOrder}`;
+          }
+        }
+        prompt += `\n`;
+
+        if (stateFacet.segmentRange) {
+          prompt += `    - Segments: ${stateFacet.segmentRange}\n`;
+        }
+      }
+    }
+
+    prompt += `\n`;
+  });
+
+  prompt += `## ANALYSIS INSTRUCTIONS\n\n`;
+  prompt += `1. Compare facets WITHIN the same state to find true contradictions\n`;
+  prompt += `   - Example: "blue eyes" vs "brown eyes" in State 1 = true_inconsistency\n\n`;
+  prompt += `2. Facets in DIFFERENT states connected by trigger events = temporal_change\n`;
+  prompt += `   - Example: "inexperienced" (State 1) vs "battle-hardened" (State 2) with trigger event = temporal_change (valid evolution)\n\n`;
+  prompt += `3. Permanent facets are valid across ALL states\n`;
+  prompt += `   - Do not flag conflicts between permanent facets and state-specific facets\n\n`;
+  prompt += `4. Name changes with contextual explanation = intentional aliases\n`;
+  prompt += `   - Check event descriptions to see if name change is explained\n\n`;
+  prompt += `5. Consider plot holes (gapDetected: true) when evaluating state transitions\n`;
+  prompt += `   - If facets differ across states but transition has no trigger event, note this in reasoning\n\n`;
+  prompt += `6. Check causal edges to understand WHY changes occur\n`;
+  prompt += `   - Events that CAUSE or ENABLE state changes justify facet differences\n\n`;
+
+  prompt += `## OUTPUT FORMAT\n\n`;
+  prompt += `Return JSON array of contradictions found. Each entry must have:\n`;
+  prompt += `- facetIndexA, facetIndexB (indices from the list above)\n`;
+  prompt += `- classificationType: "true_inconsistency" | "temporal_change" | "arc_divergence"\n`;
+  prompt += `- reasoning: Explain your classification, referencing state context and events\n\n`;
+  prompt += `Return [] if no contradictions found.\n`;
+
+  return prompt;
+}
+
+/**
+ * Detect contradictions with full character context.
+ */
+async function detectContradictionsWithContext(
+  entityName: string,
+  facetType: FacetType,
+  facets: StoredFacet[],
+  context: CharacterContext,
+  userId: string,
+  documentId: string,
+): Promise<Array<{
+  facetIndexA: number;
+  facetIndexB: number;
+  classificationType: 'true_inconsistency' | 'temporal_change' | 'arc_divergence';
+  reasoning: string;
+}>> {
+  const prompt = buildContextPrompt(entityName, facetType, facets, context);
+
+  const result = await detectContradictionsInBatch(
+    entityName,
+    facetType,
+    facets.map(f => ({ content: f.content })),
+    userId,
+    documentId,
+    prompt
+  );
+
+  return result;
+}
+
+/**
  * Stage 9: Detect facet conflicts.
  *
  * For each entity, compare same-type facets for contradictions.
@@ -2172,37 +2859,35 @@ async function detectFacetConflicts(
     userId,
   );
 
+  const segments = await segmentService.getDocumentSegments(documentId);
+
+  const causalOrderResults = await computeCausalOrder(documentId, userId);
+  const causalOrderMap = new Map(
+    causalOrderResults.map(r => [r.nodeId, r.position])
+  );
+
   const conflicts: DetectedConflict[] = [];
 
   for (const entity of allNodes) {
-    const facets = await graphService.getFacetsForEntity(entity.id);
+    const context = await buildCharacterContext(
+      entity,
+      segments,
+      causalOrderMap,
+      documentId,
+      userId
+    );
 
-    // Group facets by type
-    const facetsByType = new Map<FacetType, typeof facets>();
-    for (const facet of facets) {
-      const existing = facetsByType.get(facet.type) || [];
-      existing.push(facet);
-      facetsByType.set(facet.type, existing);
-    }
+    const facetsByType = groupFacetsByType(context.allFacets);
 
-    // Check each type for potential conflicts using batch LLM analysis
     for (const [facetType, typeFacets] of facetsByType) {
       if (typeFacets.length < 2) continue;
 
-      // FUTURE OPTIMIZATION:
-      // If typeFacets.length > 20, implement pre-filtering:
-      // 1. Use embedding similarity to identify low-similarity pairs (<0.5)
-      // 2. Only send those suspicious pairs to LLM for analysis
-      // 3. Reduces LLM calls while maintaining accuracy
-      //
-      // This is Option D (Hybrid) - not needed yet, but plan exists.
-
-      // Send ALL facets of same type to LLM in one batch
       try {
-        const contradictions = await detectContradictionsInBatch(
+        const contradictions = await detectContradictionsWithContext(
           entity.name,
           facetType,
-          typeFacets.map((f) => ({ content: f.content })),
+          typeFacets,
+          context,
           userId,
           documentId,
         );
@@ -2256,6 +2941,16 @@ async function detectFacetConflicts(
       (c) => c.conflictType === 'true_inconsistency',
     );
 
+    const plotHoles = conflicts.filter(
+      (c) => c.reasoning.toLowerCase().includes('gapdetected') ||
+             c.reasoning.toLowerCase().includes('plot hole')
+    );
+
+    const weakCausation = conflicts.filter(
+      (c) => c.reasoning.toLowerCase().includes('weak') ||
+             c.reasoning.toLowerCase().includes('vague causation')
+    );
+
     for (const conflict of conflicts) {
       logger.info(
         {
@@ -2275,6 +2970,34 @@ async function detectFacetConflicts(
       );
     }
 
+    if (plotHoles.length > 0) {
+      logger.warn(
+        {
+          stage: 10,
+          documentId,
+          plotHoles: plotHoles.map(c => ({
+            entity: c.entityName,
+            reasoning: c.reasoning,
+          })),
+        },
+        'Plot holes detected - UI not yet implemented for user review',
+      );
+    }
+
+    if (weakCausation.length > 0) {
+      logger.warn(
+        {
+          stage: 10,
+          documentId,
+          weakCausation: weakCausation.map(c => ({
+            entity: c.entityName,
+            reasoning: c.reasoning,
+          })),
+        },
+        'Weak causation detected - UI not yet implemented for user review',
+      );
+    }
+
     // TODO: Review queue disabled until UI is built.
     // Conflict detection now uses LLM batch analysis (accurate, conservative).
     // Re-enable queue when UI ready:
@@ -2290,9 +3013,15 @@ async function detectFacetConflicts(
         trueInconsistencies: trueInconsistencies.length,
         temporalChanges: conflicts.filter((c) => c.conflictType === 'temporal_change').length,
         arcDivergences: conflicts.filter((c) => c.conflictType === 'arc_divergence').length,
+        plotHoles: plotHoles.length,
+        weakCausation: weakCausation.length,
       },
       'Conflict detection summary',
     );
+
+    // TODO: Store for user review UI
+    // TODO: Implement UI for plot hole review/confirmation
+    // TODO: Implement UI for weak causation suggestions
   } else {
     logger.info({ documentId }, 'No facet conflicts detected');
   }

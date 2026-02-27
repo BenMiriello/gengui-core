@@ -1304,6 +1304,7 @@ export async function detectContradictionsInBatch(
   facets: Array<{ content: string }>,
   userId: string,
   documentId: string,
+  customPrompt?: string,
 ): Promise<Stage10ContradictionResult[]> {
   const client = await getGeminiClient();
   if (!client) {
@@ -1312,7 +1313,7 @@ export async function detectContradictionsInBatch(
     );
   }
 
-  const prompt = detectContradictionsPrompt.build({
+  const prompt = customPrompt || detectContradictionsPrompt.build({
     entityName,
     facetType,
     facets,
