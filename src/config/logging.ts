@@ -12,10 +12,8 @@
  *   - LOG_VERBOSE ignored (security hardening)
  */
 
-import pino from 'pino';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
-import { createStream } from 'rotating-file-stream';
 
 export function getLogConfig() {
   const isProduction = process.env.NODE_ENV === 'production';

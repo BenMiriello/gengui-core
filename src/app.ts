@@ -14,7 +14,7 @@ import generationsRoutes from './routes/generations';
 import mediaRoutes from './routes/media';
 import nodesRoutes from './routes/nodes';
 import tagRoutes from './routes/tags';
-import { logger } from './utils/logger';
+// Logging configured via middleware
 
 export function createApp() {
   const app = express();

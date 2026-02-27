@@ -33,7 +33,7 @@ export function requestLogger(
     const durationMs = Date.now() - startTime;
     const level = res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info';
 
-    req.log[level]({
+    req.log?.[level]({
       event: 'http_response',
       method: req.method,
       path: req.path,
@@ -44,7 +44,7 @@ export function requestLogger(
   });
 
   res.on('error', (error: Error) => {
-    req.log.error({
+    req.log?.error({
       event: 'http_error',
       method: req.method,
       path: req.path,

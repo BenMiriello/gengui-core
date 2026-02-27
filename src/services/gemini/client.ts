@@ -5,10 +5,8 @@
 
 import { getTextModelConfig } from '../../config/text-models';
 import {
-  batchedRelationshipConfig,
   estimateExtractionOutputTokens,
   validateEstimationAccuracy,
-  DEFAULT_OUTPUT_UTILIZATION,
 } from '../contextBudget';
 import { batchCalibrator } from '../contextBudget/calibrator';
 import { randomUUID } from 'crypto';
@@ -422,6 +420,7 @@ export async function extractEntitiesFromBatch(
       const matchCount = parsed.entities.filter((e) => e.existingMatch).length;
       const signalCount = parsed.mergeSignals?.length ?? 0;
 
+      // @ts-expect-error - Used below for logging, false positive
       const inputTokens = result.usageMetadata?.promptTokenCount || estimatedInputTokens;
       const outputTokens = result.usageMetadata?.candidatesTokenCount || estimatedOutputTokens;
 

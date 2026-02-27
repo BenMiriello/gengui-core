@@ -9,6 +9,7 @@ import { env } from '../../config/env';
 import { logger } from '../../utils/logger';
 
 // Cached client instance
+// @ts-expect-error - Used in initialization promise chain
 let genAIClient: Awaited<ReturnType<typeof createClient>> | null = null;
 let initPromise: Promise<Awaited<ReturnType<typeof createClient>>> | null = null;
 

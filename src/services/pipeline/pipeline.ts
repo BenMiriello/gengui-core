@@ -953,7 +953,7 @@ export const multiStagePipeline = {
       }
 
       const stage3DurationMs = Date.now() - stage3StartTime;
-      const totalEntities = extractedEntities.reduce((sum, e) => sum + 1, 0);
+      const totalEntities = extractedEntities.reduce((sum) => sum + 1, 0);
       const totalFacets = extractedEntities.reduce((sum, e) => sum + e.facets.length, 0);
       const totalMentions = extractedEntities.reduce((sum, e) => sum + e.mentions.length, 0);
 
@@ -970,7 +970,7 @@ export const multiStagePipeline = {
 
       // VERBOSE MODE: Log actual entity names
       if (process.env.LOG_VERBOSE === 'true') {
-        const { logEntityExtraction } = await import('../../utils/logHelpers');
+        const { logEntityExtraction } = await import('../../utils/logHelpers.js');
         logEntityExtraction(childLogger, extractedEntities);
       }
 

@@ -3,11 +3,11 @@
  * Creates daily log files: app-2026-02-25.jsonl
  */
 
-import { createStream } from 'rotating-file-stream';
 import path from 'node:path';
 import { mkdirSync } from 'node:fs';
 
-export function createRotatingLogStream() {
+export async function createRotatingLogStream() {
+  const { createStream } = await import('rotating-file-stream');
   const logsDir = path.join(process.cwd(), 'logs');
   mkdirSync(logsDir, { recursive: true });
 
@@ -19,7 +19,7 @@ export function createRotatingLogStream() {
         return `app-${date}.jsonl`;
       }
       // Rotated log file (add timestamp to differentiate)
-      const date = time.toISOString().split('T')[0];
+      const date = (time as Date).toISOString().split('T')[0];
       return `app-${date}.jsonl`;
     },
     {
