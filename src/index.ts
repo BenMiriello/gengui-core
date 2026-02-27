@@ -5,6 +5,7 @@ import { closeDatabase } from './config/database';
 import { env } from './config/env';
 import { startCleanupJob } from './jobs/cleanupSoftDeleted';
 import { startReconciliationJob } from './jobs/reconcileGenerations';
+import './jobs/cleanupReservations';
 import { graphService } from './services/graph/graph.service';
 import { jobStatusConsumer } from './services/jobStatusConsumer';
 import { promptAugmentationService } from './services/prompt-augmentation';

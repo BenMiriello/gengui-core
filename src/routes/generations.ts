@@ -11,7 +11,11 @@ import { augmentationRateLimiter } from '../middleware/augmentationRateLimiter';
 import { requireAuth, requireEmailVerified } from '../middleware/auth';
 import { generationRateLimiter } from '../middleware/generationRateLimiter';
 import { generationsService } from '../services/generationsService';
-import { usageService, UsageQuotaExceededError } from '../services/usage';
+import {
+  usageService,
+  UsageQuotaExceededError,
+  ConcurrentLimitExceededError,
+} from '../services/usage';
 
 const router = Router();
 
@@ -75,31 +79,50 @@ router.post(
         ? 'image-character-consistency'
         : 'image-standard';
 
-      await usageService.checkAndReserveQuota({
+      const { operationId } = await usageService.checkAndReserveQuota({
         userId: req.user!.id,
         operationType,
       });
 
-      const result = await generationsService.create(
-        req.user!.id,
-        validatedData,
-      );
+      let success = false;
+      try {
+        const result = await generationsService.create(
+          req.user!.id,
+          validatedData,
+        );
+        success = true;
 
-      res.status(201).json({
-        id: result.id,
-        status: result.status,
-        prompt: result.prompt,
-        seed: result.seed,
-        width: result.width,
-        height: result.height,
-        createdAt: result.createdAt,
-      });
+        res.status(201).json({
+          id: result.id,
+          status: result.status,
+          prompt: result.prompt,
+          seed: result.seed,
+          width: result.width,
+          height: result.height,
+          createdAt: result.createdAt,
+        });
+      } finally {
+        if (operationId) {
+          await usageService.finalizeReservation({
+            operationId,
+            userId: req.user!.id,
+            success,
+          });
+        }
+      }
     } catch (error) {
       if (error instanceof UsageQuotaExceededError) {
         res.status(403).json({
           error: 'QUOTA_EXCEEDED',
           message: `You've used all your monthly usage. Resets on ${error.resetDate.toLocaleDateString()}.`,
           resetDate: error.resetDate,
+        });
+        return;
+      }
+      if (error instanceof ConcurrentLimitExceededError) {
+        res.status(429).json({
+          error: 'CONCURRENT_LIMIT_EXCEEDED',
+          message: error.message,
         });
         return;
       }

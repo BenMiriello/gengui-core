@@ -858,3 +858,23 @@ export const pricingAuditLog = pgTable(
     index('idx_pricing_audit_log_changed_by').on(table.changedBy),
   ],
 );
+
+export const quotaReservations = pgTable(
+  'quota_reservations',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    operationId: uuid('operation_id').notNull().unique(),
+    amount: integer('amount').notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true })
+      .notNull()
+      .default(sql`NOW() + INTERVAL '5 minutes'`),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_quota_reservations_user_active').on(table.userId, table.expiresAt),
+    index('idx_quota_reservations_expires').on(table.expiresAt),
+  ],
+);

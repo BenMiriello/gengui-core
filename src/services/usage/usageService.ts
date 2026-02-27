@@ -1,9 +1,15 @@
 import { db } from '../../config/database';
-import { userSubscriptions } from '../../models/schema';
-import { eq, sql } from 'drizzle-orm';
+import { quotaReservations, userSubscriptions } from '../../models/schema';
+import { and, eq, gt, lt, sql } from 'drizzle-orm';
 import type { OperationType, UserTier } from '../../config/pricing';
-import { calculateUsageUnits, getTierConfig } from '../../config/pricing';
+import {
+  calculateUsageUnits,
+  getTierConfig,
+  TIER_CONCURRENT_LIMITS,
+  RISK_THRESHOLD,
+} from '../../config/pricing';
 import { logger } from '../../utils/logger';
+import { randomUUID } from 'node:crypto';
 
 export class UsageQuotaExceededError extends Error {
   constructor(
@@ -16,48 +22,273 @@ export class UsageQuotaExceededError extends Error {
   }
 }
 
+export class ConcurrentLimitExceededError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ConcurrentLimitExceededError';
+  }
+}
+
 export class UsageService {
   async checkAndReserveQuota(params: {
     userId: string;
     operationType: OperationType;
     units?: number;
-  }): Promise<void> {
+  }): Promise<{ operationId?: string }> {
     const { userId, operationType, units = 1 } = params;
-
     const usageUnits = calculateUsageUnits(operationType, units);
-    const subscription = await this.getOrCreateSubscription(userId);
 
-    if (subscription.tier === 'admin') {
-      await this.deductUsage(userId, usageUnits);
-      return;
-    }
+    return await db.transaction(async (tx) => {
+      const [subscription] = await tx
+        .select()
+        .from(userSubscriptions)
+        .where(eq(userSubscriptions.userId, userId))
+        .for('update');
 
-    const now = new Date();
-    let currentSubscription = subscription;
+      if (!subscription) {
+        throw new Error('Subscription not found');
+      }
 
-    if (now > new Date(subscription.periodEnd)) {
-      currentSubscription = await this.resetPeriod(subscription);
-    }
+      if (subscription.tier === 'admin') {
+        await tx
+          .update(userSubscriptions)
+          .set({
+            usageConsumed: sql`${userSubscriptions.usageConsumed} + ${usageUnits}`,
+            updatedAt: new Date(),
+          })
+          .where(eq(userSubscriptions.userId, userId));
+        return {};
+      }
 
-    const newUsage = currentSubscription.usageConsumed + usageUnits;
+      const now = new Date();
+      let currentSubscription = subscription;
 
-    if (newUsage > currentSubscription.usageQuota) {
-      logger.warn({
-        userId,
-        required: usageUnits,
-        available: currentSubscription.usageQuota - currentSubscription.usageConsumed,
-        tier: currentSubscription.tier,
-        operationType,
-      }, 'Quota exceeded');
+      if (now > new Date(subscription.periodEnd)) {
+        currentSubscription = await this.resetPeriodWithLock(subscription, tx);
+      }
 
+      const risk = await this.calculateRisk(currentSubscription, tx);
+      const operationId = randomUUID();
+
+      if (risk >= RISK_THRESHOLD) {
+        await this.strictReserveAndDeduct({
+          userId,
+          operationId,
+          units: usageUnits,
+          subscription: currentSubscription,
+          tx,
+        });
+        return { operationId };
+      } else {
+        await this.optimisticCheckAndDeduct({
+          userId,
+          units: usageUnits,
+          tx,
+        });
+        return {};
+      }
+    });
+  }
+
+  private async calculateRisk(
+    subscription: typeof userSubscriptions.$inferSelect,
+    tx: any,
+  ): Promise<number> {
+    const quotaUsage = subscription.usageConsumed / subscription.usageQuota;
+
+    const [{ total }] = await tx
+      .select({ total: sql<number>`COALESCE(SUM(amount), 0)` })
+      .from(quotaReservations)
+      .where(
+        and(
+          eq(quotaReservations.userId, subscription.userId),
+          gt(quotaReservations.expiresAt, new Date()),
+        ),
+      );
+
+    const activeReservations = await tx
+      .select()
+      .from(quotaReservations)
+      .where(
+        and(
+          eq(quotaReservations.userId, subscription.userId),
+          gt(quotaReservations.expiresAt, new Date()),
+        ),
+      );
+
+    const limits = TIER_CONCURRENT_LIMITS[subscription.tier as UserTier];
+    const concurrencyUsage = activeReservations.length / limits.maxConcurrent;
+    const inFlightCost = Number(total);
+    const costUsage = inFlightCost / limits.maxInFlightCost;
+
+    return Math.max(quotaUsage, concurrencyUsage, costUsage);
+  }
+
+  private async strictReserveAndDeduct(params: {
+    userId: string;
+    operationId: string;
+    units: number;
+    subscription: typeof userSubscriptions.$inferSelect;
+    tx: any;
+  }): Promise<void> {
+    const { userId, operationId, units, subscription, tx } = params;
+
+    const [{ total }] = await tx
+      .select({ total: sql<number>`COALESCE(SUM(amount), 0)` })
+      .from(quotaReservations)
+      .where(
+        and(
+          eq(quotaReservations.userId, userId),
+          gt(quotaReservations.expiresAt, new Date()),
+        ),
+      );
+
+    const effectiveUsage = subscription.usageConsumed + Number(total) + units;
+
+    if (effectiveUsage > subscription.usageQuota) {
       throw new UsageQuotaExceededError(
-        new Date(currentSubscription.periodEnd),
-        currentSubscription.usageConsumed,
-        currentSubscription.usageQuota,
+        new Date(subscription.periodEnd),
+        subscription.usageConsumed,
+        subscription.usageQuota,
       );
     }
 
-    await this.deductUsage(userId, usageUnits);
+    const activeReservations = await tx
+      .select()
+      .from(quotaReservations)
+      .where(
+        and(
+          eq(quotaReservations.userId, userId),
+          gt(quotaReservations.expiresAt, new Date()),
+        ),
+      );
+
+    const limits = TIER_CONCURRENT_LIMITS[subscription.tier as UserTier];
+
+    if (activeReservations.length >= limits.maxConcurrent) {
+      throw new ConcurrentLimitExceededError(
+        `Maximum concurrent operations (${limits.maxConcurrent}) reached`,
+      );
+    }
+
+    const inFlightCost = Number(total) + units;
+    if (inFlightCost > limits.maxInFlightCost) {
+      throw new ConcurrentLimitExceededError(
+        `Maximum in-flight cost (${limits.maxInFlightCost}) exceeded`,
+      );
+    }
+
+    await tx.insert(quotaReservations).values({
+      userId,
+      operationId,
+      amount: units,
+      expiresAt: sql`NOW() + INTERVAL '5 minutes'`,
+    });
+
+    logger.debug({
+      userId,
+      operationId,
+      amount: units,
+      activeReservations: activeReservations.length,
+      inFlightCost,
+    }, 'Quota reservation created');
+  }
+
+  private async optimisticCheckAndDeduct(params: {
+    userId: string;
+    units: number;
+    tx: any;
+  }): Promise<void> {
+    const { userId, units, tx } = params;
+
+    const result = await tx
+      .update(userSubscriptions)
+      .set({
+        usageConsumed: sql`${userSubscriptions.usageConsumed} + ${units}`,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(userSubscriptions.userId, userId),
+          sql`${userSubscriptions.usageConsumed} + ${units} <= ${userSubscriptions.usageQuota}`,
+        ),
+      )
+      .returning();
+
+    if (result.length === 0) {
+      const current = await tx
+        .select()
+        .from(userSubscriptions)
+        .where(eq(userSubscriptions.userId, userId));
+
+      throw new UsageQuotaExceededError(
+        new Date(current[0].periodEnd),
+        current[0].usageConsumed,
+        current[0].usageQuota,
+      );
+    }
+
+    logger.debug({ userId, amount: units }, 'Usage deducted (optimistic)');
+  }
+
+  async finalizeReservation(params: {
+    operationId: string;
+    userId: string;
+    success: boolean;
+  }): Promise<void> {
+    const { operationId, userId, success } = params;
+
+    await db.transaction(async (tx) => {
+      const [reservation] = await tx
+        .select()
+        .from(quotaReservations)
+        .where(eq(quotaReservations.operationId, operationId));
+
+      if (!reservation) {
+        logger.warn({ operationId }, 'Reservation not found for finalization');
+        return;
+      }
+
+      await tx
+        .delete(quotaReservations)
+        .where(eq(quotaReservations.operationId, operationId));
+
+      if (success) {
+        await tx
+          .update(userSubscriptions)
+          .set({
+            usageConsumed: sql`${userSubscriptions.usageConsumed} + ${reservation.amount}`,
+            updatedAt: new Date(),
+          })
+          .where(eq(userSubscriptions.userId, userId));
+
+        logger.debug({
+          userId,
+          operationId,
+          amount: reservation.amount,
+        }, 'Reservation finalized and quota deducted');
+      } else {
+        logger.debug({
+          userId,
+          operationId,
+          amount: reservation.amount,
+        }, 'Reservation released (operation failed)');
+      }
+    });
+  }
+
+  async cleanupExpiredReservations(): Promise<number> {
+    const result = await db
+      .delete(quotaReservations)
+      .where(lt(quotaReservations.expiresAt, new Date()))
+      .returning();
+
+    const count = result.length;
+    if (count > 0) {
+      logger.info({ count }, 'Cleaned up expired reservations');
+    }
+
+    return count;
   }
 
   async deductUsage(userId: string, amount: number): Promise<void> {
@@ -70,14 +301,25 @@ export class UsageService {
       .where(eq(userSubscriptions.userId, userId));
   }
 
-  async resetPeriod(
+  private async resetPeriodWithLock(
     subscription: typeof userSubscriptions.$inferSelect,
+    tx: any,
   ): Promise<typeof userSubscriptions.$inferSelect> {
+    const now = new Date();
+
+    if (now <= new Date(subscription.periodEnd)) {
+      logger.debug(
+        { userId: subscription.userId },
+        'Period already reset by concurrent request',
+      );
+      return subscription;
+    }
+
     const newPeriodStart = new Date(subscription.periodEnd);
     const newPeriodEnd = new Date(newPeriodStart);
     newPeriodEnd.setMonth(newPeriodEnd.getMonth() + 1);
 
-    const [updated] = await db
+    const [updated] = await tx
       .update(userSubscriptions)
       .set({
         periodStart: newPeriodStart,
@@ -87,6 +329,11 @@ export class UsageService {
       })
       .where(eq(userSubscriptions.userId, subscription.userId))
       .returning();
+
+    logger.info(
+      { userId: subscription.userId, tier: subscription.tier },
+      'Usage period reset',
+    );
 
     return updated;
   }

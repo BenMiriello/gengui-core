@@ -1,1 +1,5 @@
-export { usageService, UsageQuotaExceededError } from './usageService';
+export {
+  usageService,
+  UsageQuotaExceededError,
+  ConcurrentLimitExceededError,
+} from './usageService';

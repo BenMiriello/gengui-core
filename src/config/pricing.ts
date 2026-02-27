@@ -46,6 +46,32 @@ export const TIER_CONFIGS: Record<UserTier, TierConfig> = {
   },
 };
 
+export interface ConcurrentLimits {
+  maxConcurrent: number;
+  maxInFlightCost: number;
+}
+
+export const TIER_CONCURRENT_LIMITS: Record<UserTier, ConcurrentLimits> = {
+  free: {
+    maxConcurrent: 10,
+    maxInFlightCost: 50,
+  },
+  pro: {
+    maxConcurrent: 30,
+    maxInFlightCost: 400,
+  },
+  max: {
+    maxConcurrent: 50,
+    maxInFlightCost: 2000,
+  },
+  admin: {
+    maxConcurrent: 100,
+    maxInFlightCost: Number.MAX_SAFE_INTEGER,
+  },
+};
+
+export const RISK_THRESHOLD = 0.90;
+
 export type OperationType =
   | 'llm-query-1k-tokens'
   | 'image-standard'
