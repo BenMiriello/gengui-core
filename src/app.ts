@@ -7,6 +7,7 @@ import { errorHandler } from './middleware/errorHandler';
 import { requestLogger } from './middleware/requestLogger';
 import adminRoutes from './routes/admin';
 import authRoutes from './routes/auth';
+import conflictsRoutes from './routes/conflicts';
 import contactRoutes from './routes/contact';
 import customStylePromptsRoutes from './routes/customStylePrompts';
 import documentsRoutes from './routes/documents';
@@ -84,6 +85,7 @@ export function createApp() {
   });
 
   app.use('/api', authRoutes);
+  app.use('/api', conflictsRoutes);
   app.use('/api', contactRoutes);
   app.use('/api/media', mediaRoutes);
   app.use('/api/generations', generationsRoutes);

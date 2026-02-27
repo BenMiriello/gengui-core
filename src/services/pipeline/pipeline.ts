@@ -16,7 +16,7 @@
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { db } from '../../config/database';
-import { documents } from '../../models/schema';
+import { documents, reviewQueue } from '../../models/schema';
 import type {
   ArcType,
   FacetInput,
@@ -44,6 +44,7 @@ import {
   calculateAllBatches,
   type SegmentWithText,
   extractionConfig,
+  countTokens,
 } from '../contextBudget';
 import { graphService } from '../graph/graph.service';
 import { recomputeAndUpdatePrimaryName } from '../graph/entityNames.js';
@@ -2181,6 +2182,10 @@ interface CharacterContext {
       triggerEventName: string | null;
       triggerEventDescription: string | null;
       gapDetected: boolean;
+      causationQuality?: {
+        level: 'strong' | 'weak' | 'none';
+        reason?: string;
+      } | null;
     } | null;
   }>;
 
@@ -2250,9 +2255,33 @@ function groupFacetsByType(facets: StoredFacet[]): Map<FacetType, StoredFacet[]>
   return map;
 }
 
-// NOTE: assessCausationQuality function from TDD not currently used.
-// Reserved for future implementation to detect weak causation in trigger events.
-// See TDD lines 1126-1158 for implementation if needed.
+function assessCausationQuality(description: string | null): {
+  level: 'strong' | 'weak' | 'none';
+  reason?: string;
+} {
+  if (!description) return { level: 'none' };
+
+  const desc = description.toLowerCase().trim();
+
+  const weakPatterns = [
+    /^an? (event|thing|action|change) (occurs?|happens?)/i,
+    /^something (occurs?|happens?)/i,
+    /^(it|this) (occurs?|happens?)/i,
+    /^(the )?(character|person|entity)/i,
+    /^[a-z]+ changes?$/i,
+    /^transition/i,
+  ];
+
+  const isWeak = weakPatterns.some(pattern => pattern.test(desc));
+  const isTooShort = desc.length < 15;
+  const hasNoVerb = !/(do|does|is|are|was|were|have|has|had|can|will|would|should|may|might|must)/i.test(desc);
+
+  if (isWeak || (isTooShort && hasNoVerb)) {
+    return { level: 'weak', reason: 'Generic or vague description' };
+  }
+
+  return { level: 'strong' };
+}
 
 /**
  * Build character context with state-centric fabula timeline.
@@ -2285,8 +2314,13 @@ async function buildCharacterContext(
   const stateContexts = [];
   const allStateFacetIds = new Set<string>();
 
-  for (const state of states) {
-    const stateFacets = await graphService.getFacetsForState(state.id);
+  const allStateFacets = await Promise.all(
+    states.map(s => graphService.getFacetsForState(s.id))
+  );
+
+  for (let i = 0; i < states.length; i++) {
+    const state = states[i];
+    const stateFacets = allStateFacets[i];
 
     const facetsWithMentions = await Promise.all(
       stateFacets.map(async (facet) => {
@@ -2356,9 +2390,11 @@ async function buildCharacterContext(
     if (transition) {
       const toState = states.find(s => s.id === transition.toStateId);
       let triggerEvent = null;
+      let causationQuality = null;
 
       if (transition.triggerEventId) {
         triggerEvent = events.find(e => e.id === transition.triggerEventId);
+        causationQuality = assessCausationQuality(triggerEvent?.description ?? null);
       }
 
       transitionInfo = {
@@ -2368,6 +2404,7 @@ async function buildCharacterContext(
         triggerEventName: triggerEvent?.name ?? null,
         triggerEventDescription: triggerEvent?.description ?? null,
         gapDetected: transition.gapDetected,
+        causationQuality,
       };
     }
 
@@ -2382,7 +2419,9 @@ async function buildCharacterContext(
       .sort((a, b) => a - b);
 
     const segmentIds = stateSegmentIndices.map(idx => segments[idx]?.id).filter(Boolean);
-    const firstSegment = segments[stateSegmentIndices[0]];
+    const firstSegment = stateSegmentIndices.length > 0
+      ? segments[stateSegmentIndices[0]]
+      : undefined;
 
     stateContexts.push({
       id: state.id,
@@ -2565,6 +2604,13 @@ function buildContextPrompt(
   facets: StoredFacet[],
   context: CharacterContext,
 ): string {
+  if (context.states.length === 0 && context.permanentFacets.length === 0) {
+    logger.warn(
+      { entityId: context.entityId },
+      'No state or facet context available - prompt will be minimal',
+    );
+  }
+
   let prompt = '';
 
   prompt += `## DOCUMENT CONTEXT\n`;
@@ -2688,6 +2734,14 @@ function buildContextPrompt(
         if (state.transitionTo.triggerEventDescription) {
           prompt += `  → Event description: ${state.transitionTo.triggerEventDescription}\n`;
         }
+
+        if (state.transitionTo.causationQuality?.level === 'weak') {
+          prompt += `  → ⚠️ WEAK CAUSATION: ${state.transitionTo.causationQuality.reason}\n`;
+          prompt += `  → Warning: Trigger event description is vague or generic\n`;
+        } else if (state.transitionTo.causationQuality?.level === 'none') {
+          prompt += `  → ⚠️ NO CAUSATION: Trigger event has no description\n`;
+        }
+
         prompt += `  → Gap detected: false (transition has clear cause)\n`;
       } else if (state.transitionTo.gapDetected) {
         prompt += `  → Trigger event: null\n`;
@@ -2812,6 +2866,141 @@ function buildContextPrompt(
 }
 
 /**
+ * Optimize character context to fit within token budget.
+ * Applied in order until prompt fits.
+ */
+function optimizeContextForTokens(
+  context: CharacterContext,
+): CharacterContext {
+  const optimized = { ...context };
+
+  optimized.narrativeEdges = optimized.narrativeEdges.map(e => ({
+    ...e,
+    description: null,
+  }));
+
+  optimized.states = optimized.states.map(state => ({
+    ...state,
+    segmentSummary: state.transitionTo?.triggerEventId ? state.segmentSummary : null,
+  }));
+
+  optimized.states = optimized.states.map(state => ({
+    ...state,
+    events: state.events.map(event => ({
+      ...event,
+      description: event.id === state.transitionTo?.triggerEventId
+        ? event.description
+        : null,
+    })),
+  }));
+
+  optimized.states = optimized.states.map(state => ({
+    ...state,
+    facets: state.facets.map(f => ({
+      ...f,
+      segmentRange: '',
+    })),
+  }));
+
+  return optimized;
+}
+
+/**
+ * Persist detected conflicts to review_queue table.
+ */
+async function persistConflicts(
+  conflicts: DetectedConflict[],
+  documentId: string,
+  contextMap: Map<string, CharacterContext>,
+): Promise<void> {
+  if (conflicts.length === 0) return;
+
+  const insertPromises = conflicts.map(async (conflict) => {
+    const entityContext = contextMap.get(conflict.entityId);
+
+    const stateIds = entityContext?.states
+      .filter(s =>
+        s.facets.some(f => f.id === conflict.facetA.id || f.id === conflict.facetB.id)
+      )
+      .map(s => s.id) || [];
+
+    const reasoning = conflict.reasoning.toLowerCase();
+    const isPlotHole = reasoning.includes('gapdetected') ||
+                       reasoning.includes('plot hole') ||
+                       reasoning.includes('missing trigger');
+    const isWeakCausation = reasoning.includes('weak') ||
+                           reasoning.includes('vague causation') ||
+                           reasoning.includes('generic');
+
+    const relevantState = entityContext?.states.find(s =>
+      s.facets.some(f => f.id === conflict.facetA.id || f.id === conflict.facetB.id)
+    );
+    const causationQuality = relevantState?.transitionTo?.causationQuality;
+
+    const segments = await segmentService.getDocumentSegments(documentId);
+    const facetAMentions = await mentionService.getByNodeIdWithAbsolutePositions(
+      conflict.facetA.id,
+      segments
+    );
+    const facetBMentions = await mentionService.getByNodeIdWithAbsolutePositions(
+      conflict.facetB.id,
+      segments
+    );
+
+    const sourcePositions = {
+      facetA: facetAMentions.slice(0, 3).map(m => ({
+        segmentId: m.segmentId,
+        start: m.absoluteStart,
+        end: m.absoluteEnd,
+      })),
+      facetB: facetBMentions.slice(0, 3).map(m => ({
+        segmentId: m.segmentId,
+        start: m.absoluteStart,
+        end: m.absoluteEnd,
+      })),
+    };
+
+    return db.insert(reviewQueue).values({
+      documentId,
+      itemType: 'contradiction',
+      primaryEntityId: conflict.entityId,
+      facetIds: [conflict.facetA.id, conflict.facetB.id],
+      stateIds: stateIds.length > 0 ? stateIds : null,
+      contextSummary: conflict.reasoning,
+      conflictType: conflict.conflictType,
+      sourcePositions,
+      resolution: {
+        metadata: {
+          isPlotHole,
+          isWeakCausation,
+          facetType: conflict.facetType,
+          entityName: conflict.entityName,
+          causationQuality,
+        },
+        facets: {
+          facetA: conflict.facetA,
+          facetB: conflict.facetB,
+        },
+      },
+    });
+  });
+
+  await Promise.all(insertPromises);
+
+  logger.info(
+    {
+      documentId,
+      conflictCount: conflicts.length,
+      plotHoleCount: conflicts.filter(c =>
+        c.reasoning.toLowerCase().includes('gapdetected') ||
+        c.reasoning.toLowerCase().includes('plot hole')
+      ).length,
+    },
+    'Stage 10: Conflicts persisted to review queue',
+  );
+}
+
+/**
  * Detect contradictions with full character context.
  */
 async function detectContradictionsWithContext(
@@ -2827,7 +3016,59 @@ async function detectContradictionsWithContext(
   classificationType: 'true_inconsistency' | 'temporal_change' | 'arc_divergence';
   reasoning: string;
 }>> {
-  const prompt = buildContextPrompt(entityName, facetType, facets, context);
+  let prompt = buildContextPrompt(entityName, facetType, facets, context);
+
+  const modelConfig = getTextModelConfig('gemini-2.0-flash-lite');
+  const charsPerToken = modelConfig.charsPerToken ?? 3.3;
+  let promptTokens = countTokens(prompt, charsPerToken);
+  const maxInputTokens = modelConfig.maxTokens || 1_000_000;
+  const threshold = maxInputTokens * 0.9;
+
+  if (promptTokens > threshold) {
+    logger.warn(
+      {
+        entityId: context.entityId,
+        promptTokens,
+        maxInputTokens,
+        threshold,
+      },
+      'Context approaching token limit - applying optimization',
+    );
+
+    const optimizedContext = optimizeContextForTokens(context);
+    prompt = buildContextPrompt(entityName, facetType, facets, optimizedContext);
+    promptTokens = countTokens(prompt, charsPerToken);
+
+    if (promptTokens > threshold) {
+      logger.error(
+        {
+          entityId: context.entityId,
+          promptTokens,
+          maxInputTokens,
+        },
+        'Cannot fit entity context within token limits - falling back to legacy',
+      );
+
+      return detectContradictionsInBatch(
+        entityName,
+        facetType,
+        facets.map(f => ({ content: f.content })),
+        userId,
+        documentId,
+      );
+    }
+  }
+
+  logger.info(
+    {
+      stage: 10,
+      operation: 'detectContradictions',
+      entityId: context.entityId,
+      promptTokens,
+      estimatedResponseTokens: facets.length * 50,
+    },
+    'Context-aware conflict detection prompt generated',
+  );
 
   const result = await detectContradictionsInBatch(
     entityName,
@@ -2867,6 +3108,7 @@ async function detectFacetConflicts(
   );
 
   const conflicts: DetectedConflict[] = [];
+  const contextMap = new Map<string, CharacterContext>();
 
   for (const entity of allNodes) {
     const context = await buildCharacterContext(
@@ -2876,6 +3118,7 @@ async function detectFacetConflicts(
       documentId,
       userId
     );
+    contextMap.set(entity.id, context);
 
     const facetsByType = groupFacetsByType(context.allFacets);
 
@@ -2934,6 +3177,9 @@ async function detectFacetConflicts(
       }
     }
   }
+
+  // Persist all conflicts to review queue
+  await persistConflicts(conflicts, documentId, contextMap);
 
   // Log conflicts and queue true_inconsistency for user review
   if (conflicts.length > 0) {
