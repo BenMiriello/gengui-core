@@ -6,6 +6,7 @@ import {
 } from 'express';
 import { requireAdmin } from '../middleware/auth';
 import { adminService } from '../services/adminService';
+import { contactService } from '../services/contact';
 
 const router = Router();
 
@@ -222,6 +223,159 @@ router.post(
       res.json(result);
     } catch (error) {
       return next(error);
+    }
+  },
+);
+
+/**
+ * GET /api/admin/usage/global
+ * Get global usage statistics
+ */
+router.get(
+  '/admin/usage/global',
+  requireAdmin,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { startDate, endDate } = req.query;
+
+      const stats = await adminService.getGlobalUsage({
+        startDate: startDate as string | undefined,
+        endDate: endDate as string | undefined,
+      });
+
+      res.json(stats);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+/**
+ * GET /api/admin/usage/users/:userId
+ * Get per-user usage statistics
+ */
+router.get(
+  '/admin/usage/users/:userId',
+  requireAdmin,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { userId } = req.params;
+      const { startDate, endDate } = req.query;
+
+      const stats = await adminService.getUserUsage(userId, {
+        startDate: startDate as string | undefined,
+        endDate: endDate as string | undefined,
+      });
+
+      res.json(stats);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+/**
+ * GET /api/admin/usage/top-users
+ * Get top users by cost
+ */
+router.get(
+  '/admin/usage/top-users',
+  requireAdmin,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { startDate, endDate, limit } = req.query;
+
+      const topUsers = await adminService.getTopUsersByCost({
+        startDate: startDate as string | undefined,
+        endDate: endDate as string | undefined,
+        limit: limit ? parseInt(limit as string, 10) : undefined,
+      });
+
+      res.json(topUsers);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+/**
+ * GET /api/admin/usage/recent
+ * Get recent LLM operations
+ */
+router.get(
+  '/admin/usage/recent',
+  requireAdmin,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { limit, userId } = req.query;
+
+      const operations = await adminService.getRecentOperations({
+        limit: limit ? parseInt(limit as string, 10) : undefined,
+        userId: userId as string | undefined,
+      });
+
+      res.json(operations);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+/**
+ * GET /api/admin/users/:userId/usage-summary
+ * Get quick usage summary for a user (for Users tab)
+ */
+router.get(
+  '/admin/users/:userId/usage-summary',
+  requireAdmin,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { userId } = req.params;
+
+      const now = new Date();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+        .toISOString()
+        .split('T')[0];
+
+      const monthStats = await adminService.getUserUsage(userId, {
+        startDate: startOfMonth,
+      });
+
+      res.json({
+        thisMonthCost: monthStats.totalCost,
+        thisMonthOperations: monthStats.totalOperations,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.get(
+  '/admin/contacts',
+  requireAdmin,
+  async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const contacts = await contactService.listPending();
+      res.json(contacts);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.patch(
+  '/admin/contacts/:id',
+  requireAdmin,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { id } = req.params;
+      const { status, notes } = req.body;
+
+      await contactService.markStatus(id, status, req.user!.id, notes);
+      res.json({ success: true });
+    } catch (error) {
+      next(error);
     }
   },
 );

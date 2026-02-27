@@ -15,100 +15,8 @@
 import { extractEntitiesPrompt } from '../../prompts/storyNodes/extractEntities';
 import { extractRelationshipsPrompt } from '../../prompts/storyNodes/extractRelationships';
 import type { Segment } from '../segments';
+import { batchCalibrator } from './calibrator';
 
-/**
- * Configuration for thinking budget allocation.
- *
- * For models with "thinking" capabilities (like Gemini 2.5), thinking tokens
- * count against the output token limit. This config controls how to allocate
- * output capacity between thinking and actual response content.
- */
-export interface ThinkingBudgetConfig {
-  /**
-   * Minimum output capacity to guarantee (absolute floor).
-   * Even if estimation is low, never reserve less than this.
-   */
-  minOutputReserve: number;
-
-  /**
-   * Threshold below which thinking is disabled entirely.
-   * If available thinking capacity < this, set thinkingBudget=0
-   * and give all tokens to output.
-   */
-  disableThinkingThreshold: number;
-}
-
-/**
- * Result of thinking budget calculation.
- */
-export interface ThinkingBudgetResult {
-  /** Budget to set for thinking tokens (0 = disabled) */
-  thinkingBudget: number;
-  /** Total output tokens to request from API */
-  maxOutputTokens: number;
-  /** Guaranteed capacity available for actual response content */
-  guaranteedResponseCapacity: number;
-}
-
-/**
- * Gemini 2.5 Flash thinking budget limit.
- * API rejects requests with thinking budget > 24576.
- */
-const GEMINI_MAX_THINKING_BUDGET = 24576;
-
-/**
- * Empirical observation: Gemini 2.5 uses approximately 30K thinking tokens
- * regardless of thinkingBudget hint. We must account for this actual usage
- * when reserving output space, even though we request less.
- *
- * Evidence: Batches with 9 segments showed ~30K thinking token usage even when
- * we requested 24K or less. The model ignores our hint and uses what it needs.
- */
-const EMPIRICAL_THINKING_USAGE = 30000;
-
-/**
- * Calculate thinking budget allocation for a given output estimate.
- *
- * CRITICAL: This function accounts for empirical thinking token usage (~30K)
- * rather than trusting the thinkingBudget hint, which the model ignores.
- *
- * Strategy:
- * 1. Assume model will use ~30K tokens for thinking (empirical observation)
- * 2. Reserve output space AFTER accounting for actual thinking usage
- * 3. Request conservative thinking budget (70% of empirical) as hint
- * 4. Keep thinking ENABLED (improves extraction quality)
- *
- * @param totalOutputCapacity - Total available output tokens (maxOutputTokens × utilization)
- * @param estimatedOutputTokens - Estimated tokens needed for actual response
- * @param config - Thinking budget configuration
- */
-export function calculateThinkingBudget(
-  totalOutputCapacity: number,
-  estimatedOutputTokens: number,
-  config: ThinkingBudgetConfig,
-): ThinkingBudgetResult {
-  // Calculate space needed for output (estimation is already conservative)
-  const outputReserve = Math.max(config.minOutputReserve, estimatedOutputTokens);
-
-  // Space available for thinking
-  const availableForThinking = totalOutputCapacity - outputReserve;
-
-  // Check if we should disable thinking
-  if (availableForThinking < config.disableThinkingThreshold) {
-    return {
-      thinkingBudget: 0,
-      maxOutputTokens: totalOutputCapacity,
-      guaranteedResponseCapacity: totalOutputCapacity,
-    };
-  }
-
-  // TEMPORARY: Thinking disabled while debugging
-  return {
-    thinkingBudget: 0,
-    maxOutputTokens: totalOutputCapacity,
-    guaranteedResponseCapacity: outputReserve,
-  };
-}
 
 /**
  * Generic operation budget config interface.
@@ -139,13 +47,6 @@ export interface OperationBudgetConfig<TItem> {
    * Budget calculator will include items in this order until budget exhausted.
    */
   prioritize: (items: TItem[]) => TItem[];
-
-  /**
-   * Optional thinking budget configuration.
-   * If provided, enables smart allocation of output capacity between
-   * thinking tokens and response content for models that support thinking.
-   */
-  thinkingConfig?: ThinkingBudgetConfig;
 }
 
 /**
@@ -174,34 +75,49 @@ export interface RelationshipEntity {
  * SINGLE SOURCE OF TRUTH for extraction output estimation.
  * Used by both the batch calculator and the client.
  *
- * Returns CONSERVATIVE estimate (20% buffer built in) to account for:
- * - Dense segments with more entities than average
- * - LLM generating more facets than minimum requirement
- * - Estimation uncertainty
+ * Returns CONSERVATIVE estimate with built-in safety margins:
+ * - Conservative baseline (more entities in dense narrative)
+ * - Token costs closer to max than average
+ * - JSON overhead (brackets, keys, quotes, commas)
+ * - Safety margin for variance
  *
- * Combined with targetUtilization (0.8), provides adequate safety margin
- * without needing additional multipliers.
+ * Can optionally use adaptive calibration based on actual batch results.
  *
  * Output JSON has THREE separate arrays: entities, facets, mentions
  * Based on actual extraction data (Dracula ch1-4, 69 entities from 55K chars):
- * - Entities array: ~1 entity per 800 input chars, ~100 tokens each
- * - Facets array: ~4.5 facets per entity, ~50 tokens each
- * - Mentions array: ~2.5 mentions per entity, ~30 tokens each
- * - Total per entity: 100 + (4.5 × 50) + (2.5 × 30) = 400 tokens
+ * - Entities array: ~1 entity per 400-500 input chars (was 500, now 400 for dense text)
+ * - Entity tokens: ~150 tokens each (was 120, now closer to max observed)
+ * - Facets array: ~6 facets per entity (was 8 - fewer but longer)
+ * - Facet tokens: ~80 tokens each (was 60 - closer to max)
+ * - Mentions array: ~5 mentions per entity (was 4 - conservative)
+ * - Mention tokens: ~45 tokens each (was 35 - accounts for verbatim quotes)
+ * - JSON overhead: 1.3x multiplier (brackets, keys, quotes, commas)
+ * - Safety margin: 1.15x multiplier (15% buffer for variance)
  */
-export function estimateExtractionOutputTokens(totalInputChars: number): number {
-  const estimatedEntities = Math.ceil(totalInputChars / 500);
-  const tokensPerEntity = 120;
-  const facetsPerEntity = 8;
-  const tokensPerFacet = 60;
-  const mentionsPerEntity = 4;
-  const tokensPerMention = 35;
+export function estimateExtractionOutputTokens(
+  totalInputChars: number,
+  useCalibration = true,
+): number {
+  if (useCalibration && batchCalibrator.hasEnoughData()) {
+    return batchCalibrator.getAdjustedEstimate(totalInputChars);
+  }
+
+  const estimatedEntities = Math.ceil(totalInputChars / 400);
+  const tokensPerEntity = 150;
+  const facetsPerEntity = 6;
+  const tokensPerFacet = 80;
+  const mentionsPerEntity = 5;
+  const tokensPerMention = 45;
 
   const entityTokens = estimatedEntities * tokensPerEntity;
   const facetTokens = estimatedEntities * facetsPerEntity * tokensPerFacet;
   const mentionTokens = estimatedEntities * mentionsPerEntity * tokensPerMention;
+  const baseEstimate = entityTokens + facetTokens + mentionTokens;
 
-  return entityTokens + facetTokens + mentionTokens;
+  const jsonOverhead = 1.3;
+  const safetyMargin = 1.15;
+
+  return Math.ceil(baseEstimate * jsonOverhead * safetyMargin);
 }
 
 /**
@@ -232,14 +148,6 @@ export const extractionConfig: OperationBudgetConfig<SegmentWithText> = {
   prioritize: (segments: SegmentWithText[]) => {
     // Segments are processed in document order
     return [...segments].sort((a, b) => a.start - b.start);
-  },
-
-  // Thinking budget allocation for extraction
-  // Note: thinking is currently DISABLED (returns 0) while we debug
-  // Estimation is conservative (20% buffer) so no additional multiplier needed
-  thinkingConfig: {
-    minOutputReserve: 16384, // Minimum 16K tokens for response
-    disableThinkingThreshold: 2048, // Disable thinking if < 2K tokens available
   },
 };
 
@@ -398,3 +306,42 @@ export const entityRegistryConfig: OperationBudgetConfig<EntityRegistryItem> = {
     return [...entities].sort((a, b) => (b.mentionCount ?? 0) - (a.mentionCount ?? 0));
   },
 };
+
+/**
+ * Validate estimation accuracy and return warnings.
+ *
+ * Helps identify when estimates are consistently off, indicating need for
+ * calibration adjustment or formula refinement.
+ */
+export function validateEstimationAccuracy(
+  estimated: number,
+  actual: number,
+  operation: string,
+): { isAccurate: boolean; warnings: string[] } {
+  const warnings: string[] = [];
+
+  if (estimated === 0 || actual === 0) {
+    return { isAccurate: true, warnings };
+  }
+
+  const ratio = actual / estimated;
+
+  if (ratio > 1.2) {
+    warnings.push(
+      `${operation}: Underestimated by ${((ratio - 1) * 100).toFixed(1)}% ` +
+      `(estimated ${estimated}, actual ${actual}) - risk of truncation`
+    );
+  }
+
+  if (ratio < 0.7) {
+    warnings.push(
+      `${operation}: Overestimated by ${((1 - ratio) * 100).toFixed(1)}% ` +
+      `(estimated ${estimated}, actual ${actual}) - could increase batch size`
+    );
+  }
+
+  return {
+    isAccurate: ratio >= 0.8 && ratio <= 1.2,
+    warnings,
+  };
+}

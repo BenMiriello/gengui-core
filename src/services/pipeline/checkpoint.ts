@@ -35,6 +35,10 @@ export interface AnalysisCheckpoint {
   startedAt: string;
   lastStageCompleted: AnalysisStage | null;
 
+  failedAtStage?: AnalysisStage;
+  failureReason?: string;
+  failureTimestamp?: string;
+
   // Stage 2: Summary generation output
   summaryData?: {
     segmentSummaries: Array<{ segmentId: string; summary: string }>;
@@ -112,8 +116,10 @@ export async function loadCheckpoint(
   return checkpoint;
 }
 
-interface CheckpointUpdate extends Partial<Omit<AnalysisCheckpoint, 'version' | 'stage3Progress'>> {
+interface CheckpointUpdate extends Partial<Omit<AnalysisCheckpoint, 'version' | 'stage3Progress' | 'failedAtStage' | 'failureReason' | 'failureTimestamp'>> {
   stage3Progress?: AnalysisCheckpoint['stage3Progress'] | null;
+  failedAtStage?: AnalysisStage;
+  failureReason?: string;
 }
 
 /**
@@ -142,6 +148,9 @@ export async function saveCheckpoint(
     stage3Progress,
     stage3Output: update.stage3Output ?? existing?.stage3Output,
     stage4Output: update.stage4Output ?? existing?.stage4Output,
+    failedAtStage: update.failedAtStage ?? existing?.failedAtStage,
+    failureReason: update.failureReason ?? existing?.failureReason,
+    failureTimestamp: update.failedAtStage ? new Date().toISOString() : existing?.failureTimestamp,
   };
 
   await db

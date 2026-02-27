@@ -13,6 +13,7 @@ import {
   signupRateLimiter,
 } from '../middleware/rateLimiter';
 import { authService } from '../services/auth';
+import { usageService } from '../services/usage';
 
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -127,6 +128,19 @@ router.get(
         user: req.user,
         sessionId: req.sessionId,
       });
+    } catch (error) {
+      return next(error);
+    }
+  },
+);
+
+router.get(
+  '/auth/me/usage',
+  requireAuth,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const usage = await usageService.getUserUsage(req.user!.id);
+      res.json(usage);
     } catch (error) {
       return next(error);
     }

@@ -1,9 +1,10 @@
 import { and, count, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
 import { db } from '../config/database';
-import { media, users } from '../models/schema';
+import { llmUsage, llmUsageDaily, media, users } from '../models/schema';
 import { BadRequestError, NotFoundError } from '../utils/errors';
 import { logger } from '../utils/logger';
 import { redis } from './redis';
+import { usageTrackingService } from './usageTracking';
 
 interface UserListFilters {
   search?: string;
@@ -39,6 +40,7 @@ interface UserWithStats {
   failedLoginAttempts: number;
   lockedUntil: Date | null;
   stats?: GenerationStats;
+  thisMonthCost?: number;
 }
 
 interface QueueStatus {
@@ -162,7 +164,34 @@ export class AdminService {
         });
       }
 
-      // Attach stats to users
+      // Fetch LLM usage costs for this month
+      const now = new Date();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+        .toISOString()
+        .split('T')[0];
+
+      const usageQuery = await db
+        .select({
+          userId: llmUsageDaily.userId,
+          totalCost: sql<number>`SUM(CAST(${llmUsageDaily.totalCostUsd} AS NUMERIC))`,
+        })
+        .from(llmUsageDaily)
+        .where(
+          and(
+            inArray(llmUsageDaily.userId, userIds),
+            sql`${llmUsageDaily.date} >= ${startOfMonth}`,
+          ),
+        )
+        .groupBy(llmUsageDaily.userId);
+
+      const usageMap = new Map<string, number>();
+      for (const row of usageQuery) {
+        if (row.userId) {
+          usageMap.set(row.userId, row.totalCost);
+        }
+      }
+
+      // Attach stats and usage to users
       usersWithStats = userList.map((u) => ({
         ...u,
         stats: statsMap.get(u.id) || {
@@ -172,6 +201,7 @@ export class AdminService {
           completedGenerations: 0,
           failedGenerations: 0,
         },
+        thisMonthCost: usageMap.get(u.id) || 0,
       }));
     }
 
@@ -407,6 +437,223 @@ export class AdminService {
     throw new BadRequestError(
       'Worker control API not yet implemented - see issue #198',
     );
+  }
+
+  /**
+   * Get global LLM usage statistics.
+   */
+  async getGlobalUsage(params: {
+    startDate?: string;
+    endDate?: string;
+  }): Promise<{
+    totalCost: number;
+    totalOperations: number;
+    totalInputTokens: number;
+    totalOutputTokens: number;
+    byDate?: Array<{
+      date: string;
+      cost: number;
+      operations: number;
+    }>;
+  }> {
+    const { startDate, endDate } = params;
+
+    const totals = await usageTrackingService.getUsageStats({
+      startDate,
+      endDate,
+    });
+
+    let byDate;
+    if (startDate || endDate) {
+      const conditions = [sql`${llmUsageDaily.userId} IS NULL`];
+      if (startDate) conditions.push(sql`${llmUsageDaily.date} >= ${startDate}`);
+      if (endDate) conditions.push(sql`${llmUsageDaily.date} <= ${endDate}`);
+
+      const rows = await db
+        .select()
+        .from(llmUsageDaily)
+        .where(and(...conditions))
+        .orderBy(llmUsageDaily.date);
+
+      byDate = rows.map((row) => ({
+        date: row.date,
+        cost: parseFloat(row.totalCostUsd),
+        operations: row.totalOperations,
+      }));
+    }
+
+    return {
+      ...totals,
+      byDate,
+    };
+  }
+
+  /**
+   * Get per-user usage statistics.
+   */
+  async getUserUsage(
+    userId: string,
+    params: {
+      startDate?: string;
+      endDate?: string;
+    },
+  ): Promise<{
+    totalCost: number;
+    totalOperations: number;
+    totalInputTokens: number;
+    totalOutputTokens: number;
+    byDate?: Array<{
+      date: string;
+      cost: number;
+      operations: number;
+    }>;
+  }> {
+    const { startDate, endDate } = params;
+
+    const totals = await usageTrackingService.getUsageStats({
+      userId,
+      startDate,
+      endDate,
+    });
+
+    let byDate;
+    if (startDate || endDate) {
+      const conditions = [eq(llmUsageDaily.userId, userId)];
+      if (startDate) conditions.push(sql`${llmUsageDaily.date} >= ${startDate}`);
+      if (endDate) conditions.push(sql`${llmUsageDaily.date} <= ${endDate}`);
+
+      const rows = await db
+        .select()
+        .from(llmUsageDaily)
+        .where(and(...conditions))
+        .orderBy(llmUsageDaily.date);
+
+      byDate = rows.map((row) => ({
+        date: row.date,
+        cost: parseFloat(row.totalCostUsd),
+        operations: row.totalOperations,
+      }));
+    }
+
+    return {
+      ...totals,
+      byDate,
+    };
+  }
+
+  /**
+   * Get top users by cost for a date range.
+   */
+  async getTopUsersByCost(params: {
+    startDate?: string;
+    endDate?: string;
+    limit?: number;
+  }): Promise<
+    Array<{
+      userId: string;
+      username: string;
+      email: string;
+      totalCost: number;
+      totalOperations: number;
+    }>
+  > {
+    const { startDate, endDate, limit = 10 } = params;
+
+    const conditions = [sql`${llmUsageDaily.userId} IS NOT NULL`];
+    if (startDate) conditions.push(sql`${llmUsageDaily.date} >= ${startDate}`);
+    if (endDate) conditions.push(sql`${llmUsageDaily.date} <= ${endDate}`);
+
+    const rows = await db
+      .select({
+        userId: llmUsageDaily.userId,
+        totalCost: sql<number>`SUM(CAST(${llmUsageDaily.totalCostUsd} AS NUMERIC))`,
+        totalOperations: sql<number>`SUM(${llmUsageDaily.totalOperations})`,
+      })
+      .from(llmUsageDaily)
+      .where(and(...conditions))
+      .groupBy(llmUsageDaily.userId)
+      .orderBy(sql`SUM(CAST(${llmUsageDaily.totalCostUsd} AS NUMERIC)) DESC`)
+      .limit(limit);
+
+    const userIds = rows.map((r) => r.userId).filter((id): id is string => !!id);
+    const userRows = await db
+      .select({
+        id: users.id,
+        username: users.username,
+        email: users.email,
+      })
+      .from(users)
+      .where(inArray(users.id, userIds));
+
+    const userMap = new Map(userRows.map((u) => [u.id, u]));
+
+    return rows.map((row) => {
+      const user = userMap.get(row.userId!);
+      return {
+        userId: row.userId!,
+        username: user?.username || 'Unknown',
+        email: user?.email || 'Unknown',
+        totalCost: row.totalCost,
+        totalOperations: row.totalOperations,
+      };
+    });
+  }
+
+  /**
+   * Get recent LLM operations (for audit/debugging).
+   */
+  async getRecentOperations(params: {
+    limit?: number;
+    userId?: string;
+  }): Promise<
+    Array<{
+      id: string;
+      userId: string;
+      username: string;
+      operation: string;
+      model: string;
+      costUsd: number;
+      createdAt: Date;
+    }>
+  > {
+    const { limit = 50, userId } = params;
+
+    const conditions = userId ? [eq(llmUsage.userId, userId)] : [];
+
+    const rows = await db
+      .select({
+        id: llmUsage.id,
+        userId: llmUsage.userId,
+        operation: llmUsage.operation,
+        model: llmUsage.model,
+        costUsd: llmUsage.costUsd,
+        createdAt: llmUsage.createdAt,
+      })
+      .from(llmUsage)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(llmUsage.createdAt))
+      .limit(limit);
+
+    const userIds = [...new Set(rows.map((r) => r.userId))];
+    const userRows = await db
+      .select({
+        id: users.id,
+        username: users.username,
+      })
+      .from(users)
+      .where(inArray(users.id, userIds));
+
+    const userMap = new Map(userRows.map((u) => [u.id, u.username]));
+
+    return rows.map((row) => ({
+      id: row.id,
+      userId: row.userId,
+      username: userMap.get(row.userId) || 'Unknown',
+      operation: row.operation,
+      model: row.model,
+      costUsd: parseFloat(row.costUsd),
+      createdAt: row.createdAt,
+    }));
   }
 }
 

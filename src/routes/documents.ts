@@ -26,6 +26,7 @@ import { loadCheckpoint, clearCheckpoint } from '../services/pipeline/checkpoint
 import { graphStoryNodesRepository } from '../services/storyNodes';
 import { versioningService } from '../services/versioning';
 import { mentionService } from '../services/mentions/mention.service';
+import { usageService, UsageQuotaExceededError } from '../services/usage';
 import { logger } from '../utils/logger';
 
 const router = Router();
@@ -363,10 +364,19 @@ router.post(
       const { id } = req.params;
       const reanalyze = req.query.reanalyze === 'true';
 
-      // Verify user owns document
-      await documentsService.get(id, userId);
+      const document = await documentsService.get(id, userId);
 
-      // Queue analysis request
+      const wordCount = document.content
+        ? document.content.split(/\s+/).filter((word) => word.length > 0).length
+        : 0;
+      const tokenUnits = Math.ceil(wordCount / 600);
+
+      await usageService.checkAndReserveQuota({
+        userId,
+        operationType: 'llm-query-1k-tokens',
+        units: tokenUnits,
+      });
+
       await redisStreams.add('text-analysis:stream', {
         documentId: id,
         userId,
@@ -375,6 +385,14 @@ router.post(
 
       res.status(202).json({ message: 'Analysis queued' });
     } catch (error) {
+      if (error instanceof UsageQuotaExceededError) {
+        res.status(403).json({
+          error: 'QUOTA_EXCEEDED',
+          message: `You've used all your monthly usage. Resets on ${error.resetDate.toLocaleDateString()}.`,
+          resetDate: error.resetDate,
+        });
+        return;
+      }
       next(error);
     }
   },

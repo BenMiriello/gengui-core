@@ -1,6 +1,9 @@
 import { relations, sql } from 'drizzle-orm';
 import {
+  bigint,
   boolean,
+  date,
+  decimal,
   index,
   integer,
   jsonb,
@@ -269,6 +272,7 @@ export const documents = pgTable(
     lastAnalyzedVersion: integer('last_analyzed_version'),
     analysisStatus: text('analysis_status'),
     analysisStartedAt: timestamp('analysis_started_at', { withTimezone: true }),
+    analysisCompletedAt: timestamp('analysis_completed_at', { withTimezone: true }),
     analysisCheckpoint: jsonb('analysis_checkpoint'),
     segmentSequence: jsonb('segment_sequence').default([]).notNull(),
     yjsState: text('yjs_state'),
@@ -722,3 +726,135 @@ export const reviewQueueRelations = relations(reviewQueue, ({ one }) => ({
     references: [users.id],
   }),
 }));
+
+export const llmUsage = pgTable(
+  'llm_usage',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    documentId: uuid('document_id').references(() => documents.id, {
+      onDelete: 'cascade',
+    }),
+    requestId: uuid('request_id'),
+    operation: varchar('operation', { length: 100 }).notNull(),
+    model: varchar('model', { length: 50 }).notNull().default('gemini-2.0-flash'),
+    inputTokens: integer('input_tokens').notNull(),
+    outputTokens: integer('output_tokens').notNull(),
+    costUsd: decimal('cost_usd', { precision: 10, scale: 6 }).notNull(),
+    durationMs: integer('duration_ms'),
+    stage: integer('stage'),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index('llm_usage_user_date_idx').on(table.userId, table.createdAt),
+    index('llm_usage_date_idx').on(table.createdAt),
+    index('llm_usage_request_idx').on(table.requestId),
+    index('llm_usage_document_idx').on(table.documentId),
+  ],
+);
+
+export const llmUsageDaily = pgTable(
+  'llm_usage_daily',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+    date: date('date').notNull(),
+    totalOperations: integer('total_operations').notNull(),
+    totalInputTokens: bigint('total_input_tokens', { mode: 'number' }).notNull(),
+    totalOutputTokens: bigint('total_output_tokens', { mode: 'number' }).notNull(),
+    totalCostUsd: decimal('total_cost_usd', { precision: 12, scale: 6 }).notNull(),
+    operationBreakdown: jsonb('operation_breakdown'),
+    modelBreakdown: jsonb('model_breakdown'),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex('llm_usage_daily_unique').on(table.userId, table.date),
+    index('llm_usage_daily_date_idx').on(table.date),
+    index('llm_usage_daily_user_idx').on(table.userId),
+  ],
+);
+
+export const userSubscriptions = pgTable(
+  'user_subscriptions',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    tier: varchar('tier', { length: 20 }).notNull().default('free'),
+    grantType: varchar('grant_type', { length: 50 }).notNull().default('standard'),
+    usageQuota: integer('usage_quota').notNull(),
+    usageConsumed: integer('usage_consumed').notNull().default(0),
+    periodStart: timestamp('period_start', { withTimezone: true }).notNull().defaultNow(),
+    periodEnd: timestamp('period_end', { withTimezone: true }).notNull(),
+    trialRequestedAt: timestamp('trial_requested_at', { withTimezone: true }),
+    trialApprovedAt: timestamp('trial_approved_at', { withTimezone: true }),
+    trialApprovedBy: uuid('trial_approved_by').references(() => users.id),
+    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_user_subscriptions_user').on(table.userId),
+    index('idx_user_subscriptions_period_end').on(table.periodEnd),
+    index('idx_user_subscriptions_tier').on(table.tier),
+    uniqueIndex('user_subscriptions_user_unique').on(table.userId),
+  ],
+);
+
+export const contactSubmissions = pgTable(
+  'contact_submissions',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+    email: varchar('email', { length: 255 }).notNull(),
+    subject: varchar('subject', { length: 255 }).notNull(),
+    message: text('message').notNull(),
+    submissionType: varchar('submission_type', { length: 50 }).notNull().default('contact'),
+    status: varchar('status', { length: 20 }).notNull().default('pending'),
+    respondedAt: timestamp('responded_at', { withTimezone: true }),
+    respondedBy: uuid('responded_by').references(() => users.id),
+    adminNotes: text('admin_notes'),
+    userAgent: text('user_agent'),
+    ipAddress: varchar('ip_address', { length: 45 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_contact_submissions_status').on(table.status, table.createdAt),
+    index('idx_contact_submissions_user').on(table.userId),
+    index('idx_contact_submissions_type').on(table.submissionType),
+  ],
+);
+
+export const pricingAuditLog = pgTable(
+  'pricing_audit_log',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    changeType: varchar('change_type', { length: 50 }).notNull(),
+    entityType: varchar('entity_type', { length: 50 }).notNull(),
+    entityId: varchar('entity_id', { length: 100 }).notNull(),
+    oldValue: jsonb('old_value'),
+    newValue: jsonb('new_value').notNull(),
+    changedBy: uuid('changed_by')
+      .notNull()
+      .references(() => users.id),
+    reason: text('reason').notNull(),
+    gitCommit: varchar('git_commit', { length: 40 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_pricing_audit_log_date').on(table.createdAt),
+    index('idx_pricing_audit_log_entity').on(table.entityType, table.entityId),
+    index('idx_pricing_audit_log_changed_by').on(table.changedBy),
+  ],
+);

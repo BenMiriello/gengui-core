@@ -261,6 +261,172 @@ export class EmailService {
       logger.info({ email }, 'Password changed notification sent');
     }
   }
+
+  async sendContactNotification(
+    adminEmail: string,
+    submission: {
+      id: string;
+      email: string;
+      subject: string;
+      message: string;
+      submissionType: string;
+      createdAt: Date;
+    },
+  ): Promise<void> {
+    if (!this.enabled || !this.transporter) {
+      logger.info(
+        { adminEmail, submissionId: submission.id },
+        '📧 DEV MODE - Contact notification (email not sent)',
+      );
+      console.log('\n🔔 New Contact Form Submission:');
+      console.log(`   From: ${submission.email}`);
+      console.log(`   Subject: ${submission.subject}`);
+      console.log(`   Type: ${submission.submissionType}`);
+      console.log(`   ID: ${submission.id}\n`);
+      return;
+    }
+
+    await this.transporter.sendMail({
+      from: process.env.SMTP_FROM || 'GenGui <noreply@localhost>',
+      to: adminEmail,
+      subject: `New ${submission.submissionType}: ${submission.subject}`,
+      html: `
+        <h1>New Contact Form Submission</h1>
+
+        <div style="background-color: #f5f5f5; padding: 20px; margin: 20px 0; border-left: 4px solid #4CAF50;">
+          <p><strong>From:</strong> ${submission.email}</p>
+          <p><strong>Type:</strong> ${submission.submissionType}</p>
+          <p><strong>Subject:</strong> ${submission.subject}</p>
+          <p><strong>Submitted:</strong> ${submission.createdAt.toLocaleString()}</p>
+          <p><strong>Submission ID:</strong> ${submission.id}</p>
+        </div>
+
+        <h2>Message:</h2>
+        <div style="background-color: #ffffff; padding: 15px; border: 1px solid #ddd; white-space: pre-wrap;">
+${submission.message}
+        </div>
+
+        <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
+
+        <p style="color: #666; font-size: 14px;">
+          To respond, reply to this email or visit the admin dashboard.
+        </p>
+      `,
+      text: `
+New Contact Form Submission
+
+From: ${submission.email}
+Type: ${submission.submissionType}
+Subject: ${submission.subject}
+Submitted: ${submission.createdAt.toLocaleString()}
+Submission ID: ${submission.id}
+
+---
+
+Message:
+
+${submission.message}
+
+---
+
+To respond, reply to this email or visit the admin dashboard.
+      `,
+      replyTo: submission.email,
+    });
+
+    if (this.devMode) {
+      logger.info(
+        { adminEmail, submissionId: submission.id },
+        '📧 Contact notification sent to Mailhog - Check http://localhost:8025',
+      );
+    } else {
+      logger.info(
+        { adminEmail, submissionId: submission.id },
+        'Contact notification sent',
+      );
+    }
+  }
+
+  async sendContactAutoResponse(
+    userEmail: string,
+    submission: {
+      subject: string;
+      message: string;
+    },
+  ): Promise<void> {
+    if (!this.enabled || !this.transporter) {
+      logger.info(
+        { userEmail },
+        '📧 DEV MODE - Contact auto-response (email not sent)',
+      );
+      console.log('\n🔔 Contact Auto-Response:');
+      console.log(`   To: ${userEmail}\n`);
+      return;
+    }
+
+    const welcomeMessage = `Hello! We are on a mission to build the most insightful and creator-friendly narrative writing tool possible. GenGui is in the early stages and we are working hard to improve it every day, so we are very grateful for your interest and support. Any feedback you can provide is welcome.
+
+Please tell us a little bit about yourself and your interest and needs. We are seeking a diverse group of writers and creators to help us improve our product and build our community. We'd love to hear from you!`;
+
+    await this.transporter.sendMail({
+      from: process.env.SMTP_FROM || 'GenGui <noreply@localhost>',
+      to: userEmail,
+      subject: 'Thanks for contacting GenGui',
+      html: `
+        <h1>Thank you for reaching out!</h1>
+
+        <p>We've received your message and will respond within 24 hours.</p>
+
+        <div style="background-color: #f5f5f5; padding: 20px; margin: 20px 0; border-left: 4px solid #4CAF50;">
+          <h3 style="margin-top: 0;">Your message:</h3>
+          <p><strong>Subject:</strong> ${submission.subject}</p>
+          <div style="white-space: pre-wrap; margin-top: 10px;">
+${submission.message}
+          </div>
+        </div>
+
+        <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
+
+        <div style="color: #666; font-size: 14px; white-space: pre-line;">
+${welcomeMessage}
+        </div>
+
+        <p style="margin-top: 30px;">
+          Best regards,<br>
+          The GenGui Team
+        </p>
+      `,
+      text: `
+Thank you for reaching out!
+
+We've received your message and will respond within 24 hours.
+
+---
+
+Your message:
+
+Subject: ${submission.subject}
+
+${submission.message}
+
+---
+
+${welcomeMessage}
+
+Best regards,
+The GenGui Team
+      `,
+    });
+
+    if (this.devMode) {
+      logger.info(
+        { userEmail },
+        '📧 Contact auto-response sent to Mailhog - Check http://localhost:8025',
+      );
+    } else {
+      logger.info({ userEmail }, 'Contact auto-response sent');
+    }
+  }
 }
 
 export const emailService = new EmailService();

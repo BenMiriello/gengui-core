@@ -10,7 +10,7 @@ import { logger } from '../../utils/logger';
 
 // Cached client instance
 let genAIClient: Awaited<ReturnType<typeof createClient>> | null = null;
-let initialized = false;
+let initPromise: Promise<Awaited<ReturnType<typeof createClient>>> | null = null;
 
 async function createClient() {
   const { GoogleGenAI } = await import('@google/genai');
@@ -21,17 +21,19 @@ async function createClient() {
 
 /**
  * Get the shared Gemini client instance.
- * Lazily initializes on first call.
+ * Lazily initializes on first call. Parallel calls await the same initialization.
  */
 export async function getGeminiClient() {
-  if (!initialized) {
-    initialized = true;
-    genAIClient = await createClient();
-    if (!genAIClient) {
-      logger.warn('GEMINI_API_KEY not configured');
-    }
+  if (!initPromise) {
+    initPromise = createClient().then(client => {
+      if (!client) {
+        logger.warn('GEMINI_API_KEY not configured');
+      }
+      genAIClient = client;
+      return client;
+    });
   }
-  return genAIClient;
+  return await initPromise;
 }
 
 /**

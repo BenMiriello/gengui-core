@@ -21,6 +21,7 @@ export {
   type ContextBudgetInput,
   type ContextBudgetResult,
   countTokens,
+  DEFAULT_OUTPUT_UTILIZATION,
   type EntityRegistryEntry,
   formatEntityEntry,
   validateBudget,
@@ -29,7 +30,6 @@ export {
 // Tier 2: Operation configs
 export {
   batchedRelationshipConfig,
-  calculateThinkingBudget,
   type EntityRegistryItem,
   entityRegistryConfig,
   estimateExtractionOutputTokens,
@@ -39,6 +39,5 @@ export {
   type RelationshipEntity,
   type SegmentForRelationshipBatch,
   type SegmentWithText,
-  type ThinkingBudgetConfig,
-  type ThinkingBudgetResult,
+  validateEstimationAccuracy,
 } from './operationConfigs';

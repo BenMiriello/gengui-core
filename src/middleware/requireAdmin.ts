@@ -41,8 +41,11 @@ export async function requireAdmin(
         throw new ForbiddenError('Admin access required');
       }
 
-      // Success - log admin access
-      logger.info(
+      // Success - log admin access (debug level for polling endpoints)
+      const isPollingEndpoint = req.path.includes('/usage') || req.path.includes('/queue');
+      const logLevel = isPollingEndpoint ? 'debug' : 'info';
+
+      logger[logLevel](
         {
           userId: user.id,
           userRole: user.role,

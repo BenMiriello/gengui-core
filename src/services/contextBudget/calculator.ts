@@ -27,13 +27,19 @@ const DEFAULT_TARGET_UTILIZATION = 0.8;
 /**
  * System-wide output capacity target for batch sizing.
  *
- * Conservative 60% target prevents MAX_TOKENS errors while allowing models
- * full output capacity if needed. Based on empirical data from Gemini 2.5 Flash
- * which ignores maxOutputTokens parameter.
+ * STAGED ROLLOUT PLAN:
+ * - Stage 1 (current): 65% - Monitor 50+ batches for MAX_TOKENS errors
+ * - Stage 2 (after validation): 70% - Monitor 50+ batches for MAX_TOKENS errors
+ * - Stage 3 (final): 75% - Target utilization
+ *
+ * Rollback: If ANY MAX_TOKENS errors occur, revert to previous stage immediately.
+ *
+ * Conservative targets prevent MAX_TOKENS errors while allowing models
+ * full output capacity if needed. Based on empirical data from Gemini 2.5 Flash.
  *
  * Models can override via TextModelConfig.outputUtilization if needed.
  */
-const DEFAULT_OUTPUT_UTILIZATION = 0.6;
+export const DEFAULT_OUTPUT_UTILIZATION = 0.65;
 
 // ============================================================================
 // Generic Batch Budget Calculator (Tier 1)
@@ -81,6 +87,13 @@ export function calculateBatchBudget<TItem>(
 ): BatchBudgetResult<TItem> {
   const { modelConfig, operationConfig, items, fixedContext, startIndex = 0 } = input;
 
+  if (!modelConfig.maxTokens || !modelConfig.maxOutputTokens) {
+    throw new Error(
+      `Incomplete model config: missing token limits. ` +
+      `maxTokens: ${modelConfig.maxTokens}, maxOutputTokens: ${modelConfig.maxOutputTokens}`
+    );
+  }
+
   const charsPerToken = modelConfig.charsPerToken ?? 3.3;
   const targetUtilization = modelConfig.targetUtilization ?? DEFAULT_TARGET_UTILIZATION;
   const outputUtilization = modelConfig.outputUtilization ?? DEFAULT_OUTPUT_UTILIZATION;
@@ -109,8 +122,6 @@ export function calculateBatchBudget<TItem>(
     (item) => countTokens(operationConfig.formatItem(item), charsPerToken),
   );
 
-  const minOutputReserve = operationConfig.thinkingConfig?.minOutputReserve ?? 0;
-
   // Greedily include items while respecting BOTH budgets:
   // 1. Context budget: system + fixed + items + output <= availableContextTokens
   // 2. Output budget: estimated output <= availableOutputTokens
@@ -123,9 +134,6 @@ export function calculateBatchBudget<TItem>(
     const candidateItemTokens = itemTokenCounts.slice(0, i + 1).reduce((a, b) => a + b, 0);
     const candidateOutputReserve = operationConfig.estimateOutputReserve(candidateItems, charsPerToken);
 
-    // Use conservative estimate directly (no multiplier)
-    const outputReserve = Math.max(minOutputReserve, candidateOutputReserve);
-
     const totalContextTokens =
       systemPromptTokens +
       fixedContextTokens +
@@ -134,7 +142,7 @@ export function calculateBatchBudget<TItem>(
 
     // Check BOTH constraints
     const fitsInContext = totalContextTokens <= availableContextTokens;
-    const fitsInOutput = outputReserve <= availableOutputTokens;
+    const fitsInOutput = candidateOutputReserve <= availableOutputTokens;
 
     if (fitsInContext && fitsInOutput) {
       includedCount = i + 1;
@@ -202,9 +210,13 @@ export function calculateAllBatches<TItem>(
     });
 
     if (batch.includedCount === 0) {
-      // Can't fit any items - this shouldn't happen with reasonable configs
-      console.warn('Batch calculation returned 0 items - check model/operation config');
-      break;
+      const item = items[currentIndex];
+      const itemSize = item ? countTokens(rest.operationConfig.formatItem(item), rest.modelConfig.charsPerToken ?? 3.3) : 0;
+      throw new Error(
+        `Batch calculation failed: Cannot fit any items in budget. ` +
+        `First item size: ${itemSize} tokens, Available: ${batch.tokenBreakdown.available} tokens. ` +
+        `This indicates items are too large for the model's context window or budget configuration is too tight.`
+      );
     }
 
     batches.push(batch);

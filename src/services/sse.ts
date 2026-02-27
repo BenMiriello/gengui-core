@@ -5,6 +5,7 @@ interface SSEClient {
   id: string;
   channel: string;
   res: Response;
+  heartbeat?: NodeJS.Timeout;
 }
 
 interface BufferedEvent {
@@ -38,7 +39,21 @@ class SSEService {
 
     res.flushHeaders();
 
-    this.clients.set(clientId, { id: clientId, channel, res });
+    const client: SSEClient = { id: clientId, channel, res };
+
+    // Send heartbeat every 15 seconds to prevent proxy/network timeouts
+    const heartbeat = setInterval(() => {
+      try {
+        res.write(':keepalive\n\n');
+      } catch (err) {
+        logger.debug({ clientId }, 'Heartbeat failed, cleaning up connection');
+        clearInterval(heartbeat);
+        this.clients.delete(clientId);
+      }
+    }, 15000);
+
+    client.heartbeat = heartbeat;
+    this.clients.set(clientId, client);
 
     res.write(`data: ${JSON.stringify({ type: 'connected' })}\n\n`);
 
@@ -51,6 +66,9 @@ class SSEService {
     );
 
     res.on('close', () => {
+      if (client.heartbeat) {
+        clearInterval(client.heartbeat);
+      }
       this.clients.delete(clientId);
       onDisconnect?.();
       logger.debug(
@@ -60,12 +78,18 @@ class SSEService {
     });
 
     res.on('error', (error) => {
+      if (client.heartbeat) {
+        clearInterval(client.heartbeat);
+      }
       logger.error({ error, clientId }, 'SSE client error');
       this.clients.delete(clientId);
     });
 
     if (res.socket) {
       res.socket.on('error', (error) => {
+        if (client.heartbeat) {
+          clearInterval(client.heartbeat);
+        }
         logger.error({ error, clientId }, 'SSE socket error');
         this.clients.delete(clientId);
       });

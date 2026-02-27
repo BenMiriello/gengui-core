@@ -4,12 +4,13 @@
 
 import { getGeminiClient } from '../gemini/core';
 import { logger } from '../../utils/logger';
-import { logLLMCall } from '../../utils/logHelpers';
 import { CONFIG } from './config';
-import { getTextModelConfig } from '../../config/text-models';
+import { trackedAI } from '../ai';
 
 export async function generateDocumentSummary(
   segmentSummaries: string[],
+  userId: string,
+  documentId?: string,
   documentTitle?: string,
 ): Promise<string> {
   // Validation
@@ -41,25 +42,17 @@ ${summariesText}
 
 Write the summary directly (no preamble):`;
 
-  const callStartTime = Date.now();
-  const result = await client.models.generateContent({
-    model: CONFIG.documentSummaryModel,
-    contents: prompt,
-  });
-  const durationMs = Date.now() - callStartTime;
-
-  const modelConfig = getTextModelConfig(CONFIG.documentSummaryModel);
-  const inputTokens = result.usageMetadata?.promptTokenCount || Math.ceil(prompt.length / modelConfig.charsPerToken);
-  const outputTokens = result.usageMetadata?.candidatesTokenCount || Math.ceil((result.text?.length || 0) / modelConfig.charsPerToken);
-
-  logLLMCall(logger, {
+  const result = await trackedAI.callLLM({
     operation: 'generateDocumentSummary',
     model: CONFIG.documentSummaryModel,
-    promptTokens: inputTokens,
-    responseTokens: outputTokens,
-    durationMs,
-    prompt: process.env.LOG_LEVEL === 'debug' ? prompt.slice(0, 500) : undefined,
-    response: process.env.LOG_LEVEL === 'debug' ? result.text?.slice(0, 500) : undefined,
+    userId,
+    documentId,
+    stage: 2,
+    logger,
+    execute: async () => client.models.generateContent({
+      model: CONFIG.documentSummaryModel,
+      contents: prompt,
+    }),
   });
 
   const summary = (result.text ?? '').trim();

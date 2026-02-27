@@ -4,15 +4,16 @@
 
 import { getGeminiClient } from '../gemini/core';
 import { logger } from '../../utils/logger';
-import { logLLMCall } from '../../utils/logHelpers';
 import { CONFIG } from './config';
 import { buildSummaryPrompt, sleep } from './shared';
-import { getTextModelConfig } from '../../config/text-models';
+import { trackedAI } from '../ai';
 
 export async function generateSegmentSummary(
   segmentText: string,
   segmentIndex: number,
   totalSegments: number,
+  userId: string,
+  documentId?: string,
 ): Promise<string> {
   // Input validation
   if (!segmentText || segmentText.trim().length === 0) {
@@ -39,25 +40,17 @@ export async function generateSegmentSummary(
     context: { segmentIndex, totalSegments },
   });
 
-  const callStartTime = Date.now();
-  const result = await client.models.generateContent({
-    model: CONFIG.summaryModel,
-    contents: prompt,
-  });
-  const durationMs = Date.now() - callStartTime;
-
-  const modelConfig = getTextModelConfig(CONFIG.summaryModel);
-  const inputTokens = result.usageMetadata?.promptTokenCount || Math.ceil(prompt.length / modelConfig.charsPerToken);
-  const outputTokens = result.usageMetadata?.candidatesTokenCount || Math.ceil((result.text?.length || 0) / modelConfig.charsPerToken);
-
-  logLLMCall(logger, {
+  const result = await trackedAI.callLLM({
     operation: 'generateSegmentSummary',
     model: CONFIG.summaryModel,
-    promptTokens: inputTokens,
-    responseTokens: outputTokens,
-    durationMs,
-    prompt: process.env.LOG_LEVEL === 'debug' ? prompt.slice(0, 500) : undefined,
-    response: process.env.LOG_LEVEL === 'debug' ? result.text?.slice(0, 500) : undefined,
+    userId,
+    documentId,
+    stage: 2,
+    logger,
+    execute: async () => client.models.generateContent({
+      model: CONFIG.summaryModel,
+      contents: prompt,
+    }),
   });
 
   const summary = (result.text ?? '').trim();
@@ -82,10 +75,12 @@ export async function generateSegmentSummaryWithRetry(
   segmentText: string,
   segmentIndex: number,
   totalSegments: number,
+  userId: string,
+  documentId?: string,
   attempt: number = 0,
 ): Promise<string> {
   try {
-    return await generateSegmentSummary(segmentText, segmentIndex, totalSegments);
+    return await generateSegmentSummary(segmentText, segmentIndex, totalSegments, userId, documentId);
   } catch (error) {
     if (attempt >= CONFIG.maxRetries) {
       logger.error(
@@ -109,6 +104,8 @@ export async function generateSegmentSummaryWithRetry(
       segmentText,
       segmentIndex,
       totalSegments,
+      userId,
+      documentId,
       attempt + 1
     );
   }

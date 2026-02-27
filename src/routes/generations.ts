@@ -11,6 +11,7 @@ import { augmentationRateLimiter } from '../middleware/augmentationRateLimiter';
 import { requireAuth, requireEmailVerified } from '../middleware/auth';
 import { generationRateLimiter } from '../middleware/generationRateLimiter';
 import { generationsService } from '../services/generationsService';
+import { usageService, UsageQuotaExceededError } from '../services/usage';
 
 const router = Router();
 
@@ -65,6 +66,20 @@ router.post(
   async (req, res, next) => {
     try {
       const validatedData = createGenerationSchema.parse(req.body);
+
+      const hasEntityReferences =
+        validatedData.promptEnhancement?.entityReferences?.selectedNodeIds &&
+        validatedData.promptEnhancement.entityReferences.selectedNodeIds.length > 0;
+
+      const operationType = hasEntityReferences
+        ? 'image-character-consistency'
+        : 'image-standard';
+
+      await usageService.checkAndReserveQuota({
+        userId: req.user!.id,
+        operationType,
+      });
+
       const result = await generationsService.create(
         req.user!.id,
         validatedData,
@@ -80,6 +95,14 @@ router.post(
         createdAt: result.createdAt,
       });
     } catch (error) {
+      if (error instanceof UsageQuotaExceededError) {
+        res.status(403).json({
+          error: 'QUOTA_EXCEEDED',
+          message: `You've used all your monthly usage. Resets on ${error.resetDate.toLocaleDateString()}.`,
+          resetDate: error.resetDate,
+        });
+        return;
+      }
       if (error instanceof z.ZodError) {
         res.status(400).json({
           error: {
