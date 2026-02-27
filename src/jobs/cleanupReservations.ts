@@ -1,7 +1,7 @@
 import { usageService } from '../services/usage';
 import { logger } from '../utils/logger';
 
-export async function cleanupExpiredReservations() {
+async function cleanupExpiredReservations() {
   try {
     const count = await usageService.cleanupExpiredReservations();
     if (count > 0) {
@@ -12,6 +12,14 @@ export async function cleanupExpiredReservations() {
   }
 }
 
-setInterval(cleanupExpiredReservations, 5 * 60 * 1000);
+export function startCleanupReservationsJob() {
+  const intervalId = setInterval(cleanupExpiredReservations, 5 * 60 * 1000);
+  logger.info('Reservation cleanup job started (runs every 5 minutes)');
 
-logger.info('Reservation cleanup job started (runs every 5 minutes)');
+  return {
+    stop: () => {
+      clearInterval(intervalId);
+      logger.info('Reservation cleanup job stopped');
+    },
+  };
+}

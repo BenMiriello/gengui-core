@@ -371,7 +371,7 @@ router.post(
         : 0;
       const tokenUnits = Math.ceil(wordCount / 600);
 
-      await usageService.checkAndReserveQuota({
+      const { operationId } = await usageService.checkAndReserveQuota({
         userId,
         operationType: 'llm-query-1k-tokens',
         units: tokenUnits,
@@ -380,6 +380,7 @@ router.post(
       await redisStreams.add('text-analysis:stream', {
         documentId: id,
         userId,
+        operationId: operationId || '',
         reanalyze: reanalyze ? 'true' : 'false',
       });
 

@@ -23,6 +23,7 @@ import { splitIntoSentences } from './sentences/sentence.detector';
 import { sseService } from './sse';
 import { stalenessService } from './staleness';
 import { graphStoryNodesRepository } from './storyNodes';
+import { usageService } from './usage';
 
 const MIN_CONTENT_LENGTH = 50;
 const MAX_CONTENT_LENGTH = 50000;
@@ -95,7 +96,7 @@ class TextAnalysisConsumer extends PubSubConsumer {
   }
 
   protected async handleMessage(message: StreamMessage) {
-    const { documentId, userId, reanalyze, updateMode } = message.data;
+    const { documentId, userId, reanalyze, updateMode, operationId } = message.data;
 
     if (!documentId || !userId) {
       logger.error(
@@ -105,6 +106,7 @@ class TextAnalysisConsumer extends PubSubConsumer {
       return;
     }
 
+    let success = false;
     try {
       if (updateMode === 'true') {
         await this.handleUpdate(documentId, userId);
@@ -115,6 +117,7 @@ class TextAnalysisConsumer extends PubSubConsumer {
           reanalyze === 'true',
         );
       }
+      success = true;
     } catch (error: any) {
       // Handle pause - keep status as 'paused', keep checkpoint
       if (error instanceof AnalysisPausedError) {
@@ -160,6 +163,14 @@ class TextAnalysisConsumer extends PubSubConsumer {
       const eventType =
         updateMode === 'true' ? 'update-failed' : 'analysis-failed';
       this.broadcast(documentId, eventType, { error: errorMessage });
+    } finally {
+      if (operationId) {
+        await usageService.finalizeReservation({
+          operationId,
+          userId,
+          success,
+        });
+      }
     }
   }
 

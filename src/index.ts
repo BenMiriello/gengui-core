@@ -5,7 +5,7 @@ import { closeDatabase } from './config/database';
 import { env } from './config/env';
 import { startCleanupJob } from './jobs/cleanupSoftDeleted';
 import { startReconciliationJob } from './jobs/reconcileGenerations';
-import './jobs/cleanupReservations';
+import { startCleanupReservationsJob } from './jobs/cleanupReservations';
 import { graphService } from './services/graph/graph.service';
 import { jobStatusConsumer } from './services/jobStatusConsumer';
 import { promptAugmentationService } from './services/prompt-augmentation';
@@ -29,6 +29,7 @@ const app = createApp();
 
 let reconciliationTask: ScheduledTask;
 let cleanupTask: ScheduledTask;
+let cleanupReservationsTask: { stop: () => void };
 
 const server = app.listen(env.PORT, '0.0.0.0', async () => {
   logger.info(`Server running on port ${env.PORT} in ${env.NODE_ENV} mode`);
@@ -40,6 +41,7 @@ const server = app.listen(env.PORT, '0.0.0.0', async () => {
     await promptAugmentationService.start();
     reconciliationTask = startReconciliationJob();
     cleanupTask = startCleanupJob();
+    cleanupReservationsTask = startCleanupReservationsJob();
 
     await graphService.initializeIndexes();
   } catch (error) {
@@ -66,6 +68,7 @@ const shutdown = async (signal: string) => {
   try {
     if (reconciliationTask) reconciliationTask.stop();
     if (cleanupTask) cleanupTask.stop();
+    if (cleanupReservationsTask) cleanupReservationsTask.stop();
 
     await Promise.all([
       jobStatusConsumer.stop(),

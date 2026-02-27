@@ -96,18 +96,11 @@ export class UsageService {
   ): Promise<number> {
     const quotaUsage = subscription.usageConsumed / subscription.usageQuota;
 
-    const [{ total }] = await tx
-      .select({ total: sql<number>`COALESCE(SUM(amount), 0)` })
-      .from(quotaReservations)
-      .where(
-        and(
-          eq(quotaReservations.userId, subscription.userId),
-          gt(quotaReservations.expiresAt, new Date()),
-        ),
-      );
-
-    const activeReservations = await tx
-      .select()
+    const [{ total, count }] = await tx
+      .select({
+        total: sql<number>`COALESCE(SUM(amount), 0)`,
+        count: sql<number>`COUNT(*)::int`,
+      })
       .from(quotaReservations)
       .where(
         and(
@@ -117,7 +110,7 @@ export class UsageService {
       );
 
     const limits = TIER_CONCURRENT_LIMITS[subscription.tier as UserTier];
-    const concurrencyUsage = activeReservations.length / limits.maxConcurrent;
+    const concurrencyUsage = count / limits.maxConcurrent;
     const inFlightCost = Number(total);
     const costUsage = inFlightCost / limits.maxInFlightCost;
 
@@ -133,17 +126,23 @@ export class UsageService {
   }): Promise<void> {
     const { userId, operationId, units, subscription, tx } = params;
 
-    const [{ total }] = await tx
-      .select({ total: sql<number>`COALESCE(SUM(amount), 0)` })
+    const [reservationData] = await tx
+      .select({
+        total: sql<number>`COALESCE(SUM(amount), 0)`,
+        count: sql<number>`COUNT(*)::int`,
+      })
       .from(quotaReservations)
       .where(
         and(
           eq(quotaReservations.userId, userId),
           gt(quotaReservations.expiresAt, new Date()),
         ),
-      );
+      )
+      .for('update', { skipLocked: true });
 
-    const effectiveUsage = subscription.usageConsumed + Number(total) + units;
+    const inFlightCost = Number(reservationData.total);
+    const activeCount = reservationData.count;
+    const effectiveUsage = subscription.usageConsumed + inFlightCost + units;
 
     if (effectiveUsage > subscription.usageQuota) {
       throw new UsageQuotaExceededError(
@@ -153,26 +152,15 @@ export class UsageService {
       );
     }
 
-    const activeReservations = await tx
-      .select()
-      .from(quotaReservations)
-      .where(
-        and(
-          eq(quotaReservations.userId, userId),
-          gt(quotaReservations.expiresAt, new Date()),
-        ),
-      );
-
     const limits = TIER_CONCURRENT_LIMITS[subscription.tier as UserTier];
 
-    if (activeReservations.length >= limits.maxConcurrent) {
+    if (activeCount >= limits.maxConcurrent) {
       throw new ConcurrentLimitExceededError(
         `Maximum concurrent operations (${limits.maxConcurrent}) reached`,
       );
     }
 
-    const inFlightCost = Number(total) + units;
-    if (inFlightCost > limits.maxInFlightCost) {
+    if (inFlightCost + units > limits.maxInFlightCost) {
       throw new ConcurrentLimitExceededError(
         `Maximum in-flight cost (${limits.maxInFlightCost}) exceeded`,
       );
@@ -189,8 +177,8 @@ export class UsageService {
       userId,
       operationId,
       amount: units,
-      activeReservations: activeReservations.length,
-      inFlightCost,
+      activeReservations: activeCount,
+      inFlightCost: inFlightCost + units,
     }, 'Quota reservation created');
   }
 
