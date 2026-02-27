@@ -74,9 +74,8 @@ export function createApp() {
     const isHeartbeat = req.path.includes('/heartbeat');
     const isMediaUrl = req.path.match(/\/api\/media\/[^/]+\/url$/);
     const isHealthCheck = req.path === '/health';
-    const isAnalysisStatus = req.path.match(/\/api\/documents\/[^/]+\/analysis-status$/);
 
-    if (!isHeartbeat && !isMediaUrl && !isHealthCheck && !isAnalysisStatus) {
+    if (!isHeartbeat && !isMediaUrl && !isHealthCheck) {
       requestLogger(req, res, next);
     } else {
       next();
