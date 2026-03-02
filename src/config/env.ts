@@ -18,7 +18,7 @@ const envSchema = z
     DB_POOL_MAX: z
       .string()
       .optional()
-      .transform((v) => (v ? Number(v) : undefined)),
+      .transform((v) => (v ? Number(v) : undefined)), // Default: 20 (dev), 40 (prod)
     DB_IDLE_TIMEOUT: z
       .string()
       .optional()
