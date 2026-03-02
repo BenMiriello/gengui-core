@@ -466,8 +466,8 @@ export class AdminService {
     let byDate:
       | Array<{
           date: string;
-          totalTokens: number;
-          totalCost: number;
+          cost: number;
+          operations: number;
         }>
       | undefined;
     if (startDate || endDate) {
@@ -526,8 +526,8 @@ export class AdminService {
     let byDate:
       | Array<{
           date: string;
-          totalTokens: number;
-          totalCost: number;
+          cost: number;
+          operations: number;
         }>
       | undefined;
     if (startDate || endDate) {
