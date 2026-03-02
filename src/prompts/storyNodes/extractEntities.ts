@@ -256,7 +256,14 @@ existingMatch confidence levels:
 ## ENTITY TYPES
 - **character**: People, sentient beings, animals with agency
 - **location**: Places, settings, environments, buildings
-- **event**: Significant plot moments (use documentOrder for sequence)
+- **event**: Actions, occurrences, and happenings that drive the narrative forward
+  Include: arrivals/departures, meetings, discoveries, battles, decisions, conversations, ceremonies, deaths, births
+  Extract BOTH major and minor plot events:
+  - Major: "the battle at Helm's Deep", "Dracula's arrival in England", "the wedding"
+  - Minor: "Jonathan leaves Munich", "they meet at the inn", "the letter arrives"
+  Always set documentOrder to preserve narrative sequence
+  Name events as noun phrases describing the action: "the journey to Vienna", "the discovery of the tomb"
+  Target: 2-5 events per segment with significant action
 - **concept**: Themes, motifs, abstract forces
 - **other**: Objects, artifacts, items of narrative significance
 
@@ -272,14 +279,16 @@ existingMatch confidence levels:
 9. Entities appearing in multiple segments should have one entry per segment
 
 ## COUNT CHECK (verify before submitting)
-For a typical segment with 5-10 characters, you should produce:
-- 5-10 entities per segment
+For a typical narrative segment, you should produce:
+- 5-15 entities per segment (characters, locations, events combined)
+- At least 2-5 EVENT entities per segment with action
 - 25-75 facets total (avg 5-7 per entity)
 - 15-30 mentions (avg 2-3 per entity)
 
 MINIMUM REQUIREMENTS (must meet these):
 - Each CHARACTER must have at least 1 appearance facet
 - Characters with titles/aliases MUST have at least 1 name facet (e.g., "Count" -> name facet "Count Dracula")
+- Each EVENT must have documentOrder set to preserve sequence
 - Each entity MUST have at least 2 facets total
 - Named characters MUST have at least 3 facets
 
@@ -289,12 +298,15 @@ If your counts are significantly lower, re-read the segment and extract more det
 Before submitting, verify:
 - Did you check EVERY extracted entity against the registry?
 - Did you extract ALL characters mentioned in each segment?
+- Did you extract ALL events (actions, arrivals, departures, meetings, discoveries)?
+- Did you set documentOrder for all events to preserve sequence?
 - Did you capture appearance details (explicit AND inferred)?
 - Did you note any temporary states (injured, disguised, etc.)?
 - Are your mentions exact quotes from the text?
 - Did you consider whether descriptive phrases ("the driver") match named entities?
 - Does every entity/facet/mention have the correct segmentId?
 - Does each character have at least 1 appearance facet?
+- Does each event have documentOrder set?
 - Does each entity have at least 2 facets?`;
   },
 };
