@@ -170,6 +170,8 @@ interface RuntimeEntityEntry {
   facets: FacetInput[];
   mentionCount: number;
   embedding?: number[];
+  /** Segment indices where this entity appears (for event chain context) */
+  segmentIndices: Set<number>;
 }
 
 /**
@@ -285,11 +287,15 @@ function updateEntityRegistry(
   registry: RuntimeEntityRegistry,
   entity: ExtractedEntity,
   entityId: string,
+  segmentIndex?: number,
 ): void {
   const existing = registry.entries.get(entityId);
 
   if (existing) {
     existing.mentionCount += entity.mentions.length;
+    if (segmentIndex !== undefined) {
+      existing.segmentIndices.add(segmentIndex);
+    }
     for (const facet of entity.facets) {
       const key = `${facet.type}:${facet.content}`;
       if (!existing.facets.some((f) => `${f.type}:${f.content}` === key)) {
@@ -316,6 +322,7 @@ function updateEntityRegistry(
       aliases: nameFacetAliases,
       facets: [...entity.facets],
       mentionCount: entity.mentions.length,
+      segmentIndices: new Set(segmentIndex !== undefined ? [segmentIndex] : []),
     });
   }
 }
@@ -691,7 +698,14 @@ export const multiStagePipeline = {
       for (const entity of extractedEntities) {
         const entityId = entityIdByName.get(entity.name);
         if (entityId) {
-          updateEntityRegistry(runtimeRegistry, entity, entityId);
+          // Find segment index for this entity
+          const segmentIndex = segments.findIndex((s) => s.id === entity.segmentId);
+          updateEntityRegistry(
+            runtimeRegistry,
+            entity,
+            entityId,
+            segmentIndex !== -1 ? segmentIndex : undefined,
+          );
         }
       }
 
@@ -720,6 +734,7 @@ export const multiStagePipeline = {
             })),
             mentionCount,
             embedding: embedding || undefined,
+            segmentIndices: new Set(), // Will be populated from mentions if needed
           });
           entityIdByName.set(node.name, node.id);
         }
@@ -800,10 +815,27 @@ export const multiStagePipeline = {
                 batchSegments[0].id,
               );
 
+            // Calculate dynamic entity registry limit based on remaining context budget
+            // Batch includes segments + system prompt + output reserve
+            const segmentTokens = batch.tokenBreakdown.items;
+            const systemTokens = batch.tokenBreakdown.systemPrompt;
+            const outputReserve = batch.tokenBreakdown.outputReserve;
+            const usedTokens = segmentTokens + systemTokens + outputReserve;
+            const availableTokens = batch.tokenBreakdown.available;
+            const remainingBudget = Math.max(0, availableTokens - usedTokens);
+
+            // Estimate tokens per entity: name + type + aliases + summary ≈ 100 tokens
+            const avgTokensPerEntity = 100;
+            const maxEntityEntries = Math.max(
+              10, // Minimum 10 entities
+              Math.floor(remainingBudget / avgTokensPerEntity),
+            );
+
             // Build entity registry for this batch (sorted by semantic relevance if embedding available)
             const entityRegistry = buildEntityRegistryForPrompt(
               runtimeRegistry,
               firstSegmentEmbedding,
+              maxEntityEntries,
             );
 
             // Log batch info
@@ -812,9 +844,11 @@ export const multiStagePipeline = {
                 batchSegmentCount: batchSegments.length,
                 segmentIndices,
                 registrySize: entityRegistry.length,
+                registryLimit: maxEntityEntries,
+                remainingBudget,
                 semanticSorting: !!firstSegmentEmbedding,
               },
-              'Processing segment batch',
+              'Processing segment batch with dynamic entity limit',
             );
 
             broadcast(
@@ -981,7 +1015,7 @@ export const multiStagePipeline = {
               extractedEntities.push(extracted);
               entityIdByName.set(entity.name, entityId);
               registerEntityAliases(aliasToEntityId, entityId, extracted);
-              updateEntityRegistry(runtimeRegistry, extracted, entityId);
+              updateEntityRegistry(runtimeRegistry, extracted, entityId, segment.index);
             }
 
             // Accumulate merge signals
@@ -1163,13 +1197,23 @@ export const multiStagePipeline = {
       const uniqueEntityIds = new Set(entityIdByName.values());
       const createdEntityIds = new Set<string>();
 
+      // Count entities by type for logging (including events)
+      const entityTypeCount = new Map<string, number>();
+      for (const entity of extractedEntities) {
+        entityTypeCount.set(
+          entity.type,
+          (entityTypeCount.get(entity.type) || 0) + 1,
+        );
+      }
+
       logger.info(
         {
           documentId,
           extractedCount: extractedEntities.length,
           uniqueEntities: uniqueEntityIds.size,
+          byType: Object.fromEntries(entityTypeCount),
         },
-        'Stage 4: Creating entities in database',
+        'Stage 4: Creating entities in database (all types including events)',
       );
       broadcast(4, uniqueEntityIds.size, 'Creating entities...');
 
@@ -1385,18 +1429,15 @@ export const multiStagePipeline = {
       );
     }
 
-    // Stage 5: Intra-Segment Relationship Extraction (batched, concurrent)
+    // Stages 5 & 6: Relationship Extraction (parallel)
     const allRelationships: Stage4RelationshipsResult['relationships'] = [];
 
-    if (shouldRunStage(checkpoint, 5)) {
-      const stage5StartTime = Date.now();
-      await checkForInterruption(documentId);
-      broadcast(5, entityIdByName.size);
-      logStageStart(childLogger, 5, 'Intra-Segment Relationships', {
-        entityCount: entityIdByName.size,
-      });
+    // Run Stages 5 and 6 in parallel if both need to run
+    const needsStage5 = shouldRunStage(checkpoint, 5);
+    const needsStage6 = shouldRunStage(checkpoint, 6);
 
-      // Build alias lookup: entityId -> list of aliases
+    if (needsStage5 || needsStage6) {
+      // Build alias lookup once for both stages
       const aliasesByEntityId = new Map<string, string[]>();
       for (const [alias, eid] of aliasToEntityId.entries()) {
         const existing = aliasesByEntityId.get(eid) || [];
@@ -1404,192 +1445,224 @@ export const multiStagePipeline = {
         aliasesByEntityId.set(eid, existing);
       }
 
-      // Build segment inputs with entities
-      const segmentInputs = segments
-        .map((segment, i) => {
-          const segmentText = documentContent.slice(segment.start, segment.end);
+      const stage5And6Results = await Promise.all([
+        // Stage 5: Intra-Segment Relationships
+        (async () => {
+          if (!needsStage5) {
+            childLogger.info('Skipping Stage 5 (already completed)');
+            return [];
+          }
 
-          // Get resolved entities in this segment
-          const entitiesInSegment = resolvedEntities.filter(
-            (e) => e.segmentId === segment.id,
-          );
-          const uniqueEntitiesInSegment = Array.from(
-            new Map(entitiesInSegment.map((e) => [e.id, e])).values(),
-          );
+          const stage5StartTime = Date.now();
+          await checkForInterruption(documentId);
+          broadcast(5, entityIdByName.size);
+          logStageStart(childLogger, 5, 'Intra-Segment Relationships', {
+            entityCount: entityIdByName.size,
+          });
 
-          // Skip segments with <2 entities (no relationships possible)
-          if (uniqueEntitiesInSegment.length < 2) return null;
+          const intraSegmentRels: Stage4RelationshipsResult['relationships'] = [];
 
-          return {
-            id: segment.id,
-            index: i,
-            text: segmentText,
-            entities: uniqueEntitiesInSegment.map((e) => {
-              const allAliases = aliasesByEntityId.get(e.id) || [];
-              const otherAliases = allAliases.filter(
-                (a) => a.toLowerCase() !== e.name.toLowerCase(),
+          // Build segment inputs with entities
+          const segmentInputs = segments
+            .map((segment, i) => {
+              const segmentText = documentContent.slice(segment.start, segment.end);
+
+              // Get resolved entities in this segment
+              const entitiesInSegment = resolvedEntities.filter(
+                (e) => e.segmentId === segment.id,
               );
+              const uniqueEntitiesInSegment = Array.from(
+                new Map(entitiesInSegment.map((e) => [e.id, e])).values(),
+              );
+
+              // Skip segments with <2 entities (no relationships possible)
+              if (uniqueEntitiesInSegment.length < 2) return null;
+
               return {
-                id: e.id,
-                name: e.name,
-                type: e.type,
-                keyFacets: e.facets.slice(0, 3).map((f) => f.content),
-                aliases: otherAliases.length > 0 ? otherAliases : undefined,
+                id: segment.id,
+                index: i,
+                text: segmentText,
+                entities: uniqueEntitiesInSegment.map((e) => {
+                  const allAliases = aliasesByEntityId.get(e.id) || [];
+                  const otherAliases = allAliases.filter(
+                    (a) => a.toLowerCase() !== e.name.toLowerCase(),
+                  );
+                  return {
+                    id: e.id,
+                    name: e.name,
+                    type: e.type,
+                    keyFacets: e.facets.slice(0, 3).map((f) => f.content),
+                    aliases: otherAliases.length > 0 ? otherAliases : undefined,
+                  };
+                }),
               };
-            }),
-          };
-        })
-        .filter((s): s is NonNullable<typeof s> => s !== null);
+            })
+            .filter((s): s is NonNullable<typeof s> => s !== null);
 
-      if (segmentInputs.length === 0) {
-        logger.info(
-          { documentId },
-          'No segments with 2+ entities, skipping Stage 6',
-        );
-      } else {
-        // Calculate batches using budget calculator
-        const modelConfig = getTextModelConfig('gemini-2.5-flash');
-        const { batchedRelationshipConfig } = await import(
-          '../contextBudget/index.js'
-        );
-        const batches = calculateAllBatches({
-          modelConfig,
-          operationConfig: batchedRelationshipConfig,
-          items: segmentInputs,
-          overlapSize: 0, // No overlap needed for relationships
-        });
+          if (segmentInputs.length === 0) {
+            logger.info(
+              { documentId },
+              'No segments with 2+ entities, skipping intra-segment relationships',
+            );
+          } else {
+            // Calculate batches using budget calculator
+            const modelConfig = getTextModelConfig('gemini-2.5-flash');
+            const { batchedRelationshipConfig } = await import(
+              '../contextBudget/index.js'
+            );
+            const batches = calculateAllBatches({
+              modelConfig,
+              operationConfig: batchedRelationshipConfig,
+              items: segmentInputs,
+              overlapSize: 0,
+            });
 
-        logger.info(
-          {
-            documentId,
-            totalSegments: segments.length,
-            segmentsWithRelationships: segmentInputs.length,
-            batchCount: batches.length,
-            batchSizes: batches.map((b) => b.includedCount),
-          },
-          'Calculated relationship extraction batches',
-        );
-
-        // Get document summary for context
-        const [doc] = await db
-          .select({ summary: documents.summary })
-          .from(documents)
-          .where(eq(documents.id, documentId))
-          .limit(1);
-
-        // Import batch extraction function
-        const { extractRelationshipsFromBatch } = await import(
-          '../gemini/client.js'
-        );
-
-        // Process all batches concurrently
-        const allBatchResults = await Promise.all(
-          batches.map(async (batch, batchIdx) => {
-            broadcast(
-              6,
-              entityIdByName.size,
-              `Processing relationship batch ${batchIdx + 1}/${batches.length}...`,
+            logger.info(
+              {
+                documentId,
+                totalSegments: segments.length,
+                segmentsWithRelationships: segmentInputs.length,
+                batchCount: batches.length,
+                batchSizes: batches.map((b) => b.includedCount),
+              },
+              'Calculated relationship extraction batches',
             );
 
-            return extractRelationshipsFromBatch(
-              batch.includedItems,
+            // Get document summary for context
+            const [doc] = await db
+              .select({ summary: documents.summary })
+              .from(documents)
+              .where(eq(documents.id, documentId))
+              .limit(1);
+
+            // Import batch extraction function
+            const { extractRelationshipsFromBatch } = await import(
+              '../gemini/client.js'
+            );
+
+            // Process all batches concurrently
+            const allBatchResults = await Promise.all(
+              batches.map(async (batch, batchIdx) => {
+                broadcast(
+                  6,
+                  entityIdByName.size,
+                  `Processing relationship batch ${batchIdx + 1}/${batches.length}...`,
+                );
+
+                return extractRelationshipsFromBatch(
+                  batch.includedItems,
+                  userId,
+                  documentId,
+                  doc?.summary ?? undefined,
+                );
+              }),
+            );
+
+            // Flatten results
+            for (const batchResult of allBatchResults) {
+              intraSegmentRels.push(...batchResult.relationships);
+            }
+          }
+
+          const stage5DurationMs = Date.now() - stage5StartTime;
+          logStageComplete(
+            childLogger,
+            6,
+            'Intra-Segment Relationships',
+            stage5DurationMs,
+            {
+              relationshipCount: intraSegmentRels.length,
+            },
+          );
+
+          await saveCheckpoint(documentId, { lastStageCompleted: 5 });
+          return intraSegmentRels;
+        })(),
+
+        // Stage 6: Cross-Segment Relationships
+        (async () => {
+          if (!needsStage6) {
+            childLogger.info('Skipping Stage 6 (already completed)');
+            return [];
+          }
+
+          const stage6StartTime = Date.now();
+          await checkForInterruption(documentId);
+          broadcast(6, entityIdByName.size);
+          logStageStart(childLogger, 6, 'Cross-Segment Relationships', {
+            entityCount: entityIdByName.size,
+          });
+
+          const crossSegmentRels: Stage4RelationshipsResult['relationships'] = [];
+
+          // Build entity list with segment associations
+          const entityWithSegments: EntityWithSegments[] = [];
+          for (const [name, id] of entityIdByName) {
+            const instances = resolvedEntities.filter((e) => e.name === name);
+            const segmentIds = [...new Set(instances.map((e) => e.segmentId))];
+            const keyFacets =
+              instances[0]?.facets.slice(0, 3).map((f) => f.content) || [];
+
+            // Get aliases for this entity, excluding the primary name
+            const allAliases = aliasesByEntityId.get(id) || [];
+            const otherAliases = allAliases.filter(
+              (a) => a.toLowerCase() !== name.toLowerCase(),
+            );
+
+            entityWithSegments.push({
+              id,
+              name,
+              type: instances[0]?.type || 'other',
+              segmentIds,
+              keyFacets,
+              aliases: otherAliases.length > 0 ? otherAliases : undefined,
+            });
+          }
+
+          // Only run cross-segment if we have entities in multiple segments
+          const entitiesInMultipleSegments = entityWithSegments.filter(
+            (e) => e.segmentIds.length > 1,
+          );
+
+          if (entitiesInMultipleSegments.length > 0) {
+            broadcast(
+              7,
+              entityIdByName.size,
+              'Finding cross-segment connections...',
+            );
+            // Pass empty array for existingRelationships since running in parallel
+            const crossSegmentResult = await extractCrossSegmentRelationships(
+              documentTitle ? `Document: "${documentTitle}"` : undefined,
+              entityWithSegments,
+              [],
               userId,
               documentId,
-              doc?.summary ?? undefined,
             );
-          }),
-        );
 
-        // Flatten results
-        for (const batchResult of allBatchResults) {
-          allRelationships.push(...batchResult.relationships);
-        }
+            crossSegmentRels.push(...crossSegmentResult.relationships);
+          }
 
-        const stage5DurationMs = Date.now() - stage5StartTime;
-        logStageComplete(
-          childLogger,
-          6,
-          'Intra-Segment Relationships',
-          stage5DurationMs,
-          {
-            relationshipCount: allRelationships.length,
-            batchCount: batches.length,
-          },
-        );
-      }
+          const stage6DurationMs = Date.now() - stage6StartTime;
+          logStageComplete(
+            childLogger,
+            7,
+            'Cross-Segment Relationships',
+            stage6DurationMs,
+            {
+              relationshipCount: crossSegmentRels.length,
+            },
+          );
 
-      await saveCheckpoint(documentId, { lastStageCompleted: 5 });
-    } else {
-      childLogger.info('Skipping Stage 5 (already completed)');
-    }
+          await saveCheckpoint(documentId, { lastStageCompleted: 6 });
+          return crossSegmentRels;
+        })(),
+      ]);
 
-    // Stage 6: Cross-Segment Relationships
-    if (shouldRunStage(checkpoint, 6)) {
-      const stage6StartTime = Date.now();
-      await checkForInterruption(documentId);
-      broadcast(6, entityIdByName.size);
-      logStageStart(childLogger, 6, 'Cross-Segment Relationships', {
-        entityCount: entityIdByName.size,
-      });
+      // Merge results from both stages
+      const [intraSegmentRels, crossSegmentRels] = stage5And6Results;
+      allRelationships.push(...intraSegmentRels, ...crossSegmentRels);
 
-      // Build alias lookup: entityId -> list of aliases (for cross-segment relationships)
-      const aliasesByEntityId = new Map<string, string[]>();
-      for (const [alias, eid] of aliasToEntityId.entries()) {
-        const existing = aliasesByEntityId.get(eid) || [];
-        existing.push(alias);
-        aliasesByEntityId.set(eid, existing);
-      }
-
-      // Build entity list with segment associations
-      const entityWithSegments: EntityWithSegments[] = [];
-      for (const [name, id] of entityIdByName) {
-        const instances = resolvedEntities.filter((e) => e.name === name);
-        const segmentIds = [...new Set(instances.map((e) => e.segmentId))];
-        const keyFacets =
-          instances[0]?.facets.slice(0, 3).map((f) => f.content) || [];
-
-        // Get aliases for this entity, excluding the primary name
-        const allAliases = aliasesByEntityId.get(id) || [];
-        const otherAliases = allAliases.filter(
-          (a) => a.toLowerCase() !== name.toLowerCase(),
-        );
-
-        entityWithSegments.push({
-          id,
-          name,
-          type: instances[0]?.type || 'other',
-          segmentIds,
-          keyFacets,
-          aliases: otherAliases.length > 0 ? otherAliases : undefined,
-        });
-      }
-
-      // Only run cross-segment if we have entities in multiple segments
-      const entitiesInMultipleSegments = entityWithSegments.filter(
-        (e) => e.segmentIds.length > 1,
-      );
-
-      if (entitiesInMultipleSegments.length > 0) {
-        broadcast(
-          7,
-          entityIdByName.size,
-          'Finding cross-segment connections...',
-        );
-        const crossSegmentResult = await extractCrossSegmentRelationships(
-          documentTitle ? `Document: "${documentTitle}"` : undefined,
-          entityWithSegments,
-          allRelationships.map((r) => ({
-            fromId: r.fromId,
-            toId: r.toId,
-            edgeType: r.edgeType,
-          })),
-          userId,
-          documentId,
-        );
-
-        allRelationships.push(...crossSegmentResult.relationships);
-      }
-
+      // Write all relationships to graph (idempotent)
       for (const rel of allRelationships) {
         try {
           await graphService.createStoryConnectionIdempotent(
@@ -1609,21 +1682,16 @@ export const multiStagePipeline = {
         }
       }
 
-      const stage6DurationMs = Date.now() - stage6StartTime;
-      logStageComplete(
-        childLogger,
-        7,
-        'Cross-Segment Relationships',
-        stage6DurationMs,
+      logger.info(
         {
-          totalRelationships: allRelationships.length,
+          intraSegmentCount: intraSegmentRels.length,
+          crossSegmentCount: crossSegmentRels.length,
+          totalCount: allRelationships.length,
         },
+        'Relationship extraction complete (parallel execution)',
       );
-
-      await saveCheckpoint(documentId, { lastStageCompleted: 6 });
-    } else {
-      childLogger.info('Skipping Stage 6 (already completed)');
     }
+
 
     // Stage 7: Higher-Order Analysis
     let higherOrderResult: Stage5HigherOrderResult | null = null;
@@ -3333,75 +3401,86 @@ async function detectFacetConflicts(
     causalOrderResults.map((r) => [r.nodeId, r.position]),
   );
 
+  // Process entities in parallel
+  const entityResults = await Promise.all(
+    allNodes.map(async (entity) => {
+      const context = await buildCharacterContext(
+        entity,
+        segments,
+        causalOrderMap,
+        documentId,
+        userId,
+      );
+
+      const entityConflicts: DetectedConflict[] = [];
+      const facetsByType = groupFacetsByType(context.allFacets);
+
+      for (const [facetType, typeFacets] of facetsByType) {
+        if (typeFacets.length < 2) continue;
+
+        try {
+          const contradictions = await detectContradictionsWithContext(
+            entity.name,
+            facetType,
+            typeFacets,
+            context,
+            userId,
+            documentId,
+          );
+
+          // Map LLM results back to facet IDs and add to conflicts list
+          for (const contradiction of contradictions) {
+            const facetA = typeFacets[contradiction.facetIndexA];
+            const facetB = typeFacets[contradiction.facetIndexB];
+
+            if (!facetA || !facetB) {
+              logger.warn(
+                {
+                  entityId: entity.id,
+                  facetIndexA: contradiction.facetIndexA,
+                  facetIndexB: contradiction.facetIndexB,
+                  totalFacets: typeFacets.length,
+                },
+                'LLM returned invalid facet indices',
+              );
+              continue;
+            }
+
+            entityConflicts.push({
+              entityId: entity.id,
+              entityName: entity.name,
+              facetType,
+              facetA: { id: facetA.id, content: facetA.content },
+              facetB: { id: facetB.id, content: facetB.content },
+              conflictType: contradiction.classificationType,
+              reasoning: contradiction.reasoning,
+            });
+          }
+        } catch (error) {
+          logger.error(
+            {
+              entityId: entity.id,
+              entityName: entity.name,
+              facetType,
+              facetCount: typeFacets.length,
+              error: (error as Error).message,
+            },
+            'Failed to detect contradictions for entity facets',
+          );
+        }
+      }
+
+      return { context, conflicts: entityConflicts };
+    }),
+  );
+
+  // Flatten results
   const conflicts: DetectedConflict[] = [];
   const contextMap = new Map<string, CharacterContext>();
 
-  for (const entity of allNodes) {
-    const context = await buildCharacterContext(
-      entity,
-      segments,
-      causalOrderMap,
-      documentId,
-      userId,
-    );
-    contextMap.set(entity.id, context);
-
-    const facetsByType = groupFacetsByType(context.allFacets);
-
-    for (const [facetType, typeFacets] of facetsByType) {
-      if (typeFacets.length < 2) continue;
-
-      try {
-        const contradictions = await detectContradictionsWithContext(
-          entity.name,
-          facetType,
-          typeFacets,
-          context,
-          userId,
-          documentId,
-        );
-
-        // Map LLM results back to facet IDs and add to conflicts list
-        for (const contradiction of contradictions) {
-          const facetA = typeFacets[contradiction.facetIndexA];
-          const facetB = typeFacets[contradiction.facetIndexB];
-
-          if (!facetA || !facetB) {
-            logger.warn(
-              {
-                entityId: entity.id,
-                facetIndexA: contradiction.facetIndexA,
-                facetIndexB: contradiction.facetIndexB,
-                totalFacets: typeFacets.length,
-              },
-              'LLM returned invalid facet indices',
-            );
-            continue;
-          }
-
-          conflicts.push({
-            entityId: entity.id,
-            entityName: entity.name,
-            facetType,
-            facetA: { id: facetA.id, content: facetA.content },
-            facetB: { id: facetB.id, content: facetB.content },
-            conflictType: contradiction.classificationType,
-            reasoning: contradiction.reasoning,
-          });
-        }
-      } catch (error) {
-        logger.error(
-          {
-            entityId: entity.id,
-            entityName: entity.name,
-            facetType,
-            facetCount: typeFacets.length,
-            error: (error as Error).message,
-          },
-          'Failed to detect contradictions for entity facets',
-        );
-      }
-    }
+  for (const result of entityResults) {
+    contextMap.set(result.context.entityId, result.context);
+    conflicts.push(...result.conflicts);
   }
 
   // Persist all conflicts to review queue
