@@ -171,7 +171,9 @@ function generateExtractiveFallback(sourceText: string): string {
     .slice(0, BATCH_CONFIG.extractiveFallbackSentences)
     .join(' ')
     .trim();
-  return extractive || sourceText.slice(0, BATCH_CONFIG.extractiveFallbackChars);
+  return (
+    extractive || sourceText.slice(0, BATCH_CONFIG.extractiveFallbackChars)
+  );
 }
 
 export const summaryService = {
@@ -300,7 +302,10 @@ export const summaryService = {
       const extractedDiff = extractDiffContent(response);
       if (extractedDiff && isValidDiff(extractedDiff)) {
         try {
-          const updatedSummary = applyUnifiedDiff(currentSummary, extractedDiff);
+          const updatedSummary = applyUnifiedDiff(
+            currentSummary,
+            extractedDiff,
+          );
 
           return {
             summaryId,
@@ -320,7 +325,9 @@ export const summaryService = {
       // Response wasn't a valid diff
       // Only use as replacement if it looks like actual summary content
       const looksLikeSummary =
-        response.length > 50 && !response.includes('@@') && !response.startsWith('-');
+        response.length > 50 &&
+        !response.includes('@@') &&
+        !response.startsWith('-');
 
       if (looksLikeSummary) {
         return {
@@ -369,7 +376,10 @@ export const summaryService = {
    * Returns true if diff is significant enough to warrant update.
    */
   needsUpdate(sourceDiff: string): boolean {
-    return hasSignificantChanges(sourceDiff, CONFLICT_CONFIG.minChangesForUpdate);
+    return hasSignificantChanges(
+      sourceDiff,
+      CONFLICT_CONFIG.minChangesForUpdate,
+    );
   },
 
   /**

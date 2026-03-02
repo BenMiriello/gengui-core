@@ -10,7 +10,10 @@
 export function isNoChangeResponse(response: string): boolean {
   if (!response) return false;
 
-  const normalized = response.trim().toUpperCase().replace(/[\s_-]+/g, '');
+  const normalized = response
+    .trim()
+    .toUpperCase()
+    .replace(/[\s_-]+/g, '');
   return normalized === 'NOCHANGE';
 }
 
@@ -53,9 +56,7 @@ export function extractJson<T>(response: string): T | null {
 /**
  * Validate that response is a non-empty string.
  */
-export function validateTextResponse(
-  response: unknown,
-): response is string {
+export function validateTextResponse(response: unknown): response is string {
   return typeof response === 'string' && response.trim().length > 0;
 }
 

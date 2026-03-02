@@ -12,9 +12,9 @@ import { requireAuth, requireEmailVerified } from '../middleware/auth';
 import { generationRateLimiter } from '../middleware/generationRateLimiter';
 import { generationsService } from '../services/generationsService';
 import {
-  usageService,
-  UsageQuotaExceededError,
   ConcurrentLimitExceededError,
+  UsageQuotaExceededError,
+  usageService,
 } from '../services/usage';
 
 const router = Router();
@@ -73,7 +73,8 @@ router.post(
 
       const hasEntityReferences =
         validatedData.promptEnhancement?.entityReferences?.selectedNodeIds &&
-        validatedData.promptEnhancement.entityReferences.selectedNodeIds.length > 0;
+        validatedData.promptEnhancement.entityReferences.selectedNodeIds
+          .length > 0;
 
       const operationType = hasEntityReferences
         ? 'image-character-consistency'

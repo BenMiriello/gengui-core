@@ -11,7 +11,8 @@ import { logger } from '../../utils/logger';
 // Cached client instance
 // @ts-expect-error - Used in initialization promise chain
 let genAIClient: Awaited<ReturnType<typeof createClient>> | null = null;
-let initPromise: Promise<Awaited<ReturnType<typeof createClient>>> | null = null;
+let initPromise: Promise<Awaited<ReturnType<typeof createClient>>> | null =
+  null;
 
 async function createClient() {
   const { GoogleGenAI } = await import('@google/genai');
@@ -26,7 +27,7 @@ async function createClient() {
  */
 export async function getGeminiClient() {
   if (!initPromise) {
-    initPromise = createClient().then(client => {
+    initPromise = createClient().then((client) => {
       if (!client) {
         logger.warn('GEMINI_API_KEY not configured');
       }

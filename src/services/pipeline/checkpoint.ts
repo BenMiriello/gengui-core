@@ -116,7 +116,17 @@ export async function loadCheckpoint(
   return checkpoint;
 }
 
-interface CheckpointUpdate extends Partial<Omit<AnalysisCheckpoint, 'version' | 'stage3Progress' | 'failedAtStage' | 'failureReason' | 'failureTimestamp'>> {
+interface CheckpointUpdate
+  extends Partial<
+    Omit<
+      AnalysisCheckpoint,
+      | 'version'
+      | 'stage3Progress'
+      | 'failedAtStage'
+      | 'failureReason'
+      | 'failureTimestamp'
+    >
+  > {
   stage3Progress?: AnalysisCheckpoint['stage3Progress'] | null;
   failedAtStage?: AnalysisStage;
   failureReason?: string;
@@ -133,9 +143,10 @@ export async function saveCheckpoint(
 ): Promise<void> {
   const existing = await loadCheckpoint(documentId);
 
-  const stage3Progress = update.stage3Progress === null
-    ? undefined
-    : (update.stage3Progress ?? existing?.stage3Progress);
+  const stage3Progress =
+    update.stage3Progress === null
+      ? undefined
+      : (update.stage3Progress ?? existing?.stage3Progress);
 
   const checkpoint: AnalysisCheckpoint = {
     version: 1,
@@ -150,7 +161,9 @@ export async function saveCheckpoint(
     stage4Output: update.stage4Output ?? existing?.stage4Output,
     failedAtStage: update.failedAtStage ?? existing?.failedAtStage,
     failureReason: update.failureReason ?? existing?.failureReason,
-    failureTimestamp: update.failedAtStage ? new Date().toISOString() : existing?.failureTimestamp,
+    failureTimestamp: update.failedAtStage
+      ? new Date().toISOString()
+      : existing?.failureTimestamp,
   };
 
   await db

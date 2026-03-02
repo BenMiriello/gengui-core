@@ -17,10 +17,16 @@ export async function generateEmbedding(text: string): Promise<number[]> {
       );
       return embedding;
     } catch (error: any) {
-      const isWrongDimension = error.message?.includes('wrong embedding dimensions');
+      const isWrongDimension = error.message?.includes(
+        'wrong embedding dimensions',
+      );
       if (isWrongDimension && attempt < maxRetries - 1) {
-        console.log(`[WARN] Retrying embedding generation (attempt ${attempt + 2}/${maxRetries}) for text: ${text.substring(0, 50)}`);
-        await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+        console.log(
+          `[WARN] Retrying embedding generation (attempt ${attempt + 2}/${maxRetries}) for text: ${text.substring(0, 50)}`,
+        );
+        await new Promise((resolve) =>
+          setTimeout(resolve, 500 * (attempt + 1)),
+        );
         continue;
       }
       throw error;

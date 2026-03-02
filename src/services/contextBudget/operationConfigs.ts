@@ -17,7 +17,6 @@ import { extractRelationshipsPrompt } from '../../prompts/storyNodes/extractRela
 import type { Segment } from '../segments';
 import { batchCalibrator } from './calibrator';
 
-
 /**
  * Generic operation budget config interface.
  * TItem is the type of item being batched (Segment, Entity, etc.)
@@ -111,7 +110,8 @@ export function estimateExtractionOutputTokens(
 
   const entityTokens = estimatedEntities * tokensPerEntity;
   const facetTokens = estimatedEntities * facetsPerEntity * tokensPerFacet;
-  const mentionTokens = estimatedEntities * mentionsPerEntity * tokensPerMention;
+  const mentionTokens =
+    estimatedEntities * mentionsPerEntity * tokensPerMention;
   const baseEstimate = entityTokens + facetTokens + mentionTokens;
 
   const jsonOverhead = 1.3;
@@ -138,7 +138,10 @@ export const extractionConfig: OperationBudgetConfig<SegmentWithText> = {
     return Math.ceil(template.length / charsPerToken);
   },
 
-  estimateOutputReserve: (segments: SegmentWithText[], _charsPerToken: number) => {
+  estimateOutputReserve: (
+    segments: SegmentWithText[],
+    _charsPerToken: number,
+  ) => {
     const totalInputChars = segments.reduce((sum, s) => sum + s.text.length, 0);
     return estimateExtractionOutputTokens(totalInputChars);
   },
@@ -167,16 +170,23 @@ export const relationshipConfig: OperationBudgetConfig<RelationshipEntity> = {
     return Math.ceil(template.length / charsPerToken);
   },
 
-  estimateOutputReserve: (entities: RelationshipEntity[], _charsPerToken: number) => {
+  estimateOutputReserve: (
+    entities: RelationshipEntity[],
+    _charsPerToken: number,
+  ) => {
     // Estimate relationships: roughly n*(n-1)/2 potential edges, ~50 tokens per edge
     // In practice, much sparser - estimate 2 edges per entity on average
-    const estimatedEdges = Math.min(entities.length * 2, (entities.length * (entities.length - 1)) / 2);
+    const estimatedEdges = Math.min(
+      entities.length * 2,
+      (entities.length * (entities.length - 1)) / 2,
+    );
     const tokensPerEdge = 50;
     return estimatedEdges * tokensPerEdge;
   },
 
   formatItem: (entity: RelationshipEntity) => {
-    const facets = entity.keyFacets.length > 0 ? entity.keyFacets.join(', ') : 'no facets';
+    const facets =
+      entity.keyFacets.length > 0 ? entity.keyFacets.join(', ') : 'no facets';
     return `[${entity.id}] ${entity.type.toUpperCase()}: "${entity.name}" - ${facets}`;
   },
 
@@ -211,53 +221,57 @@ export interface SegmentForRelationshipBatch {
  * Used for Stage 6: Extract relationships from multiple segments in one LLM call.
  * More verbose output than entity extraction - conservative batch size of 2-3 segments.
  */
-export const batchedRelationshipConfig: OperationBudgetConfig<SegmentForRelationshipBatch> = {
-  operationType: 'batched_relationship',
+export const batchedRelationshipConfig: OperationBudgetConfig<SegmentForRelationshipBatch> =
+  {
+    operationType: 'batched_relationship',
 
-  getSystemPromptTokens: (charsPerToken: number) => {
-    // Same prompt template as single-segment, just with multiple segments
-    const template = extractRelationshipsPrompt.build({
-      segmentText: '',
-      segmentIndex: 0,
-      resolvedEntities: [],
-    });
-    return Math.ceil(template.length / charsPerToken);
-  },
+    getSystemPromptTokens: (charsPerToken: number) => {
+      // Same prompt template as single-segment, just with multiple segments
+      const template = extractRelationshipsPrompt.build({
+        segmentText: '',
+        segmentIndex: 0,
+        resolvedEntities: [],
+      });
+      return Math.ceil(template.length / charsPerToken);
+    },
 
-  estimateOutputReserve: (segments: SegmentForRelationshipBatch[], _charsPerToken: number) => {
-    // Relationships are verbose: assume ~8 relationships per segment, 100 tokens each
-    // More conservative than single-entity config because relationships include:
-    // - fromId, toId (UUIDs are long)
-    // - edgeType (camelCase strings)
-    // - description (3-10 words)
-    // - strength (optional number)
-    // - segmentId (NEW: track which segment this came from)
-    const relationshipsPerSegment = 8;
-    const tokensPerRelationship = 100;
-    return segments.length * relationshipsPerSegment * tokensPerRelationship;
-  },
+    estimateOutputReserve: (
+      segments: SegmentForRelationshipBatch[],
+      _charsPerToken: number,
+    ) => {
+      // Relationships are verbose: assume ~8 relationships per segment, 100 tokens each
+      // More conservative than single-entity config because relationships include:
+      // - fromId, toId (UUIDs are long)
+      // - edgeType (camelCase strings)
+      // - description (3-10 words)
+      // - strength (optional number)
+      // - segmentId (NEW: track which segment this came from)
+      const relationshipsPerSegment = 8;
+      const tokensPerRelationship = 100;
+      return segments.length * relationshipsPerSegment * tokensPerRelationship;
+    },
 
-  formatItem: (segment: SegmentForRelationshipBatch) => {
-    // Format segment text + entities list
-    const entitiesText = segment.entities
-      .map((e) => {
-        let line = `[${e.id}] ${e.type.toUpperCase()}: "${e.name}"`;
-        if (e.aliases && e.aliases.length > 0) {
-          line += ` (also: ${e.aliases.join(', ')})`;
-        }
-        line += ` - ${e.keyFacets.join(', ') || 'no facets'}`;
-        return line;
-      })
-      .join('\n');
+    formatItem: (segment: SegmentForRelationshipBatch) => {
+      // Format segment text + entities list
+      const entitiesText = segment.entities
+        .map((e) => {
+          let line = `[${e.id}] ${e.type.toUpperCase()}: "${e.name}"`;
+          if (e.aliases && e.aliases.length > 0) {
+            line += ` (also: ${e.aliases.join(', ')})`;
+          }
+          line += ` - ${e.keyFacets.join(', ') || 'no facets'}`;
+          return line;
+        })
+        .join('\n');
 
-    return `SEGMENT ${segment.index + 1}:\n"""\n${segment.text}\n"""\n\nENTITIES:\n${entitiesText}`;
-  },
+      return `SEGMENT ${segment.index + 1}:\n"""\n${segment.text}\n"""\n\nENTITIES:\n${entitiesText}`;
+    },
 
-  prioritize: (segments: SegmentForRelationshipBatch[]) => {
-    // Segments are processed in document order
-    return [...segments].sort((a, b) => a.index - b.index);
-  },
-};
+    prioritize: (segments: SegmentForRelationshipBatch[]) => {
+      // Segments are processed in document order
+      return [...segments].sort((a, b) => a.index - b.index);
+    },
+  };
 
 /**
  * Registry entry for entity context in extraction prompts.
@@ -285,7 +299,10 @@ export const entityRegistryConfig: OperationBudgetConfig<EntityRegistryItem> = {
     return 0;
   },
 
-  estimateOutputReserve: (_entities: EntityRegistryItem[], _charsPerToken: number) => {
+  estimateOutputReserve: (
+    _entities: EntityRegistryItem[],
+    _charsPerToken: number,
+  ) => {
     // Registry is input context, not output
     return 0;
   },
@@ -303,7 +320,9 @@ export const entityRegistryConfig: OperationBudgetConfig<EntityRegistryItem> = {
 
   prioritize: (entities: EntityRegistryItem[]) => {
     // Most mentioned entities first - more likely to be referenced again
-    return [...entities].sort((a, b) => (b.mentionCount ?? 0) - (a.mentionCount ?? 0));
+    return [...entities].sort(
+      (a, b) => (b.mentionCount ?? 0) - (a.mentionCount ?? 0),
+    );
   },
 };
 
@@ -329,14 +348,14 @@ export function validateEstimationAccuracy(
   if (ratio > 1.2) {
     warnings.push(
       `${operation}: Underestimated by ${((ratio - 1) * 100).toFixed(1)}% ` +
-      `(estimated ${estimated}, actual ${actual}) - risk of truncation`
+        `(estimated ${estimated}, actual ${actual}) - risk of truncation`,
     );
   }
 
   if (ratio < 0.7) {
     warnings.push(
       `${operation}: Overestimated by ${((1 - ratio) * 100).toFixed(1)}% ` +
-      `(estimated ${estimated}, actual ${actual}) - could increase batch size`
+        `(estimated ${estimated}, actual ${actual}) - could increase batch size`,
     );
   }
 

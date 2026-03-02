@@ -3,13 +3,8 @@
  * Thin wrapper handling API calls, retries, and error handling.
  */
 
-import { getTextModelConfig } from '../../config/text-models';
-import {
-  estimateExtractionOutputTokens,
-  validateEstimationAccuracy,
-} from '../contextBudget';
-import { batchCalibrator } from '../contextBudget/calibrator';
 import { randomUUID } from 'crypto';
+import { getTextModelConfig } from '../../config/text-models';
 import {
   analyzeHigherOrderPrompt,
   batchResolveEntitiesPrompt,
@@ -28,8 +23,13 @@ import type {
   StoryNodeType,
 } from '../../types/storyNodes';
 import { logger } from '../../utils/logger';
-import { trackedAI } from '../ai';
 import { logLLMCall } from '../../utils/logHelpers';
+import { trackedAI } from '../ai';
+import {
+  estimateExtractionOutputTokens,
+  validateEstimationAccuracy,
+} from '../contextBudget';
+import { batchCalibrator } from '../contextBudget/calibrator';
 import { getGeminiClient } from './core';
 import {
   stage1ExtractEntitiesSchema,
@@ -66,7 +66,9 @@ export async function updateNodes(
   const modelConfig = getTextModelConfig(updateNodesPrompt.model);
   const maxOutputTokens = modelConfig.maxOutputTokens;
   if (!maxOutputTokens) {
-    throw new Error(`Model ${modelConfig} missing maxOutputTokens configuration`);
+    throw new Error(
+      `Model ${modelConfig} missing maxOutputTokens configuration`,
+    );
   }
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -88,8 +90,12 @@ export async function updateNodes(
       validateUpdateResponse(parsed, existingNodes);
 
       const modelConfig = getTextModelConfig(updateNodesPrompt.model);
-      const inputTokens = result.usageMetadata?.promptTokenCount || Math.ceil(prompt.length / modelConfig.charsPerToken);
-      const outputTokens = result.usageMetadata?.candidatesTokenCount || Math.ceil((result.text?.length || 0) / modelConfig.charsPerToken);
+      const inputTokens =
+        result.usageMetadata?.promptTokenCount ||
+        Math.ceil(prompt.length / modelConfig.charsPerToken);
+      const outputTokens =
+        result.usageMetadata?.candidatesTokenCount ||
+        Math.ceil((result.text?.length || 0) / modelConfig.charsPerToken);
 
       logLLMCall(logger, {
         operation: 'updateNodes',
@@ -97,8 +103,12 @@ export async function updateNodes(
         promptTokens: inputTokens,
         responseTokens: outputTokens,
         durationMs,
-        prompt: process.env.LOG_LEVEL === 'debug' ? prompt.slice(0, 500) : undefined,
-        response: process.env.LOG_LEVEL === 'debug' ? result.text?.slice(0, 500) : undefined,
+        prompt:
+          process.env.LOG_LEVEL === 'debug' ? prompt.slice(0, 500) : undefined,
+        response:
+          process.env.LOG_LEVEL === 'debug'
+            ? result.text?.slice(0, 500)
+            : undefined,
       });
 
       logger.info(
@@ -267,7 +277,6 @@ export interface EntityRegistryEntry {
   summary?: string;
 }
 
-
 /** Existing match from LLM merge detection */
 export interface ExistingMatch {
   /** Name of the matched registry entity (exact match required) */
@@ -352,16 +361,19 @@ export async function extractEntitiesFromBatch(
 
   let lastError: Error | null = null;
   const segmentIndices = segments.map((s) => s.index);
-  const segmentRange = segments.length > 0
-    ? `${Math.min(...segmentIndices)}-${Math.max(...segmentIndices)}`
-    : 'none';
+  const segmentRange =
+    segments.length > 0
+      ? `${Math.min(...segmentIndices)}-${Math.max(...segmentIndices)}`
+      : 'none';
 
   // Get model config for output limits
   const modelConfig = getTextModelConfig(extractEntitiesPrompt.model);
   const charsPerToken = modelConfig.charsPerToken;
   const maxOutputTokens = modelConfig.maxOutputTokens;
   if (!maxOutputTokens) {
-    throw new Error(`Model ${modelConfig} missing maxOutputTokens configuration`);
+    throw new Error(
+      `Model ${modelConfig} missing maxOutputTokens configuration`,
+    );
   }
 
   // Log input characteristics for diagnostics
@@ -397,17 +409,18 @@ export async function extractEntitiesFromBatch(
         documentId,
         stage: 3,
         logger,
-        execute: async () => client.models.generateContent({
-          model: extractEntitiesPrompt.model,
-          contents: prompt,
-          config: {
-            responseMimeType: 'application/json',
-            responseJsonSchema: stage1ExtractEntitiesSchema,
-            maxOutputTokens,
-            httpOptions: { timeout: 300000 },
-            thinkingConfig: { thinkingBudget: 0 },
-          },
-        }),
+        execute: async () =>
+          client.models.generateContent({
+            model: extractEntitiesPrompt.model,
+            contents: prompt,
+            config: {
+              responseMimeType: 'application/json',
+              responseJsonSchema: stage1ExtractEntitiesSchema,
+              maxOutputTokens,
+              httpOptions: { timeout: 300000 },
+              thinkingConfig: { thinkingBudget: 0 },
+            },
+          }),
       });
       const elapsed = Date.now() - startTime;
 
@@ -421,13 +434,16 @@ export async function extractEntitiesFromBatch(
       const signalCount = parsed.mergeSignals?.length ?? 0;
 
       // @ts-expect-error - Used below for logging, false positive
-      const inputTokens = result.usageMetadata?.promptTokenCount || estimatedInputTokens;
-      const outputTokens = result.usageMetadata?.candidatesTokenCount || estimatedOutputTokens;
+      const inputTokens =
+        result.usageMetadata?.promptTokenCount || estimatedInputTokens;
+      const outputTokens =
+        result.usageMetadata?.candidatesTokenCount || estimatedOutputTokens;
 
       const actualEntities = parsed.entities.length;
       const actualFacets = parsed.facets.length;
       const actualMentions = parsed.mentions.length;
-      const actualCharsPerEntity = actualEntities > 0 ? totalInputChars / actualEntities : 0;
+      const actualCharsPerEntity =
+        actualEntities > 0 ? totalInputChars / actualEntities : 0;
 
       logger.info(
         {
@@ -443,14 +459,23 @@ export async function extractEntitiesFromBatch(
 
           density: {
             charsPerEntity: Math.round(actualCharsPerEntity),
-            facetsPerEntity: actualEntities > 0 ? (actualFacets / actualEntities).toFixed(1) : '0.0',
-            mentionsPerEntity: actualEntities > 0 ? (actualMentions / actualEntities).toFixed(1) : '0.0',
+            facetsPerEntity:
+              actualEntities > 0
+                ? (actualFacets / actualEntities).toFixed(1)
+                : '0.0',
+            mentionsPerEntity:
+              actualEntities > 0
+                ? (actualMentions / actualEntities).toFixed(1)
+                : '0.0',
           },
 
           estimation: {
             estimatedOutputTokens,
             actualOutputTokens: outputTokens,
-            accuracyPercent: estimatedOutputTokens > 0 ? ((estimatedOutputTokens / outputTokens) * 100).toFixed(1) : '0.0',
+            accuracyPercent:
+              estimatedOutputTokens > 0
+                ? ((estimatedOutputTokens / outputTokens) * 100).toFixed(1)
+                : '0.0',
             deltaTokens: outputTokens - estimatedOutputTokens,
             maxOutputTokensSent: maxOutputTokens,
           },
@@ -481,14 +506,17 @@ export async function extractEntitiesFromBatch(
       const validation = validateEstimationAccuracy(
         estimatedOutputTokens,
         outputTokens,
-        'extractEntitiesFromBatch'
+        'extractEntitiesFromBatch',
       );
 
       if (!validation.isAccurate) {
-        logger.warn({
-          warnings: validation.warnings,
-          calibratorMetrics: batchCalibrator.getMetrics(),
-        }, 'Estimation accuracy outside acceptable range');
+        logger.warn(
+          {
+            warnings: validation.warnings,
+            calibratorMetrics: batchCalibrator.getMetrics(),
+          },
+          'Estimation accuracy outside acceptable range',
+        );
       }
 
       return parsed;
@@ -501,7 +529,8 @@ export async function extractEntitiesFromBatch(
           maxRetries: MAX_RETRIES,
           error: error?.message,
           elapsedMs: Date.now() - startTime,
-          retryDelayMs: attempt < MAX_RETRIES - 1 ? RETRY_DELAYS[attempt] : undefined,
+          retryDelayMs:
+            attempt < MAX_RETRIES - 1 ? RETRY_DELAYS[attempt] : undefined,
         },
         'Stage 3 batch extraction attempt failed, retrying',
       );
@@ -588,7 +617,9 @@ export async function resolveEntity(
   const modelConfig = getTextModelConfig(resolveEntityPrompt.model);
   const maxOutputTokens = modelConfig.maxOutputTokens;
   if (!maxOutputTokens) {
-    throw new Error(`Model ${modelConfig} missing maxOutputTokens configuration`);
+    throw new Error(
+      `Model ${modelConfig} missing maxOutputTokens configuration`,
+    );
   }
 
   try {
@@ -599,16 +630,17 @@ export async function resolveEntity(
       documentId,
       stage: 5,
       logger,
-      execute: async () => client.models.generateContent({
-        model: resolveEntityPrompt.model,
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-          responseJsonSchema: stage3ResolveEntitySchema,
-          maxOutputTokens,
-          thinkingConfig: { thinkingBudget: 0 },
-        },
-      }),
+      execute: async () =>
+        client.models.generateContent({
+          model: resolveEntityPrompt.model,
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json',
+            responseJsonSchema: stage3ResolveEntitySchema,
+            maxOutputTokens,
+            thinkingConfig: { thinkingBudget: 0 },
+          },
+        }),
     });
 
     const parsed = parseResponse<Stage3ResolutionResult>(
@@ -680,7 +712,9 @@ export async function batchResolveEntities(
   const modelConfig = getTextModelConfig(batchResolveEntitiesPrompt.model);
   const maxOutputTokens = modelConfig.maxOutputTokens;
   if (!maxOutputTokens) {
-    throw new Error(`Model ${modelConfig} missing maxOutputTokens configuration`);
+    throw new Error(
+      `Model ${modelConfig} missing maxOutputTokens configuration`,
+    );
   }
 
   try {
@@ -691,16 +725,17 @@ export async function batchResolveEntities(
       documentId,
       stage: 5,
       logger,
-      execute: async () => client.models.generateContent({
-        model: batchResolveEntitiesPrompt.model,
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-          responseJsonSchema: stage3BatchResolveSchema,
-          maxOutputTokens,
-          thinkingConfig: { thinkingBudget: 0 },
-        },
-      }),
+      execute: async () =>
+        client.models.generateContent({
+          model: batchResolveEntitiesPrompt.model,
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json',
+            responseJsonSchema: stage3BatchResolveSchema,
+            maxOutputTokens,
+            thinkingConfig: { thinkingBudget: 0 },
+          },
+        }),
     });
 
     const parsed = parseResponse<Stage3BatchResolutionResult>(
@@ -763,7 +798,9 @@ export async function extractRelationshipsFromSegment(
   const modelConfig = getTextModelConfig(extractRelationshipsPrompt.model);
   const maxOutputTokens = modelConfig.maxOutputTokens;
   if (!maxOutputTokens) {
-    throw new Error(`Model ${modelConfig} missing maxOutputTokens configuration`);
+    throw new Error(
+      `Model ${modelConfig} missing maxOutputTokens configuration`,
+    );
   }
 
   const callStartTime = Date.now();
@@ -786,8 +823,12 @@ export async function extractRelationshipsFromSegment(
     );
 
     const modelConfig = getTextModelConfig(extractRelationshipsPrompt.model);
-    const inputTokens = result.usageMetadata?.promptTokenCount || Math.ceil(prompt.length / modelConfig.charsPerToken);
-    const outputTokens = result.usageMetadata?.candidatesTokenCount || Math.ceil((result.text?.length || 0) / modelConfig.charsPerToken);
+    const inputTokens =
+      result.usageMetadata?.promptTokenCount ||
+      Math.ceil(prompt.length / modelConfig.charsPerToken);
+    const outputTokens =
+      result.usageMetadata?.candidatesTokenCount ||
+      Math.ceil((result.text?.length || 0) / modelConfig.charsPerToken);
 
     logLLMCall(logger, {
       operation: 'extractRelationshipsFromSegment',
@@ -795,8 +836,12 @@ export async function extractRelationshipsFromSegment(
       promptTokens: inputTokens,
       responseTokens: outputTokens,
       durationMs,
-      prompt: process.env.LOG_LEVEL === 'debug' ? prompt.slice(0, 500) : undefined,
-      response: process.env.LOG_LEVEL === 'debug' ? result.text?.slice(0, 500) : undefined,
+      prompt:
+        process.env.LOG_LEVEL === 'debug' ? prompt.slice(0, 500) : undefined,
+      response:
+        process.env.LOG_LEVEL === 'debug'
+          ? result.text?.slice(0, 500)
+          : undefined,
     });
 
     logger.info(
@@ -809,12 +854,15 @@ export async function extractRelationshipsFromSegment(
 
     return parsed;
   } catch (error) {
-    logger.error({
-      operation: 'extractRelationshipsFromSegment',
-      status: 'failed',
-      error: (error as any)?.message,
-      durationMs: Date.now() - callStartTime,
-    }, 'LLM call failed');
+    logger.error(
+      {
+        operation: 'extractRelationshipsFromSegment',
+        status: 'failed',
+        error: (error as any)?.message,
+        durationMs: Date.now() - callStartTime,
+      },
+      'LLM call failed',
+    );
     throw handleApiError(error, 'Stage 4 relationship extraction');
   }
 }
@@ -939,7 +987,9 @@ RULES:
   const modelConfig = getTextModelConfig('gemini-2.5-flash-lite');
   const maxOutputTokens = modelConfig.maxOutputTokens;
   if (!maxOutputTokens) {
-    throw new Error(`Model ${modelConfig} missing maxOutputTokens configuration`);
+    throw new Error(
+      `Model ${modelConfig} missing maxOutputTokens configuration`,
+    );
   }
 
   try {
@@ -950,16 +1000,17 @@ RULES:
       documentId,
       stage: 6,
       logger,
-      execute: async () => client.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-          responseJsonSchema: stage4ExtractRelationshipsSchema,
-          maxOutputTokens,
-          thinkingConfig: { thinkingBudget: 0 },
-        },
-      }),
+      execute: async () =>
+        client.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json',
+            responseJsonSchema: stage4ExtractRelationshipsSchema,
+            maxOutputTokens,
+            thinkingConfig: { thinkingBudget: 0 },
+          },
+        }),
     });
 
     const parsed = parseResponse<Stage4RelationshipsResult>(
@@ -988,9 +1039,10 @@ RULES:
     }
 
     const segmentIndices = segments.map((s) => s.index);
-    const segmentRange = segments.length > 0
-      ? `${Math.min(...segmentIndices)}-${Math.max(...segmentIndices)}`
-      : 'none';
+    const segmentRange =
+      segments.length > 0
+        ? `${Math.min(...segmentIndices)}-${Math.max(...segmentIndices)}`
+        : 'none';
 
     logger.info(
       {
@@ -1040,10 +1092,14 @@ export async function extractCrossSegmentRelationships(
     existingRelationships,
   });
 
-  const modelConfig = getTextModelConfig(extractCrossSegmentRelationshipsPrompt.model);
+  const modelConfig = getTextModelConfig(
+    extractCrossSegmentRelationshipsPrompt.model,
+  );
   const maxOutputTokens = modelConfig.maxOutputTokens;
   if (!maxOutputTokens) {
-    throw new Error(`Model ${modelConfig} missing maxOutputTokens configuration`);
+    throw new Error(
+      `Model ${modelConfig} missing maxOutputTokens configuration`,
+    );
   }
 
   try {
@@ -1054,16 +1110,17 @@ export async function extractCrossSegmentRelationships(
       documentId,
       stage: 7,
       logger,
-      execute: async () => client.models.generateContent({
-        model: extractCrossSegmentRelationshipsPrompt.model,
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-          responseJsonSchema: stage4ExtractRelationshipsSchema,
-          maxOutputTokens,
-          thinkingConfig: { thinkingBudget: 0 },
-        },
-      }),
+      execute: async () =>
+        client.models.generateContent({
+          model: extractCrossSegmentRelationshipsPrompt.model,
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json',
+            responseJsonSchema: stage4ExtractRelationshipsSchema,
+            maxOutputTokens,
+            thinkingConfig: { thinkingBudget: 0 },
+          },
+        }),
     });
 
     const parsed = parseResponse<Stage4RelationshipsResult>(
@@ -1153,7 +1210,9 @@ export async function analyzeHigherOrder(
   const modelConfig = getTextModelConfig(analyzeHigherOrderPrompt.model);
   const maxOutputTokens = modelConfig.maxOutputTokens;
   if (!maxOutputTokens) {
-    throw new Error(`Model ${modelConfig} missing maxOutputTokens configuration`);
+    throw new Error(
+      `Model ${modelConfig} missing maxOutputTokens configuration`,
+    );
   }
 
   try {
@@ -1164,16 +1223,17 @@ export async function analyzeHigherOrder(
       documentId,
       stage: 8,
       logger,
-      execute: async () => client.models.generateContent({
-        model: analyzeHigherOrderPrompt.model,
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-          responseJsonSchema: stage5HigherOrderSchema,
-          maxOutputTokens,
-          thinkingConfig: { thinkingBudget: 0 },
-        },
-      }),
+      execute: async () =>
+        client.models.generateContent({
+          model: analyzeHigherOrderPrompt.model,
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json',
+            responseJsonSchema: stage5HigherOrderSchema,
+            maxOutputTokens,
+            thinkingConfig: { thinkingBudget: 0 },
+          },
+        }),
     });
 
     const parsed = parseResponse<Stage5HigherOrderResult>(
@@ -1230,7 +1290,9 @@ export async function refineThreads(
   const modelConfig = getTextModelConfig(refineThreadsPrompt.model);
   const maxOutputTokens = modelConfig.maxOutputTokens;
   if (!maxOutputTokens) {
-    throw new Error(`Model ${modelConfig} missing maxOutputTokens configuration`);
+    throw new Error(
+      `Model ${modelConfig} missing maxOutputTokens configuration`,
+    );
   }
 
   const callStartTime = Date.now();
@@ -1253,8 +1315,12 @@ export async function refineThreads(
     );
 
     const modelConfig = getTextModelConfig(refineThreadsPrompt.model);
-    const inputTokens = result.usageMetadata?.promptTokenCount || Math.ceil(prompt.length / modelConfig.charsPerToken);
-    const outputTokens = result.usageMetadata?.candidatesTokenCount || Math.ceil((result.text?.length || 0) / modelConfig.charsPerToken);
+    const inputTokens =
+      result.usageMetadata?.promptTokenCount ||
+      Math.ceil(prompt.length / modelConfig.charsPerToken);
+    const outputTokens =
+      result.usageMetadata?.candidatesTokenCount ||
+      Math.ceil((result.text?.length || 0) / modelConfig.charsPerToken);
 
     logLLMCall(logger, {
       operation: 'refineThreads',
@@ -1262,8 +1328,12 @@ export async function refineThreads(
       promptTokens: inputTokens,
       responseTokens: outputTokens,
       durationMs,
-      prompt: process.env.LOG_LEVEL === 'debug' ? prompt.slice(0, 500) : undefined,
-      response: process.env.LOG_LEVEL === 'debug' ? result.text?.slice(0, 500) : undefined,
+      prompt:
+        process.env.LOG_LEVEL === 'debug' ? prompt.slice(0, 500) : undefined,
+      response:
+        process.env.LOG_LEVEL === 'debug'
+          ? result.text?.slice(0, 500)
+          : undefined,
     });
 
     logger.info(
@@ -1276,12 +1346,15 @@ export async function refineThreads(
 
     return parsed;
   } catch (error) {
-    logger.error({
-      operation: 'refineThreads',
-      status: 'failed',
-      error: (error as any)?.message,
-      durationMs: Date.now() - callStartTime,
-    }, 'LLM call failed');
+    logger.error(
+      {
+        operation: 'refineThreads',
+        status: 'failed',
+        error: (error as any)?.message,
+        durationMs: Date.now() - callStartTime,
+      },
+      'LLM call failed',
+    );
     throw handleApiError(error, 'Stage 5 thread refinement');
   }
 }
@@ -1290,7 +1363,10 @@ export async function refineThreads(
 export interface Stage10ContradictionResult {
   facetIndexA: number;
   facetIndexB: number;
-  classificationType: 'true_inconsistency' | 'temporal_change' | 'arc_divergence';
+  classificationType:
+    | 'true_inconsistency'
+    | 'temporal_change'
+    | 'arc_divergence';
   reasoning: string;
 }
 
@@ -1313,16 +1389,20 @@ export async function detectContradictionsInBatch(
     );
   }
 
-  const prompt = customPrompt || detectContradictionsPrompt.build({
-    entityName,
-    facetType,
-    facets,
-  });
+  const prompt =
+    customPrompt ||
+    detectContradictionsPrompt.build({
+      entityName,
+      facetType,
+      facets,
+    });
 
   const modelConfig = getTextModelConfig(detectContradictionsPrompt.model);
   const maxOutputTokens = modelConfig.maxOutputTokens;
   if (!maxOutputTokens) {
-    throw new Error(`Model ${modelConfig} missing maxOutputTokens configuration`);
+    throw new Error(
+      `Model ${modelConfig} missing maxOutputTokens configuration`,
+    );
   }
 
   try {
@@ -1333,16 +1413,17 @@ export async function detectContradictionsInBatch(
       documentId,
       stage: 10,
       logger,
-      execute: async () => client.models.generateContent({
-        model: detectContradictionsPrompt.model,
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-          responseJsonSchema: stage10DetectContradictionsSchema,
-          maxOutputTokens,
-          thinkingConfig: { thinkingBudget: 0 },
-        },
-      }),
+      execute: async () =>
+        client.models.generateContent({
+          model: detectContradictionsPrompt.model,
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json',
+            responseJsonSchema: stage10DetectContradictionsSchema,
+            maxOutputTokens,
+            thinkingConfig: { thinkingBudget: 0 },
+          },
+        }),
     });
 
     const parsed = parseResponse<Stage10ContradictionResult[]>(

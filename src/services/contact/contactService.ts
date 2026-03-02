@@ -1,8 +1,8 @@
+import { desc, eq } from 'drizzle-orm';
 import { db } from '../../config/database';
 import { contactSubmissions, users } from '../../models/schema';
-import { eq, desc } from 'drizzle-orm';
-import { emailService } from '../emailService';
 import { logger } from '../../utils/logger';
+import { emailService } from '../emailService';
 
 export class ContactService {
   async submitContact(params: {
@@ -47,10 +47,7 @@ export class ContactService {
   async notifyAdmins(
     submission: typeof contactSubmissions.$inferSelect,
   ): Promise<void> {
-    const admins = await db
-      .select()
-      .from(users)
-      .where(eq(users.role, 'admin'));
+    const admins = await db.select().from(users).where(eq(users.role, 'admin'));
 
     const now = new Date();
     const hour = now.getHours();
@@ -116,10 +113,7 @@ export class ContactService {
 
       logger.info({ to: email }, 'Auto-response sent');
     } catch (error) {
-      logger.error(
-        { error, to: email },
-        'Failed to send auto-response email',
-      );
+      logger.error({ error, to: email }, 'Failed to send auto-response email');
     }
   }
 

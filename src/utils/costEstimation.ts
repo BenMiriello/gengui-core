@@ -20,29 +20,31 @@
 
 const PRICING = {
   'gemini-1.5-flash': {
-    inputCost: 0.075,  // USD per 1M tokens (source: https://ai.google.dev/pricing)
-    outputCost: 0.30,  // USD per 1M tokens
+    inputCost: 0.075, // USD per 1M tokens (source: https://ai.google.dev/pricing)
+    outputCost: 0.3, // USD per 1M tokens
   },
   'gemini-2.0-flash-exp': {
-    inputCost: 0.10,   // USD per 1M tokens (source: https://ai.google.dev/pricing)
-    outputCost: 0.40,  // USD per 1M tokens
+    inputCost: 0.1, // USD per 1M tokens (source: https://ai.google.dev/pricing)
+    outputCost: 0.4, // USD per 1M tokens
   },
   'gemini-1.5-pro': {
-    inputCost: 1.25,   // USD per 1M tokens (source: https://ai.google.dev/pricing)
-    outputCost: 5.00,  // USD per 1M tokens
+    inputCost: 1.25, // USD per 1M tokens (source: https://ai.google.dev/pricing)
+    outputCost: 5.0, // USD per 1M tokens
   },
   // Aliases for common model names
-  'gemini-2.5-flash': { // Alias for 2.0-flash-exp
-    inputCost: 0.10,
-    outputCost: 0.40,
+  'gemini-2.5-flash': {
+    // Alias for 2.0-flash-exp
+    inputCost: 0.1,
+    outputCost: 0.4,
   },
-  'gemini-2.0-flash': { // Alias for 2.0-flash-exp
-    inputCost: 0.10,
-    outputCost: 0.40,
+  'gemini-2.0-flash': {
+    // Alias for 2.0-flash-exp
+    inputCost: 0.1,
+    outputCost: 0.4,
   },
   'gemini-2.5-flash-lite': {
-    inputCost: 0.10,
-    outputCost: 0.40,
+    inputCost: 0.1,
+    outputCost: 0.4,
   },
 } as const;
 

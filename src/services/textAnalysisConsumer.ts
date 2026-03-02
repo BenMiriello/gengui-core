@@ -96,7 +96,8 @@ class TextAnalysisConsumer extends PubSubConsumer {
   }
 
   protected async handleMessage(message: StreamMessage) {
-    const { documentId, userId, reanalyze, updateMode, operationId } = message.data;
+    const { documentId, userId, reanalyze, updateMode, operationId } =
+      message.data;
 
     if (!documentId || !userId) {
       logger.error(

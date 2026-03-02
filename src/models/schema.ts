@@ -272,15 +272,21 @@ export const documents = pgTable(
     lastAnalyzedVersion: integer('last_analyzed_version'),
     analysisStatus: text('analysis_status'),
     analysisStartedAt: timestamp('analysis_started_at', { withTimezone: true }),
-    analysisCompletedAt: timestamp('analysis_completed_at', { withTimezone: true }),
+    analysisCompletedAt: timestamp('analysis_completed_at', {
+      withTimezone: true,
+    }),
     analysisCheckpoint: jsonb('analysis_checkpoint'),
     segmentSequence: jsonb('segment_sequence').default([]).notNull(),
     yjsState: text('yjs_state'),
     summary: text('summary'),
-    summaryEditChainLength: integer('summary_edit_chain_length').default(0).notNull(),
+    summaryEditChainLength: integer('summary_edit_chain_length')
+      .default(0)
+      .notNull(),
     summaryUpdatedAt: timestamp('summary_updated_at', { withTimezone: true }),
-    layoutPositions: jsonb('layout_positions')
-      .$type<Array<{ nodeId: string; x: number; y: number }>>(),
+    layoutPositions:
+      jsonb('layout_positions').$type<
+        Array<{ nodeId: string; x: number; y: number }>
+      >(),
     createdAt: timestamp('created_at', { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -741,7 +747,9 @@ export const llmUsage = pgTable(
     }),
     requestId: uuid('request_id'),
     operation: varchar('operation', { length: 100 }).notNull(),
-    model: varchar('model', { length: 50 }).notNull().default('gemini-2.0-flash'),
+    model: varchar('model', { length: 50 })
+      .notNull()
+      .default('gemini-2.0-flash'),
     inputTokens: integer('input_tokens').notNull(),
     outputTokens: integer('output_tokens').notNull(),
     costUsd: decimal('cost_usd', { precision: 10, scale: 6 }).notNull(),
@@ -766,9 +774,16 @@ export const llmUsageDaily = pgTable(
     userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
     date: date('date').notNull(),
     totalOperations: integer('total_operations').notNull(),
-    totalInputTokens: bigint('total_input_tokens', { mode: 'number' }).notNull(),
-    totalOutputTokens: bigint('total_output_tokens', { mode: 'number' }).notNull(),
-    totalCostUsd: decimal('total_cost_usd', { precision: 12, scale: 6 }).notNull(),
+    totalInputTokens: bigint('total_input_tokens', {
+      mode: 'number',
+    }).notNull(),
+    totalOutputTokens: bigint('total_output_tokens', {
+      mode: 'number',
+    }).notNull(),
+    totalCostUsd: decimal('total_cost_usd', {
+      precision: 12,
+      scale: 6,
+    }).notNull(),
     operationBreakdown: jsonb('operation_breakdown'),
     modelBreakdown: jsonb('model_breakdown'),
     createdAt: timestamp('created_at', { withTimezone: true })
@@ -793,17 +808,25 @@ export const userSubscriptions = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     tier: varchar('tier', { length: 20 }).notNull().default('free'),
-    grantType: varchar('grant_type', { length: 50 }).notNull().default('standard'),
+    grantType: varchar('grant_type', { length: 50 })
+      .notNull()
+      .default('standard'),
     usageQuota: integer('usage_quota').notNull(),
     usageConsumed: integer('usage_consumed').notNull().default(0),
-    periodStart: timestamp('period_start', { withTimezone: true }).notNull().defaultNow(),
+    periodStart: timestamp('period_start', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
     periodEnd: timestamp('period_end', { withTimezone: true }).notNull(),
     trialRequestedAt: timestamp('trial_requested_at', { withTimezone: true }),
     trialApprovedAt: timestamp('trial_approved_at', { withTimezone: true }),
     trialApprovedBy: uuid('trial_approved_by').references(() => users.id),
     cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
   },
   (table) => [
     index('idx_user_subscriptions_user').on(table.userId),
@@ -817,19 +840,27 @@ export const contactSubmissions = pgTable(
   'contact_submissions',
   {
     id: uuid('id').defaultRandom().primaryKey(),
-    userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+    userId: uuid('user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
     email: varchar('email', { length: 255 }).notNull(),
     subject: varchar('subject', { length: 255 }).notNull(),
     message: text('message').notNull(),
-    submissionType: varchar('submission_type', { length: 50 }).notNull().default('contact'),
+    submissionType: varchar('submission_type', { length: 50 })
+      .notNull()
+      .default('contact'),
     status: varchar('status', { length: 20 }).notNull().default('pending'),
     respondedAt: timestamp('responded_at', { withTimezone: true }),
     respondedBy: uuid('responded_by').references(() => users.id),
     adminNotes: text('admin_notes'),
     userAgent: text('user_agent'),
     ipAddress: varchar('ip_address', { length: 45 }),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
   },
   (table) => [
     index('idx_contact_submissions_status').on(table.status, table.createdAt),
@@ -852,7 +883,9 @@ export const pricingAuditLog = pgTable(
       .references(() => users.id),
     reason: text('reason').notNull(),
     gitCommit: varchar('git_commit', { length: 40 }),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
   },
   (table) => [
     index('idx_pricing_audit_log_date').on(table.createdAt),
@@ -873,10 +906,15 @@ export const quotaReservations = pgTable(
     expiresAt: timestamp('expires_at', { withTimezone: true })
       .notNull()
       .default(sql`NOW() + INTERVAL '5 minutes'`),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
   },
   (table) => [
-    index('idx_quota_reservations_user_active').on(table.userId, table.expiresAt),
+    index('idx_quota_reservations_user_active').on(
+      table.userId,
+      table.expiresAt,
+    ),
     index('idx_quota_reservations_expires').on(table.expiresAt),
   ],
 );

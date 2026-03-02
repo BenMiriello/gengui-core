@@ -295,13 +295,19 @@ export class DocumentsService {
 
       // Check if changes are significant enough to update summary
       if (!summaryService.needsUpdate(sourceDiff)) {
-        logger.debug({ documentId }, 'Content changes not significant, skipping summary update');
+        logger.debug(
+          { documentId },
+          'Content changes not significant, skipping summary update',
+        );
         return;
       }
 
-      let result;
+      let result: Awaited<ReturnType<typeof summaryService.generate>>;
 
-      if (!currentSummary || editChainLength >= summaryService.MAX_EDIT_CHAIN_LENGTH) {
+      if (
+        !currentSummary ||
+        editChainLength >= summaryService.MAX_EDIT_CHAIN_LENGTH
+      ) {
         // Generate fresh summary
         result = await summaryService.generate({
           summaryId: documentId,
@@ -333,7 +339,11 @@ export class DocumentsService {
           .where(eq(documents.id, documentId));
 
         logger.info(
-          { documentId, method: result.method, editChainLength: result.editChainLength },
+          {
+            documentId,
+            method: result.method,
+            editChainLength: result.editChainLength,
+          },
           'Document summary updated',
         );
       }

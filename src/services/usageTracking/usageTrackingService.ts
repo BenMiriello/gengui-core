@@ -103,7 +103,16 @@ export class UsageTrackingService {
     operation: string;
     model: string;
   }): Promise<void> {
-    const { userId, date, operations, inputTokens, outputTokens, costUsd, operation, model } = params;
+    const {
+      userId,
+      date,
+      operations,
+      inputTokens,
+      outputTokens,
+      costUsd,
+      operation,
+      model,
+    } = params;
 
     await this.upsertRollup({
       userId,
@@ -141,7 +150,16 @@ export class UsageTrackingService {
     operation: string;
     model: string;
   }): Promise<void> {
-    const { userId, date, operations, inputTokens, outputTokens, costUsd, operation, model } = params;
+    const {
+      userId,
+      date,
+      operations,
+      inputTokens,
+      outputTokens,
+      costUsd,
+      operation,
+      model,
+    } = params;
 
     const existing = await db
       .select()
@@ -149,16 +167,22 @@ export class UsageTrackingService {
       .where(
         userId
           ? and(eq(llmUsageDaily.userId, userId), eq(llmUsageDaily.date, date))
-          : and(sql`${llmUsageDaily.userId} IS NULL`, eq(llmUsageDaily.date, date)),
+          : and(
+              sql`${llmUsageDaily.userId} IS NULL`,
+              eq(llmUsageDaily.date, date),
+            ),
       )
       .limit(1);
 
     if (existing.length > 0) {
       const row = existing[0];
-      const operationBreakdown = (row.operationBreakdown as Record<string, number>) || {};
-      const modelBreakdown = (row.modelBreakdown as Record<string, number>) || {};
+      const operationBreakdown =
+        (row.operationBreakdown as Record<string, number>) || {};
+      const modelBreakdown =
+        (row.modelBreakdown as Record<string, number>) || {};
 
-      operationBreakdown[operation] = (operationBreakdown[operation] || 0) + operations;
+      operationBreakdown[operation] =
+        (operationBreakdown[operation] || 0) + operations;
       modelBreakdown[model] = (modelBreakdown[model] || 0) + operations;
 
       await db
@@ -225,7 +249,8 @@ export class UsageTrackingService {
         totalCost: acc.totalCost + parseFloat(row.totalCostUsd),
         totalOperations: acc.totalOperations + row.totalOperations,
         totalInputTokens: acc.totalInputTokens + Number(row.totalInputTokens),
-        totalOutputTokens: acc.totalOutputTokens + Number(row.totalOutputTokens),
+        totalOutputTokens:
+          acc.totalOutputTokens + Number(row.totalOutputTokens),
       }),
       {
         totalCost: 0,

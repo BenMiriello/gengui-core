@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import Redis from 'ioredis';
-import { db } from '../../config/database.js';
 import { THREAD_COLORS } from '../../config/constants';
+import { db } from '../../config/database.js';
 import { documents } from '../../models/schema.js';
 import type {
   ArcType,
@@ -1342,7 +1342,10 @@ class GraphService {
     }
 
     if (document.layoutPositions && Array.isArray(document.layoutPositions)) {
-      logger.debug({ documentId, nodeCount: document.layoutPositions.length }, 'PCA positions loaded from Postgres');
+      logger.debug(
+        { documentId, nodeCount: document.layoutPositions.length },
+        'PCA positions loaded from Postgres',
+      );
       return document.layoutPositions;
     }
 
@@ -1357,7 +1360,10 @@ class GraphService {
     `;
     const result = await this.query(cypher, { documentId, userId });
     const queryTime = Date.now() - startTime;
-    logger.info({ documentId, queryTime, rowCount: result.data.length }, '[projection] query complete');
+    logger.info(
+      { documentId, queryTime, rowCount: result.data.length },
+      '[projection] query complete',
+    );
 
     if (result.data.length === 0) {
       return [];
@@ -1420,7 +1426,10 @@ class GraphService {
     const pca = new PCA(embeddings);
     const projected = pca.predict(embeddings, { nComponents: 2 });
     const pcaTime = Date.now() - pcaStart;
-    logger.info({ pcaTime, nodeCount: embeddings.length }, '[projection] PCA complete');
+    logger.info(
+      { pcaTime, nodeCount: embeddings.length },
+      '[projection] PCA complete',
+    );
 
     const projectedArray = projected.to2DArray();
 
@@ -1613,7 +1622,9 @@ class GraphService {
 
     // Recompute primary name if this was a name facet
     if (isNameFacet && entityId) {
-      const { recomputeAndUpdatePrimaryName } = await import('./entityNames.js');
+      const { recomputeAndUpdatePrimaryName } = await import(
+        './entityNames.js'
+      );
       await recomputeAndUpdatePrimaryName(entityId);
     }
   }
@@ -1634,7 +1645,9 @@ class GraphService {
 
     // Recompute primary name if this was a name facet
     if (isNameFacet && entityId) {
-      const { recomputeAndUpdatePrimaryName } = await import('./entityNames.js');
+      const { recomputeAndUpdatePrimaryName } = await import(
+        './entityNames.js'
+      );
       await recomputeAndUpdatePrimaryName(entityId);
     }
   }
@@ -2113,7 +2126,9 @@ class GraphService {
    * Get what a facet is attached to (Entity or CharacterState).
    * Used for conflict classification to determine if facets are in different temporal contexts.
    */
-  async getFacetAttachment(facetId: string): Promise<
+  async getFacetAttachment(
+    facetId: string,
+  ): Promise<
     | { type: 'entity'; entityId: string }
     | { type: 'state'; stateId: string; entityId: string }
   > {

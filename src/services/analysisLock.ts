@@ -34,7 +34,10 @@ export const analysisLock = {
     const acquired = (result as any)[0]?.acquired === true;
 
     if (acquired) {
-      logger.debug({ documentId, lockId: lockId.toString() }, 'Analysis lock acquired');
+      logger.debug(
+        { documentId, lockId: lockId.toString() },
+        'Analysis lock acquired',
+      );
     } else {
       logger.info(
         { documentId, lockId: lockId.toString() },
@@ -55,7 +58,10 @@ export const analysisLock = {
       sql`SELECT pg_advisory_unlock(${lockId.toString()}::bigint)`,
     );
 
-    logger.debug({ documentId, lockId: lockId.toString() }, 'Analysis lock released');
+    logger.debug(
+      { documentId, lockId: lockId.toString() },
+      'Analysis lock released',
+    );
   },
 
   /**
@@ -65,7 +71,9 @@ export const analysisLock = {
   async withLock<T>(
     documentId: string,
     fn: () => Promise<T>,
-  ): Promise<{ success: true; result: T } | { success: false; reason: 'locked' }> {
+  ): Promise<
+    { success: true; result: T } | { success: false; reason: 'locked' }
+  > {
     const acquired = await this.tryAcquire(documentId);
 
     if (!acquired) {

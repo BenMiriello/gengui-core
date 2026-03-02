@@ -2,11 +2,11 @@
  * Segment-level summary generation with retry logic and validation.
  */
 
-import { getGeminiClient } from '../gemini/core';
 import { logger } from '../../utils/logger';
+import { trackedAI } from '../ai';
+import { getGeminiClient } from '../gemini/core';
 import { CONFIG } from './config';
 import { buildSummaryPrompt, sleep } from './shared';
-import { trackedAI } from '../ai';
 
 export async function generateSegmentSummary(
   segmentText: string,
@@ -24,7 +24,7 @@ export async function generateSegmentSummary(
   if (segmentText.length > CONFIG.maxSegmentChars) {
     logger.warn(
       { segmentIndex, length: segmentText.length, max: CONFIG.maxSegmentChars },
-      'Segment exceeds max length, truncating for summary generation'
+      'Segment exceeds max length, truncating for summary generation',
     );
     validatedText = segmentText.slice(0, CONFIG.maxSegmentChars);
   }
@@ -47,10 +47,11 @@ export async function generateSegmentSummary(
     documentId,
     stage: 2,
     logger,
-    execute: async () => client.models.generateContent({
-      model: CONFIG.summaryModel,
-      contents: prompt,
-    }),
+    execute: async () =>
+      client.models.generateContent({
+        model: CONFIG.summaryModel,
+        contents: prompt,
+      }),
   });
 
   const summary = (result.text ?? '').trim();
@@ -63,7 +64,7 @@ export async function generateSegmentSummary(
   if (summary.length > CONFIG.maxSummaryChars) {
     logger.warn(
       { segmentIndex, length: summary.length, max: CONFIG.maxSummaryChars },
-      'Summary exceeds max length, truncating'
+      'Summary exceeds max length, truncating',
     );
     return summary.slice(0, CONFIG.maxSummaryChars);
   }
@@ -80,12 +81,18 @@ export async function generateSegmentSummaryWithRetry(
   attempt: number = 0,
 ): Promise<string> {
   try {
-    return await generateSegmentSummary(segmentText, segmentIndex, totalSegments, userId, documentId);
+    return await generateSegmentSummary(
+      segmentText,
+      segmentIndex,
+      totalSegments,
+      userId,
+      documentId,
+    );
   } catch (error) {
     if (attempt >= CONFIG.maxRetries) {
       logger.error(
         { error, segmentIndex, attempt, maxRetries: CONFIG.maxRetries },
-        'Summary generation failed after max retries, using fallback'
+        'Summary generation failed after max retries, using fallback',
       );
 
       // Fallback: truncated segment text as "summary"
@@ -93,10 +100,16 @@ export async function generateSegmentSummaryWithRetry(
       return fallback + (segmentText.length > 500 ? '...' : '');
     }
 
-    const backoffMs = CONFIG.baseBackoffMs * Math.pow(2, attempt);
+    const backoffMs = CONFIG.baseBackoffMs * 2 ** attempt;
     logger.warn(
-      { error, segmentIndex, attempt, backoffMs, maxRetries: CONFIG.maxRetries },
-      'Summary generation failed, retrying after exponential backoff'
+      {
+        error,
+        segmentIndex,
+        attempt,
+        backoffMs,
+        maxRetries: CONFIG.maxRetries,
+      },
+      'Summary generation failed, retrying after exponential backoff',
     );
 
     await sleep(backoffMs);
@@ -106,7 +119,7 @@ export async function generateSegmentSummaryWithRetry(
       totalSegments,
       userId,
       documentId,
-      attempt + 1
+      attempt + 1,
     );
   }
 }

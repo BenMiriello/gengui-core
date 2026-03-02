@@ -11,8 +11,8 @@
  */
 
 import type { Logger } from 'pino';
-import { estimateCost } from './costEstimation';
 import { isVerboseLoggingEnabled } from '../config/logging';
+import { estimateCost } from './costEstimation';
 
 interface LLMCallMetadata {
   operation: string;
@@ -36,11 +36,16 @@ interface LLMCallMetadata {
  * - false: Truncated 500-char previews at DEBUG
  * - true: Full prompts/responses (never in production)
  */
-export function logLLMCall(
-  logger: Logger,
-  metadata: LLMCallMetadata,
-): void {
-  const { prompt, response, operation, model, promptTokens, responseTokens, durationMs } = metadata;
+export function logLLMCall(logger: Logger, metadata: LLMCallMetadata): void {
+  const {
+    prompt,
+    response,
+    operation,
+    model,
+    promptTokens,
+    responseTokens,
+    durationMs,
+  } = metadata;
   const isVerbose = isVerboseLoggingEnabled();
 
   // INFO: Token counts and cost (always)
@@ -128,8 +133,12 @@ export function logStageComplete(
  */
 export function logEntityExtraction(
   logger: Logger,
-  entities: Array<{ name: string; type: string; facets: Array<{ type: string; content: string }> }>,
-  context?: Record<string, any>
+  entities: Array<{
+    name: string;
+    type: string;
+    facets: Array<{ type: string; content: string }>;
+  }>,
+  context?: Record<string, any>,
 ): void {
   const isVerbose = isVerboseLoggingEnabled();
 
@@ -142,7 +151,9 @@ export function logEntityExtraction(
           name: e.name,
           type: e.type,
           facetCount: e.facets.length,
-          sampleFacets: e.facets.slice(0, 3).map((f) => ({ type: f.type, content: f.content })),
+          sampleFacets: e.facets
+            .slice(0, 3)
+            .map((f) => ({ type: f.type, content: f.content })),
         })),
         _verbose: true,
         ...context,
@@ -154,11 +165,17 @@ export function logEntityExtraction(
     logger.debug(
       {
         entityCount: entities.length,
-        averageFacetsPerEntity: (entities.reduce((sum, e) => sum + e.facets.length, 0) / entities.length).toFixed(1),
-        typeDistribution: entities.reduce((acc, e) => {
-          acc[e.type] = (acc[e.type] || 0) + 1;
-          return acc;
-        }, {} as Record<string, number>),
+        averageFacetsPerEntity: (
+          entities.reduce((sum, e) => sum + e.facets.length, 0) /
+          entities.length
+        ).toFixed(1),
+        typeDistribution: entities.reduce(
+          (acc, e) => {
+            acc[e.type] = (acc[e.type] || 0) + 1;
+            return acc;
+          },
+          {} as Record<string, number>,
+        ),
         ...context,
       },
       'Entities extracted (counts)',

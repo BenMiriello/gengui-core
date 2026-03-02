@@ -87,9 +87,7 @@ export class LLMClient {
       params.maxOutputTokens ?? modelConfig.maxOutputTokens;
 
     if (!maxOutputTokens) {
-      throw new Error(
-        `Model ${model} missing maxOutputTokens configuration`,
-      );
+      throw new Error(`Model ${model} missing maxOutputTokens configuration`);
     }
 
     let lastError: Error | null = null;

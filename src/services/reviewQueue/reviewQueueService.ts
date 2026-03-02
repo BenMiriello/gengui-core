@@ -92,7 +92,9 @@ export const reviewQueueService = {
         contextSummary: input.contextSummary,
         sourcePositions: input.sourcePositions,
         conflictType: input.conflictType,
-        similarity: input.similarity ? Math.round(input.similarity * 100) : null,
+        similarity: input.similarity
+          ? Math.round(input.similarity * 100)
+          : null,
       })
       .returning();
 
@@ -213,7 +215,9 @@ export const reviewQueueService = {
         status: 'dismissed',
         resolvedAt: new Date(),
         resolvedBy: userId,
-        resolution: reason ? { type: 'dismissed', reason } : { type: 'dismissed' },
+        resolution: reason
+          ? { type: 'dismissed', reason }
+          : { type: 'dismissed' },
       })
       .where(eq(reviewQueue.id, reviewItemId))
       .returning();
@@ -222,10 +226,7 @@ export const reviewQueueService = {
       throw new Error(`Review item not found: ${reviewItemId}`);
     }
 
-    logger.info(
-      { reviewItemId, userId, reason },
-      'Review item dismissed',
-    );
+    logger.info({ reviewItemId, userId, reason }, 'Review item dismissed');
 
     return this.mapToReviewItem(item);
   },

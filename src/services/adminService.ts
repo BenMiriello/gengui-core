@@ -463,10 +463,17 @@ export class AdminService {
       endDate,
     });
 
-    let byDate;
+    let byDate:
+      | Array<{
+          date: string;
+          totalTokens: number;
+          totalCost: number;
+        }>
+      | undefined;
     if (startDate || endDate) {
       const conditions = [sql`${llmUsageDaily.userId} IS NULL`];
-      if (startDate) conditions.push(sql`${llmUsageDaily.date} >= ${startDate}`);
+      if (startDate)
+        conditions.push(sql`${llmUsageDaily.date} >= ${startDate}`);
       if (endDate) conditions.push(sql`${llmUsageDaily.date} <= ${endDate}`);
 
       const rows = await db
@@ -516,10 +523,17 @@ export class AdminService {
       endDate,
     });
 
-    let byDate;
+    let byDate:
+      | Array<{
+          date: string;
+          totalTokens: number;
+          totalCost: number;
+        }>
+      | undefined;
     if (startDate || endDate) {
       const conditions = [eq(llmUsageDaily.userId, userId)];
-      if (startDate) conditions.push(sql`${llmUsageDaily.date} >= ${startDate}`);
+      if (startDate)
+        conditions.push(sql`${llmUsageDaily.date} >= ${startDate}`);
       if (endDate) conditions.push(sql`${llmUsageDaily.date} <= ${endDate}`);
 
       const rows = await db
@@ -575,7 +589,9 @@ export class AdminService {
       .orderBy(sql`SUM(CAST(${llmUsageDaily.totalCostUsd} AS NUMERIC)) DESC`)
       .limit(limit);
 
-    const userIds = rows.map((r) => r.userId).filter((id): id is string => !!id);
+    const userIds = rows
+      .map((r) => r.userId)
+      .filter((id): id is string => !!id);
     const userRows = await db
       .select({
         id: users.id,

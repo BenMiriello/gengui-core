@@ -16,14 +16,13 @@ import type {
 import { GENERATION_SETTINGS_SCHEMA_VERSION } from '../types/generationSettings';
 import { extractJson } from '../utils/llmUtils';
 import { logger } from '../utils/logger';
-import { getGeminiClient, GeminiType } from './gemini/core';
+import { GeminiType, getGeminiClient } from './gemini/core';
 import { graphService, type StoredStoryNode } from './graph/graph.service';
 import type { StoredFacet } from './graph/graph.types';
 import {
   getImageProvider,
   getImageProviderName,
 } from './image-generation/factory';
-
 
 interface GenerateCharacterSheetParams {
   nodeId: string;

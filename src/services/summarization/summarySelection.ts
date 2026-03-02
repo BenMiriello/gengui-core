@@ -3,8 +3,8 @@
  * Uses priority algorithm with no hard thresholds.
  */
 
-import type { Segment } from '../segments/segment.types';
 import { logger } from '../../utils/logger';
+import type { Segment } from '../segments/segment.types';
 import { CONFIG } from './config';
 
 export interface SegmentSummary {
@@ -24,7 +24,7 @@ export interface SummarySelectionConfig {
  * No hard thresholds - naturally scales with document size and budget.
  */
 export function selectSummariesForContext(
-  config: SummarySelectionConfig
+  config: SummarySelectionConfig,
 ): Segment[] {
   const {
     currentBatchIndices,
@@ -39,7 +39,7 @@ export function selectSummariesForContext(
   if (maxSummaries <= 0) {
     logger.warn(
       { availableTokens, tokensPerSummary },
-      'Insufficient token budget for summaries'
+      'Insufficient token budget for summaries',
     );
     return [];
   }
@@ -53,7 +53,11 @@ export function selectSummariesForContext(
     .map(({ segment, index }) => ({
       segment,
       index,
-      priority: calculateSummaryPriority(index, currentIndex, allSegments.length),
+      priority: calculateSummaryPriority(
+        index,
+        currentIndex,
+        allSegments.length,
+      ),
     }));
 
   if (scored.length === 0) {
@@ -80,14 +84,15 @@ export function selectSummariesForContext(
       budgetTokens: availableTokens,
       usedTokens: totalTokens,
       utilizationPct: utilizationPct.toFixed(1),
-      selectionRange: selected.length > 0
-        ? `${selected[0].index}-${selected[selected.length - 1].index}`
-        : 'none',
+      selectionRange:
+        selected.length > 0
+          ? `${selected[0].index}-${selected[selected.length - 1].index}`
+          : 'none',
     },
-    'Summary selection complete'
+    'Summary selection complete',
   );
 
-  return selected.map(s => s.segment);
+  return selected.map((s) => s.segment);
 }
 
 /**
@@ -102,7 +107,7 @@ export function selectSummariesForContext(
 function calculateSummaryPriority(
   segmentIndex: number,
   currentIndex: number,
-  totalSegments: number
+  totalSegments: number,
 ): number {
   const weights = CONFIG.priorityWeights;
   const distance = Math.abs(segmentIndex - currentIndex);
@@ -112,15 +117,14 @@ function calculateSummaryPriority(
   const recencyScore = Math.exp(-relativeDistance * 3) * weights.recency;
 
   // Early segments: linear decay from first 5 segments
-  const earlyScore = segmentIndex < 5
-    ? ((5 - segmentIndex) / 5) * weights.early
-    : 0;
+  const earlyScore =
+    segmentIndex < 5 ? ((5 - segmentIndex) / 5) * weights.early : 0;
 
   // Middle segments: gentle exponential decay
-  const middleScore = segmentIndex >= 5 && segmentIndex < currentIndex - 3
-    ? Math.exp(-distance / 20) * weights.middle
-    : 0;
+  const middleScore =
+    segmentIndex >= 5 && segmentIndex < currentIndex - 3
+      ? Math.exp(-distance / 20) * weights.middle
+      : 0;
 
   return recencyScore + earlyScore + middleScore;
 }
-

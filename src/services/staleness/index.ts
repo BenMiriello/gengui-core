@@ -2,6 +2,6 @@ export { stalenessService } from './staleness.service';
 export type {
   AnalysisSnapshotInput,
   SentenceHash,
-  StaleRegion,
   StalenessResult,
+  StaleRegion,
 } from './staleness.types';

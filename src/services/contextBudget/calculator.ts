@@ -85,28 +85,39 @@ export interface BatchBudgetResult<TItem> {
 export function calculateBatchBudget<TItem>(
   input: BatchBudgetInput<TItem>,
 ): BatchBudgetResult<TItem> {
-  const { modelConfig, operationConfig, items, fixedContext, startIndex = 0 } = input;
+  const {
+    modelConfig,
+    operationConfig,
+    items,
+    fixedContext,
+    startIndex = 0,
+  } = input;
 
   if (!modelConfig.maxTokens || !modelConfig.maxOutputTokens) {
     throw new Error(
       `Incomplete model config: missing token limits. ` +
-      `maxTokens: ${modelConfig.maxTokens}, maxOutputTokens: ${modelConfig.maxOutputTokens}`
+        `maxTokens: ${modelConfig.maxTokens}, maxOutputTokens: ${modelConfig.maxOutputTokens}`,
     );
   }
 
   const charsPerToken = modelConfig.charsPerToken ?? 3.3;
-  const targetUtilization = modelConfig.targetUtilization ?? DEFAULT_TARGET_UTILIZATION;
-  const outputUtilization = modelConfig.outputUtilization ?? DEFAULT_OUTPUT_UTILIZATION;
+  const targetUtilization =
+    modelConfig.targetUtilization ?? DEFAULT_TARGET_UTILIZATION;
+  const outputUtilization =
+    modelConfig.outputUtilization ?? DEFAULT_OUTPUT_UTILIZATION;
 
   // Context window budget (input + output combined)
-  const availableContextTokens = Math.floor(modelConfig.maxTokens * targetUtilization);
+  const availableContextTokens = Math.floor(
+    modelConfig.maxTokens * targetUtilization,
+  );
 
   // Output capacity budget (separate constraint)
   const maxOutputTokens = modelConfig.maxOutputTokens ?? 65536;
   const availableOutputTokens = Math.floor(maxOutputTokens * outputUtilization);
 
   // Measure system prompt at runtime (no magic numbers)
-  const systemPromptTokens = operationConfig.getSystemPromptTokens(charsPerToken);
+  const systemPromptTokens =
+    operationConfig.getSystemPromptTokens(charsPerToken);
 
   // Fixed context tokens (e.g., previous segment for overlap)
   const fixedContextTokens = fixedContext
@@ -118,8 +129,8 @@ export function calculateBatchBudget<TItem>(
   const prioritizedItems = operationConfig.prioritize(remainingItems);
 
   // Measure each item's token cost
-  const itemTokenCounts = prioritizedItems.map(
-    (item) => countTokens(operationConfig.formatItem(item), charsPerToken),
+  const itemTokenCounts = prioritizedItems.map((item) =>
+    countTokens(operationConfig.formatItem(item), charsPerToken),
   );
 
   // Greedily include items while respecting BOTH budgets:
@@ -131,8 +142,13 @@ export function calculateBatchBudget<TItem>(
 
   for (let i = 0; i < prioritizedItems.length; i++) {
     const candidateItems = prioritizedItems.slice(0, i + 1);
-    const candidateItemTokens = itemTokenCounts.slice(0, i + 1).reduce((a, b) => a + b, 0);
-    const candidateOutputReserve = operationConfig.estimateOutputReserve(candidateItems, charsPerToken);
+    const candidateItemTokens = itemTokenCounts
+      .slice(0, i + 1)
+      .reduce((a, b) => a + b, 0);
+    const candidateOutputReserve = operationConfig.estimateOutputReserve(
+      candidateItems,
+      charsPerToken,
+    );
 
     const totalContextTokens =
       systemPromptTokens +
@@ -153,7 +169,10 @@ export function calculateBatchBudget<TItem>(
   }
 
   const includedItems = prioritizedItems.slice(0, includedCount);
-  const outputReserveTokens = operationConfig.estimateOutputReserve(includedItems, charsPerToken);
+  const outputReserveTokens = operationConfig.estimateOutputReserve(
+    includedItems,
+    charsPerToken,
+  );
 
   return {
     includedItems,
@@ -166,7 +185,11 @@ export function calculateBatchBudget<TItem>(
       fixedContext: fixedContextTokens,
       items: itemTokensUsed,
       outputReserve: outputReserveTokens,
-      total: systemPromptTokens + fixedContextTokens + itemTokensUsed + outputReserveTokens,
+      total:
+        systemPromptTokens +
+        fixedContextTokens +
+        itemTokensUsed +
+        outputReserveTokens,
       available: availableContextTokens,
       availableOutput: availableOutputTokens,
     },
@@ -195,10 +218,13 @@ export function calculateAllBatches<TItem>(
     let fixedContext = rest.fixedContext;
     if (currentIndex > 0 && getOverlapContext && batches.length > 0) {
       const lastBatch = batches[batches.length - 1];
-      const lastItem = lastBatch.includedItems[lastBatch.includedItems.length - 1];
+      const lastItem =
+        lastBatch.includedItems[lastBatch.includedItems.length - 1];
       if (lastItem) {
         const overlapText = getOverlapContext(lastItem);
-        fixedContext = fixedContext ? `${fixedContext}\n${overlapText}` : overlapText;
+        fixedContext = fixedContext
+          ? `${fixedContext}\n${overlapText}`
+          : overlapText;
       }
     }
 
@@ -211,11 +237,16 @@ export function calculateAllBatches<TItem>(
 
     if (batch.includedCount === 0) {
       const item = items[currentIndex];
-      const itemSize = item ? countTokens(rest.operationConfig.formatItem(item), rest.modelConfig.charsPerToken ?? 3.3) : 0;
+      const itemSize = item
+        ? countTokens(
+            rest.operationConfig.formatItem(item),
+            rest.modelConfig.charsPerToken ?? 3.3,
+          )
+        : 0;
       throw new Error(
         `Batch calculation failed: Cannot fit any items in budget. ` +
-        `First item size: ${itemSize} tokens, Available: ${batch.tokenBreakdown.available} tokens. ` +
-        `This indicates items are too large for the model's context window or budget configuration is too tight.`
+          `First item size: ${itemSize} tokens, Available: ${batch.tokenBreakdown.available} tokens. ` +
+          `This indicates items are too large for the model's context window or budget configuration is too tight.`,
       );
     }
 
@@ -226,8 +257,13 @@ export function calculateAllBatches<TItem>(
     if (remainingAfterBatch > 0 && remainingAfterBatch < batch.includedCount) {
       // Remaining items would create a small final batch
       // Rebalance: split remaining items more evenly
-      const totalRemaining = batch.includedCount + remainingAfterBatch - overlapSize;
-      const balanced = balanceFinalBatches(totalRemaining, batch.includedCount, overlapSize);
+      const totalRemaining =
+        batch.includedCount + remainingAfterBatch - overlapSize;
+      const balanced = balanceFinalBatches(
+        totalRemaining,
+        batch.includedCount,
+        overlapSize,
+      );
 
       if (balanced.length === 2 && balanced[0] < batch.includedCount) {
         // Recalculate this batch with smaller size
@@ -281,7 +317,11 @@ export function balanceFinalBatches(
   // Otherwise, fill first batch fully and recurse
   return [
     batchCapacity,
-    ...balanceFinalBatches(remainingCount - effectiveCapacity, batchCapacity, overlapSize),
+    ...balanceFinalBatches(
+      remainingCount - effectiveCapacity,
+      batchCapacity,
+      overlapSize,
+    ),
   ];
 }
 
@@ -308,7 +348,9 @@ export function formatEntityEntry(
 ): string {
   const lines: string[] = [];
 
-  lines.push(`[${entity.id.slice(0, 8)}] ${entity.type.toUpperCase()}: "${entity.name}"`);
+  lines.push(
+    `[${entity.id.slice(0, 8)}] ${entity.type.toUpperCase()}: "${entity.name}"`,
+  );
 
   if (tier !== 'minimal' && entity.aliases && entity.aliases.length > 0) {
     lines.push(`  aliases: ${entity.aliases.join(', ')}`);
@@ -381,7 +423,8 @@ export function calculateContextBudget(
   } = input;
 
   const charsPerToken = modelConfig.charsPerToken ?? 3.3;
-  const targetUtilization = modelConfig.targetUtilization ?? DEFAULT_TARGET_UTILIZATION;
+  const targetUtilization =
+    modelConfig.targetUtilization ?? DEFAULT_TARGET_UTILIZATION;
   const maxTokens = modelConfig.maxTokens;
   const availableTokens = Math.floor(maxTokens * targetUtilization);
 
@@ -389,7 +432,8 @@ export function calculateContextBudget(
 
   // Use provided system prompt tokens or fall back to estimation
   // Callers should measure actual prompt template and pass it in
-  const systemPromptTokens = providedSystemPromptTokens ?? Math.ceil(3000 / charsPerToken);
+  const systemPromptTokens =
+    providedSystemPromptTokens ?? Math.ceil(3000 / charsPerToken);
 
   const segmentTokens = countTokens(segmentText, charsPerToken);
   const previousSegmentTokens = previousSegmentText

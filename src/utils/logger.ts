@@ -1,5 +1,5 @@
-import pino from 'pino';
 import { randomUUID } from 'node:crypto';
+import pino from 'pino';
 import { getLogConfig } from '../config/logging';
 
 const isDevelopment = process.env.NODE_ENV === 'development';
@@ -14,7 +14,13 @@ const loggerInstance = isDevelopment
           error: pino.stdSerializers.err,
         },
         redact: {
-          paths: ['password', 'token', 'authorization', 'accessKey', 'secretKey'],
+          paths: [
+            'password',
+            'token',
+            'authorization',
+            'accessKey',
+            'secretKey',
+          ],
           remove: true,
         },
       },
@@ -25,7 +31,7 @@ const loggerInstance = isDevelopment
           translateTime: 'HH:MM:ss',
           ignore: 'pid,hostname',
         },
-      })
+      }),
     )
   : pino({
       ...getLogConfig(),

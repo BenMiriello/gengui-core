@@ -1,7 +1,7 @@
-export { llmClient, LLMClient } from './client';
+export { LLMClient, llmClient } from './client';
+export { DEFAULT_CONFIG } from './config';
 export type {
-  GenerateTextParams,
   GenerateJSONParams,
+  GenerateTextParams,
   LLMResponse,
 } from './types';
-export { DEFAULT_CONFIG } from './config';

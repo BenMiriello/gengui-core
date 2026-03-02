@@ -57,4 +57,3 @@ export const CONFLICT_CONFIG = {
    */
   minChangesForUpdate: 3,
 } as const;
-

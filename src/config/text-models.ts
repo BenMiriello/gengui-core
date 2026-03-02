@@ -35,8 +35,8 @@ export const TEXT_MODELS: Record<string, TextModelConfig> = {
     maxTokens: 1048576,
     maxOutputTokens: 65536,
     charsPerToken: 3.3,
-    costPer1MInputTokens: 0.10, // Verified 2025-02-25 from ai.google.dev/pricing
-    costPer1MOutputTokens: 0.40, // Matches gemini-2.0-flash-exp pricing
+    costPer1MInputTokens: 0.1, // Verified 2025-02-25 from ai.google.dev/pricing
+    costPer1MOutputTokens: 0.4, // Matches gemini-2.0-flash-exp pricing
   },
   'gemini-2.5-pro': {
     provider: 'gemini',
@@ -59,8 +59,8 @@ export const TEXT_MODELS: Record<string, TextModelConfig> = {
     maxTokens: 1048576,
     maxOutputTokens: 65536,
     charsPerToken: 3.3,
-    costPer1MInputTokens: 0.10, // 6x cheaper than Flash (estimated)
-    costPer1MOutputTokens: 0.40, // 50% faster, same quality for extraction
+    costPer1MInputTokens: 0.1, // 6x cheaper than Flash (estimated)
+    costPer1MOutputTokens: 0.4, // 50% faster, same quality for extraction
   },
 } as const;
 

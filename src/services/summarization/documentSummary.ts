@@ -2,10 +2,10 @@
  * Document-level summary generation from segment summaries.
  */
 
-import { getGeminiClient } from '../gemini/core';
 import { logger } from '../../utils/logger';
-import { CONFIG } from './config';
 import { trackedAI } from '../ai';
+import { getGeminiClient } from '../gemini/core';
+import { CONFIG } from './config';
 
 export async function generateDocumentSummary(
   segmentSummaries: string[],
@@ -49,10 +49,11 @@ Write the summary directly (no preamble):`;
     documentId,
     stage: 2,
     logger,
-    execute: async () => client.models.generateContent({
-      model: CONFIG.documentSummaryModel,
-      contents: prompt,
-    }),
+    execute: async () =>
+      client.models.generateContent({
+        model: CONFIG.documentSummaryModel,
+        contents: prompt,
+      }),
   });
 
   const summary = (result.text ?? '').trim();
@@ -68,7 +69,7 @@ Write the summary directly (no preamble):`;
       outputLength: summary.length,
       outputWords: summary.split(/\s+/).length,
     },
-    'Document summary generated'
+    'Document summary generated',
   );
 
   return summary;

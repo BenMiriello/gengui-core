@@ -1,6 +1,6 @@
 export {
+  type BatchDescriptionInput,
+  type DescriptionResult,
   descriptionService,
   type EntityForDescription,
-  type DescriptionResult,
-  type BatchDescriptionInput,
 } from './descriptionService';

@@ -1,5 +1,4 @@
 export {
-  reviewQueueService,
   type AddReviewItemInput,
   type ConflictType,
   type ResolveInput,
@@ -7,4 +6,5 @@ export {
   type ReviewItemType,
   type ReviewQueueStats,
   type ReviewStatus,
+  reviewQueueService,
 } from './reviewQueueService';

@@ -9,9 +9,9 @@ export interface Segment {
   start: number;
   end: number;
   hash?: string;
-  summary?: string;              // 100-word summary
-  summaryVersion?: number;       // for cache invalidation
-  summaryUpdatedAt?: string;     // ISO timestamp
+  summary?: string; // 100-word summary
+  summaryVersion?: number; // for cache invalidation
+  summaryUpdatedAt?: string; // ISO timestamp
 }
 
 export interface SegmentBoundary {

@@ -1,1 +1,4 @@
-export { usageTrackingService, type RecordUsageParams } from './usageTrackingService';
+export {
+  type RecordUsageParams,
+  usageTrackingService,
+} from './usageTrackingService';

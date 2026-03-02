@@ -89,9 +89,15 @@ function formatEntityRegistry(
 /**
  * Format segments for prompt inclusion.
  */
-function formatSegments(segments: SegmentInput[], totalSegments: number): string {
+function formatSegments(
+  segments: SegmentInput[],
+  totalSegments: number,
+): string {
   return segments
-    .map((s) => `### SEGMENT ${s.index + 1} OF ${totalSegments} [id: ${s.id}]\n"""\n${s.text}\n"""`)
+    .map(
+      (s) =>
+        `### SEGMENT ${s.index + 1} OF ${totalSegments} [id: ${s.id}]\n"""\n${s.text}\n"""`,
+    )
     .join('\n\n');
 }
 
@@ -124,7 +130,7 @@ ${documentSummary}
     const summariesSection = segmentSummaries?.length
       ? `
 ## RELEVANT SEGMENT SUMMARIES
-${segmentSummaries.map(s => `[Segment ${s.index + 1}]: ${s.summary}`).join('\n')}
+${segmentSummaries.map((s) => `[Segment ${s.index + 1}]: ${s.summary}`).join('\n')}
 `
       : '';
 
@@ -331,11 +337,13 @@ export function convertLegacyInput(
   segmentId: string,
 ): ExtractEntitiesInput {
   return {
-    segments: [{
-      id: segmentId,
-      index: input.segmentIndex,
-      text: input.segmentText,
-    }],
+    segments: [
+      {
+        id: segmentId,
+        index: input.segmentIndex,
+        text: input.segmentText,
+      },
+    ],
     totalSegments: input.totalSegments,
     entityRegistry: input.entityRegistry,
     overlapSegmentText: input.previousSegmentText,

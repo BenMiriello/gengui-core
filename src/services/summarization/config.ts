@@ -9,8 +9,8 @@ export const CONFIG = {
   tokensPerSummary: 120, // 100 words + formatting overhead (~20% margin)
 
   // Input/output validation
-  maxSegmentChars: 10000,   // ~2500 tokens, prevents embedding model overflow
-  maxSummaryChars: 1000,    // ~250 tokens, safety margin for 100-word target
+  maxSegmentChars: 10000, // ~2500 tokens, prevents embedding model overflow
+  maxSummaryChars: 1000, // ~250 tokens, safety margin for 100-word target
 
   // Retry logic for LLM failures
   maxRetries: 3,
@@ -21,16 +21,16 @@ export const CONFIG = {
 
   // Selection algorithm weights (must sum to 1.0)
   priorityWeights: {
-    recency: 0.4,    // Recent segments most relevant
-    early: 0.3,      // Early segments provide setup/context
-    middle: 0.3,     // Middle segments with exponential decay
+    recency: 0.4, // Recent segments most relevant
+    early: 0.3, // Early segments provide setup/context
+    middle: 0.3, // Middle segments with exponential decay
   },
 
   // Budget allocation
   summaryBudgetPct: 0.2, // Use 20% of context budget for summaries
 
   // Models
-  summaryModel: 'gemini-2.5-flash',         // Fast, cheap for segment summaries
+  summaryModel: 'gemini-2.5-flash', // Fast, cheap for segment summaries
   documentSummaryModel: 'gemini-2.5-flash', // Same model for document summaries
 } as const;
 

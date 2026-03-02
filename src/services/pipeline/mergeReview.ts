@@ -65,8 +65,18 @@ export interface MergeAction {
 export async function findMergeCandidates(
   entities: EntityForReview[],
   similarityThreshold = 0.85,
-): Promise<Array<{ entity1: EntityForReview; entity2: EntityForReview; similarity: number }>> {
-  const candidates: Array<{ entity1: EntityForReview; entity2: EntityForReview; similarity: number }> = [];
+): Promise<
+  Array<{
+    entity1: EntityForReview;
+    entity2: EntityForReview;
+    similarity: number;
+  }>
+> {
+  const candidates: Array<{
+    entity1: EntityForReview;
+    entity2: EntityForReview;
+    similarity: number;
+  }> = [];
 
   for (let i = 0; i < entities.length; i++) {
     const entity1 = entities[i];

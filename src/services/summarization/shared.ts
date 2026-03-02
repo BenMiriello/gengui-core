@@ -17,7 +17,12 @@ export interface SummaryPromptConfig {
 }
 
 export function buildSummaryPrompt(config: SummaryPromptConfig): string {
-  const { type, content, context, targetWords = CONFIG.targetSummaryWords } = config;
+  const {
+    type,
+    content,
+    context,
+    targetWords = CONFIG.targetSummaryWords,
+  } = config;
 
   const baseInstructions = `Focus on:
 - Named entities (characters, places, things) and their actions
@@ -42,5 +47,5 @@ Write the summary directly (no JSON, no preamble):`;
 }
 
 export function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

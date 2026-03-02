@@ -130,7 +130,13 @@ const mergeSignalSchema = {
     },
     evidence: { type: GeminiType.STRING },
   },
-  required: ['extractedEntityName', 'registryName', 'registryType', 'confidence', 'evidence'],
+  required: [
+    'extractedEntityName',
+    'registryName',
+    'registryType',
+    'confidence',
+    'evidence',
+  ],
 };
 
 const facetFlatSchema = {

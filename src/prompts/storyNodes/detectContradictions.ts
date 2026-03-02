@@ -10,8 +10,8 @@
  * - arc_divergence: Multiple valid interpretations (not a conflict)
  */
 
-import type { PromptDefinition } from '../types';
 import type { FacetType } from '../../types/storyNodes';
+import type { PromptDefinition } from '../types';
 
 interface DetectContradictionsInput {
   entityName: string;
@@ -32,9 +32,7 @@ export const detectContradictionsPrompt: PromptDefinition<DetectContradictionsIn
       'Stage 10: Identify contradictions in facets of the same type for an entity',
 
     build: ({ entityName, facetType, facets }) => {
-      const facetList = facets
-        .map((f, i) => `[${i}] ${f.content}`)
-        .join('\n');
+      const facetList = facets.map((f, i) => `[${i}] ${f.content}`).join('\n');
 
       return `You are analyzing ${facetType} facets for the character "${entityName}".
 Below are all ${facetType} facets extracted from the text.

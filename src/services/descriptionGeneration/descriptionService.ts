@@ -191,7 +191,10 @@ function parseDescriptionResponse(
   }
 
   // Fallback: try to extract descriptions by pattern matching
-  logger.warn({ responsePreview: response.slice(0, 200) }, 'JSON parse failed, using pattern fallback');
+  logger.warn(
+    { responsePreview: response.slice(0, 200) },
+    'JSON parse failed, using pattern fallback',
+  );
 
   for (let i = 0; i < entities.length; i++) {
     const pattern = new RegExp(
@@ -318,7 +321,9 @@ async function updateDescriptionProgressive(
   // Response wasn't a valid diff
   // Only use as replacement if it looks like actual description content
   const looksLikeDescription =
-    response.length > 30 && !response.includes('@@') && !response.startsWith('-');
+    response.length > 30 &&
+    !response.includes('@@') &&
+    !response.startsWith('-');
 
   if (looksLikeDescription) {
     return {
@@ -374,8 +379,15 @@ export const descriptionService = {
     const results: DescriptionResult[] = [];
 
     // Process generation in batches
-    for (let i = 0; i < needsGeneration.length; i += BATCH_CONFIG.descriptionBatchSize) {
-      const batch = needsGeneration.slice(i, i + BATCH_CONFIG.descriptionBatchSize);
+    for (
+      let i = 0;
+      i < needsGeneration.length;
+      i += BATCH_CONFIG.descriptionBatchSize
+    ) {
+      const batch = needsGeneration.slice(
+        i,
+        i + BATCH_CONFIG.descriptionBatchSize,
+      );
       const batchResults = await generateDescriptionsBatch(batch, llmGenerate);
       results.push(...batchResults);
     }
@@ -442,9 +454,7 @@ export const descriptionService = {
   /**
    * Group facets by type for display.
    */
-  groupFacetsByType(
-    facets: StoredFacet[],
-  ): Record<FacetType, StoredFacet[]> {
+  groupFacetsByType(facets: StoredFacet[]): Record<FacetType, StoredFacet[]> {
     const grouped: Record<string, StoredFacet[]> = {};
 
     for (const facet of facets) {

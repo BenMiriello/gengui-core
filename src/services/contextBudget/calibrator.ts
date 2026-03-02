@@ -39,41 +39,48 @@ export class BatchCalibrator {
       const oldMultiplier = this.conservativeMultiplier;
       this.conservativeMultiplier = Math.max(
         this.conservativeMultiplier * 1.5,
-        2.0
+        2.0,
       );
 
-      logger.error({
-        previousMultiplier: oldMultiplier,
-        newMultiplier: this.conservativeMultiplier,
-        recentBatches: this.history.slice(-5).map(b => ({
-          estimated: b.estimatedOutputTokens,
-          actual: b.actualOutputTokens,
-          ratio: (b.actualOutputTokens / b.estimatedOutputTokens).toFixed(2),
-        })),
-      }, 'MAX_TOKENS HIT - BACKING OFF DRAMATICALLY');
+      logger.error(
+        {
+          previousMultiplier: oldMultiplier,
+          newMultiplier: this.conservativeMultiplier,
+          recentBatches: this.history.slice(-5).map((b) => ({
+            estimated: b.estimatedOutputTokens,
+            actual: b.actualOutputTokens,
+            ratio: (b.actualOutputTokens / b.estimatedOutputTokens).toFixed(2),
+          })),
+        },
+        'MAX_TOKENS HIT - BACKING OFF DRAMATICALLY',
+      );
 
       return;
     }
 
     if (this.history.length >= 20) {
       const recent = this.history.slice(-20);
-      const allUnderBudget = recent.every(b =>
-        !b.hitMaxTokens &&
-        b.actualOutputTokens < b.estimatedOutputTokens * 0.8
+      const allUnderBudget = recent.every(
+        (b) =>
+          !b.hitMaxTokens &&
+          b.actualOutputTokens < b.estimatedOutputTokens * 0.8,
       );
 
       if (allUnderBudget && this.conservativeMultiplier > 1.0) {
         const oldMultiplier = this.conservativeMultiplier;
         this.conservativeMultiplier = Math.max(
           this.conservativeMultiplier * 0.95,
-          1.0
+          1.0,
         );
 
-        logger.info({
-          oldMultiplier,
-          newMultiplier: this.conservativeMultiplier,
-          reason: '20 consecutive batches under 80% budget',
-        }, 'Easing conservative multiplier');
+        logger.info(
+          {
+            oldMultiplier,
+            newMultiplier: this.conservativeMultiplier,
+            reason: '20 consecutive batches under 80% budget',
+          },
+          'Easing conservative multiplier',
+        );
       }
     }
   }
@@ -84,27 +91,29 @@ export class BatchCalibrator {
 
   getAdjustedEstimate(totalInputChars: number): number {
     if (!this.hasEnoughData()) {
-      return this.formulaBasedEstimate(totalInputChars) * this.conservativeMultiplier;
+      return (
+        this.formulaBasedEstimate(totalInputChars) * this.conservativeMultiplier
+      );
     }
 
     const recentBatches = this.history.slice(-20);
 
     const actualCharsPerEntity = this.calculateWeightedAverage(
       recentBatches
-        .filter(b => b.actualEntities > 0)
-        .map(b => b.totalInputChars / b.actualEntities)
+        .filter((b) => b.actualEntities > 0)
+        .map((b) => b.totalInputChars / b.actualEntities),
     );
 
     const actualFacetsPerEntity = this.calculateWeightedAverage(
       recentBatches
-        .filter(b => b.actualEntities > 0)
-        .map(b => b.actualFacets / b.actualEntities)
+        .filter((b) => b.actualEntities > 0)
+        .map((b) => b.actualFacets / b.actualEntities),
     );
 
     const actualMentionsPerEntity = this.calculateWeightedAverage(
       recentBatches
-        .filter(b => b.actualEntities > 0)
-        .map(b => b.actualMentions / b.actualEntities)
+        .filter((b) => b.actualEntities > 0)
+        .map((b) => b.actualMentions / b.actualEntities),
     );
 
     const estimatedEntities = Math.ceil(totalInputChars / actualCharsPerEntity);
@@ -113,9 +122,9 @@ export class BatchCalibrator {
     const tokensPerMention = 45;
 
     const baseEstimate =
-      (estimatedEntities * tokensPerEntity) +
-      (estimatedEntities * actualFacetsPerEntity * tokensPerFacet) +
-      (estimatedEntities * actualMentionsPerEntity * tokensPerMention);
+      estimatedEntities * tokensPerEntity +
+      estimatedEntities * actualFacetsPerEntity * tokensPerFacet +
+      estimatedEntities * actualMentionsPerEntity * tokensPerMention;
 
     const withOverhead = baseEstimate * 1.3 * 1.15;
 
@@ -125,14 +134,14 @@ export class BatchCalibrator {
   private calculateWeightedAverage(values: number[]): number {
     if (values.length === 0) return 0;
 
-    const weights = values.map((_, i) =>
-      Math.pow(this.recencyWeight, values.length - i - 1)
+    const weights = values.map(
+      (_, i) => this.recencyWeight ** (values.length - i - 1),
     );
     const weightSum = weights.reduce((a, b) => a + b, 0);
 
-    return values.reduce((sum, val, i) =>
-      sum + val * weights[i], 0
-    ) / weightSum;
+    return (
+      values.reduce((sum, val, i) => sum + val * weights[i], 0) / weightSum
+    );
   }
 
   private formulaBasedEstimate(totalInputChars: number): number {
@@ -143,7 +152,7 @@ export class BatchCalibrator {
     return {
       historySize: this.history.length,
       conservativeMultiplier: this.conservativeMultiplier,
-      recentAccuracy: this.history.slice(-10).map(b => ({
+      recentAccuracy: this.history.slice(-10).map((b) => ({
         estimated: b.estimatedOutputTokens,
         actual: b.actualOutputTokens,
         ratio: (b.actualOutputTokens / b.estimatedOutputTokens).toFixed(2),

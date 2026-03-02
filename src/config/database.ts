@@ -1,8 +1,8 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import * as schema from '../models/schema.js';
-import { env } from './env';
 import { logger } from '../utils/logger';
+import { env } from './env';
 
 const isProd = env.NODE_ENV === 'production';
 const isDev = env.NODE_ENV === 'development';
@@ -13,10 +13,13 @@ const poolConfig = {
   connect_timeout: env.DB_CONNECT_TIMEOUT ?? (isProd ? 5 : 10),
 };
 
-logger.info({
-  max: poolConfig.max,
-  environment: isProd ? 'production' : isDev ? 'development' : 'test',
-}, 'Database pool configured');
+logger.info(
+  {
+    max: poolConfig.max,
+    environment: isProd ? 'production' : isDev ? 'development' : 'test',
+  },
+  'Database pool configured',
+);
 
 const queryClient = postgres({
   host: env.DB_HOST,

@@ -11,8 +11,8 @@ import { splitIntoSentences } from '../sentences/sentence.detector';
 import type {
   AnalysisSnapshotInput,
   SentenceHash,
-  StaleRegion,
   StalenessResult,
+  StaleRegion,
 } from './staleness.types';
 
 export const stalenessService = {

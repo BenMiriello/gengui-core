@@ -7,7 +7,12 @@ import {
 } from 'express';
 import { db } from '../config/database';
 import { requireAuth } from '../middleware/auth';
-import { documents, media, mentions, analysisSnapshots } from '../models/schema';
+import {
+  analysisSnapshots,
+  documents,
+  media,
+  mentions,
+} from '../models/schema';
 import { documentsService } from '../services/documents';
 import {
   computeCausalOrder,
@@ -18,15 +23,18 @@ import {
 import { graphService } from '../services/graph/graph.service';
 import { graphThreads } from '../services/graph/graph.threads';
 import { mediaService } from '../services/mediaService';
+import { mentionService } from '../services/mentions/mention.service';
+import {
+  clearCheckpoint,
+  loadCheckpoint,
+} from '../services/pipeline/checkpoint';
 import { redisStreams } from '../services/redis-streams';
 import { s3 } from '../services/s3';
 import { sseService } from '../services/sse';
 import { stalenessService } from '../services/staleness';
-import { loadCheckpoint, clearCheckpoint } from '../services/pipeline/checkpoint';
 import { graphStoryNodesRepository } from '../services/storyNodes';
+import { UsageQuotaExceededError, usageService } from '../services/usage';
 import { versioningService } from '../services/versioning';
-import { mentionService } from '../services/mentions/mention.service';
-import { usageService, UsageQuotaExceededError } from '../services/usage';
 import { logger } from '../utils/logger';
 
 const router = Router();
@@ -346,7 +354,10 @@ router.get(
       const { id } = req.params;
 
       const document = await documentsService.get(id, userId);
-      const result = await stalenessService.detectStaleness(id, document.content);
+      const result = await stalenessService.detectStaleness(
+        id,
+        document.content,
+      );
 
       res.json(result);
     } catch (error) {
@@ -627,7 +638,7 @@ router.delete(
           statusBefore: docBefore?.analysisStatus,
           hasCheckpointBefore: !!docBefore?.hasCheckpoint,
         },
-        'State before delete'
+        'State before delete',
       );
 
       // Phase 1: Delete FalkorDB data (OUTSIDE transaction - separate database)
@@ -638,12 +649,22 @@ router.delete(
       // Phase 2: Update PostgreSQL atomically
       await db.transaction(async (tx) => {
         // Delete mentions from Postgres
-        const mentionResult = await tx.delete(mentions).where(eq(mentions.documentId, id));
-        logger.info({ documentId: id, mentionsDeleted: mentionResult }, 'Mentions deleted');
+        const mentionResult = await tx
+          .delete(mentions)
+          .where(eq(mentions.documentId, id));
+        logger.info(
+          { documentId: id, mentionsDeleted: mentionResult },
+          'Mentions deleted',
+        );
 
         // Delete analysis snapshots
-        const snapshotResult = await tx.delete(analysisSnapshots).where(eq(analysisSnapshots.documentId, id));
-        logger.info({ documentId: id, snapshotsDeleted: snapshotResult }, 'Analysis snapshots deleted');
+        const snapshotResult = await tx
+          .delete(analysisSnapshots)
+          .where(eq(analysisSnapshots.documentId, id));
+        logger.info(
+          { documentId: id, snapshotsDeleted: snapshotResult },
+          'Analysis snapshots deleted',
+        );
 
         // Clear ALL analysis data including summaries
         const updateResult = await tx
@@ -660,7 +681,10 @@ router.delete(
           })
           .where(eq(documents.id, id));
 
-        logger.info({ documentId: id, rowsUpdated: updateResult }, 'Document analysis data cleared');
+        logger.info(
+          { documentId: id, rowsUpdated: updateResult },
+          'Document analysis data cleared',
+        );
       });
 
       // Verify state AFTER delete
@@ -679,12 +703,15 @@ router.delete(
           statusAfter: docAfter?.analysisStatus,
           hasCheckpointAfter: !!docAfter?.hasCheckpoint,
         },
-        'State after delete - DELETE COMPLETED'
+        'State after delete - DELETE COMPLETED',
       );
 
       res.json({ success: true });
     } catch (error) {
-      logger.error({ error, documentId: req.params.id }, 'DELETE story-nodes FAILED');
+      logger.error(
+        { error, documentId: req.params.id },
+        'DELETE story-nodes FAILED',
+      );
       next(error);
     }
   },

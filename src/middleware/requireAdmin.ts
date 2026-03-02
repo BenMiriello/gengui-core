@@ -42,7 +42,8 @@ export async function requireAdmin(
       }
 
       // Success - log admin access (debug level for polling endpoints)
-      const isPollingEndpoint = req.path.includes('/usage') || req.path.includes('/queue');
+      const isPollingEndpoint =
+        req.path.includes('/usage') || req.path.includes('/queue');
       const logLevel = isPollingEndpoint ? 'debug' : 'info';
 
       logger[logLevel](

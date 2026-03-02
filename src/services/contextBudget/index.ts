@@ -11,15 +11,15 @@
 
 // Tier 1: Universal calculator
 export {
-  balanceFinalBatches,
   type BatchBudgetInput,
   type BatchBudgetResult,
+  balanceFinalBatches,
   buildEntityRegistry,
+  type ContextBudgetInput,
+  type ContextBudgetResult,
   calculateAllBatches,
   calculateBatchBudget,
   calculateContextBudget,
-  type ContextBudgetInput,
-  type ContextBudgetResult,
   countTokens,
   DEFAULT_OUTPUT_UTILIZATION,
   type EntityRegistryEntry,
@@ -35,8 +35,8 @@ export {
   estimateExtractionOutputTokens,
   extractionConfig,
   type OperationBudgetConfig,
-  relationshipConfig,
   type RelationshipEntity,
+  relationshipConfig,
   type SegmentForRelationshipBatch,
   type SegmentWithText,
   validateEstimationAccuracy,

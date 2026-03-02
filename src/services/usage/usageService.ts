@@ -1,15 +1,15 @@
-import { db } from '../../config/database';
-import { quotaReservations, userSubscriptions } from '../../models/schema';
+import { randomUUID } from 'node:crypto';
 import { and, eq, gt, lt, sql } from 'drizzle-orm';
+import { db } from '../../config/database';
 import type { OperationType, UserTier } from '../../config/pricing';
 import {
   calculateUsageUnits,
   getTierConfig,
-  TIER_CONCURRENT_LIMITS,
   RISK_THRESHOLD,
+  TIER_CONCURRENT_LIMITS,
 } from '../../config/pricing';
+import { quotaReservations, userSubscriptions } from '../../models/schema';
 import { logger } from '../../utils/logger';
-import { randomUUID } from 'node:crypto';
 
 export class UsageQuotaExceededError extends Error {
   constructor(
@@ -173,13 +173,16 @@ export class UsageService {
       expiresAt: sql`NOW() + INTERVAL '5 minutes'`,
     });
 
-    logger.debug({
-      userId,
-      operationId,
-      amount: units,
-      activeReservations: activeCount,
-      inFlightCost: inFlightCost + units,
-    }, 'Quota reservation created');
+    logger.debug(
+      {
+        userId,
+        operationId,
+        amount: units,
+        activeReservations: activeCount,
+        inFlightCost: inFlightCost + units,
+      },
+      'Quota reservation created',
+    );
   }
 
   private async optimisticCheckAndDeduct(params: {
@@ -250,17 +253,23 @@ export class UsageService {
           })
           .where(eq(userSubscriptions.userId, userId));
 
-        logger.debug({
-          userId,
-          operationId,
-          amount: reservation.amount,
-        }, 'Reservation finalized and quota deducted');
+        logger.debug(
+          {
+            userId,
+            operationId,
+            amount: reservation.amount,
+          },
+          'Reservation finalized and quota deducted',
+        );
       } else {
-        logger.debug({
-          userId,
-          operationId,
-          amount: reservation.amount,
-        }, 'Reservation released (operation failed)');
+        logger.debug(
+          {
+            userId,
+            operationId,
+            amount: reservation.amount,
+          },
+          'Reservation released (operation failed)',
+        );
       }
     });
   }
@@ -341,7 +350,9 @@ export class UsageService {
 
     const usagePercent =
       subscription.usageQuota > 0
-        ? Math.round((subscription.usageConsumed / subscription.usageQuota) * 100)
+        ? Math.round(
+            (subscription.usageConsumed / subscription.usageQuota) * 100,
+          )
         : 0;
 
     return {

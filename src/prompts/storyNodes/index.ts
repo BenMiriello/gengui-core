@@ -2,7 +2,7 @@ export {
   analyzeHigherOrderPrompt,
   refineThreadsPrompt,
 } from './analyzeHigherOrder';
-
+export { detectContradictionsPrompt } from './detectContradictions';
 // Multi-stage pipeline prompts
 export { extractEntitiesPrompt } from './extractEntities';
 export {
@@ -14,4 +14,3 @@ export {
   resolveEntityPrompt,
 } from './resolveEntities';
 export { updateNodesPrompt } from './update';
-export { detectContradictionsPrompt } from './detectContradictions';

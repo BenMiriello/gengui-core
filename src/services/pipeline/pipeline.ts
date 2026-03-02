@@ -16,6 +16,7 @@
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { db } from '../../config/database';
+import { getTextModelConfig } from '../../config/text-models';
 import { documents, reviewQueue } from '../../models/schema';
 import type {
   ArcType,
@@ -24,30 +25,35 @@ import type {
   StoryEdgeType,
   StoryNodeType,
 } from '../../types/storyNodes';
-import { logger, generateRequestId } from '../../utils/logger';
-import { logStageStart, logStageComplete } from '../../utils/logHelpers';
+import { generateRequestId, logger } from '../../utils/logger';
+import { logStageComplete, logStageStart } from '../../utils/logHelpers';
+import {
+  calculateAllBatches,
+  countTokens,
+  extractionConfig,
+  type SegmentWithText,
+} from '../contextBudget';
+// TODO: Re-enable when review queue UI is built and conflict detection is fixed
+// import { reviewQueueService } from '../reviewQueue';
+import { descriptionService } from '../descriptionGeneration';
 import { generateEmbedding, generateEmbeddings } from '../embeddings';
 import {
   analyzeHigherOrder,
   detectContradictionsInBatch,
   type EntityRegistryEntry,
+  type ExistingMatch,
   extractCrossSegmentRelationships,
   extractEntitiesFromBatch,
-  type ExistingMatch,
   type MergeSignal,
   type SegmentInput,
   type Stage4RelationshipsResult,
   type Stage5HigherOrderResult,
 } from '../gemini/client';
-import { getTextModelConfig } from '../../config/text-models';
-import {
-  calculateAllBatches,
-  type SegmentWithText,
-  extractionConfig,
-  countTokens,
-} from '../contextBudget';
-import { graphService } from '../graph/graph.service';
+import { getGeminiClient } from '../gemini/core';
 import { recomputeAndUpdatePrimaryName } from '../graph/entityNames.js';
+import { computeCausalOrder } from '../graph/graph.analysis';
+import { graphService } from '../graph/graph.service';
+import type { StoredFacet, StoredStoryNode } from '../graph/graph.types';
 import { mentionService } from '../mentions';
 import type { Segment } from '../segments';
 import { segmentService } from '../segments';
@@ -57,8 +63,12 @@ import {
   graphStoryNodesRepository,
   recomputeEntityEmbeddingWithMentionWeights,
 } from '../storyNodes';
-import { computeCausalOrder } from '../graph/graph.analysis';
-import type { StoredFacet, StoredStoryNode } from '../graph/graph.types';
+import {
+  generateDocumentSummary,
+  generateSegmentSummaryWithRetry,
+  CONFIG as SUMMARY_CONFIG,
+  selectSummariesForContext,
+} from '../summarization';
 import {
   clearCheckpoint,
   isCheckpointValid,
@@ -67,17 +77,12 @@ import {
   shouldRunStage,
 } from './checkpoint';
 import { AnalysisCancelledError, AnalysisPausedError } from './errors';
-import { type AnalysisStage, getStageInfo, getStageLabel, TOTAL_STAGES } from './stages';
-// TODO: Re-enable when review queue UI is built and conflict detection is fixed
-// import { reviewQueueService } from '../reviewQueue';
-import { descriptionService } from '../descriptionGeneration';
-import { getGeminiClient } from '../gemini/core';
 import {
-  generateSegmentSummaryWithRetry,
-  generateDocumentSummary,
-  selectSummariesForContext,
-  CONFIG as SUMMARY_CONFIG,
-} from '../summarization';
+  type AnalysisStage,
+  getStageInfo,
+  getStageLabel,
+  TOTAL_STAGES,
+} from './stages';
 
 /**
  * Check if the analysis has been paused or cancelled.
@@ -177,14 +182,18 @@ async function getSegmentRepresentativeEmbedding(
 ): Promise<number[] | null> {
   try {
     // Load stored sentence embeddings for this segment
-    const sentences = await sentenceService.getBySegmentIds(documentId, [segmentId]);
+    const sentences = await sentenceService.getBySegmentIds(documentId, [
+      segmentId,
+    ]);
 
     if (sentences.length === 0 || !sentences[0].embedding) {
       return null;
     }
 
     // Average all sentence embeddings to get segment representative
-    const embeddings = sentences.map((s) => s.embedding).filter((e): e is number[] => !!e);
+    const embeddings = sentences
+      .map((s) => s.embedding)
+      .filter((e): e is number[] => !!e);
 
     if (embeddings.length === 0) {
       return null;
@@ -206,7 +215,10 @@ async function getSegmentRepresentativeEmbedding(
 
     return avgEmbedding;
   } catch (error) {
-    logger.warn({ documentId, segmentId, error }, 'Failed to load segment embedding, falling back to mention count');
+    logger.warn(
+      { documentId, segmentId, error },
+      'Failed to load segment embedding, falling back to mention count',
+    );
     return null;
   }
 }
@@ -228,7 +240,9 @@ function buildEntityRegistryForPrompt(
     entries = entries
       .map((e) => ({
         entry: e,
-        similarity: e.embedding ? cosineSimilarity(e.embedding, segmentEmbedding) : 0,
+        similarity: e.embedding
+          ? cosineSimilarity(e.embedding, segmentEmbedding)
+          : 0,
       }))
       .sort((a, b) => b.similarity - a.similarity)
       .slice(0, maxEntries)
@@ -281,7 +295,10 @@ function updateEntityRegistry(
         existing.facets.push(facet);
       }
     }
-    if (entity.name !== existing.name && !existing.aliases.includes(entity.name)) {
+    if (
+      entity.name !== existing.name &&
+      !existing.aliases.includes(entity.name)
+    ) {
       existing.aliases.push(entity.name);
     }
   } else {
@@ -385,7 +402,8 @@ export const multiStagePipeline = {
         totalStages: TOTAL_STAGES,
         stageName: stageInfo?.name || `Stage ${stage}`,
         stageDescription: stageInfo?.description,
-        statusHint: statusHint || stageInfo?.genericLabel || getStageLabel(stage),
+        statusHint:
+          statusHint || stageInfo?.genericLabel || getStageLabel(stage),
         entityCount,
         timestamp: new Date().toISOString(),
       });
@@ -476,11 +494,20 @@ export const multiStagePipeline = {
       const stage1DurationMs = Date.now() - stage1StartTime;
       const allSentences = await sentenceService.getByDocumentId(documentId);
       const totalSentences = allSentences.length;
-      logStageComplete(childLogger, 1, 'Segmentation + Sentence Embeddings', stage1DurationMs, {
-        segmentCount: segments.length,
-        sentenceCount: totalSentences,
-        avgSentencesPerSegment: segments.length > 0 ? (totalSentences / segments.length).toFixed(1) : 0,
-      });
+      logStageComplete(
+        childLogger,
+        1,
+        'Segmentation + Sentence Embeddings',
+        stage1DurationMs,
+        {
+          segmentCount: segments.length,
+          sentenceCount: totalSentences,
+          avgSentencesPerSegment:
+            segments.length > 0
+              ? (totalSentences / segments.length).toFixed(1)
+              : 0,
+        },
+      );
     } else {
       childLogger.info('Skipping Stage 1 (already completed)');
     }
@@ -501,7 +528,8 @@ export const multiStagePipeline = {
         .where(eq(documents.id, documentId))
         .limit(1);
 
-      const existingSegments = (existingDoc?.segmentSequence as Segment[]) || [];
+      const existingSegments =
+        (existingDoc?.segmentSequence as Segment[]) || [];
 
       const needsRegeneration = segments.map((seg, i) => {
         const existing = existingSegments[i];
@@ -519,10 +547,16 @@ export const multiStagePipeline = {
         async (segment, index) => {
           if (!needsRegeneration[index] && existingSegments[index]?.summary) {
             logger.debug(
-              { segmentIndex: index, version: existingSegments[index].summaryVersion },
-              'Reusing existing summary'
+              {
+                segmentIndex: index,
+                version: existingSegments[index].summaryVersion,
+              },
+              'Reusing existing summary',
             );
-            return { segmentId: segment.id, summary: existingSegments[index].summary! };
+            return {
+              segmentId: segment.id,
+              summary: existingSegments[index].summary!,
+            };
           }
 
           const segmentText = documentContent.slice(segment.start, segment.end);
@@ -531,17 +565,21 @@ export const multiStagePipeline = {
             index,
             segments.length,
             userId,
-            documentId
+            documentId,
           );
           return { segmentId: segment.id, summary };
         },
-        { concurrency: SUMMARY_CONFIG.summaryConcurrency, stopOnError: false }
+        { concurrency: SUMMARY_CONFIG.summaryConcurrency, stopOnError: false },
       );
 
-      const successfulSummaries = segmentSummaries.filter(s => s.summary && !s.summary.endsWith('...'));
+      const successfulSummaries = segmentSummaries.filter(
+        (s) => s.summary && !s.summary.endsWith('...'),
+      );
 
       const segmentsWithSummaries = segments.map((seg) => {
-        const summaryData = segmentSummaries.find(s => s.segmentId === seg.id);
+        const summaryData = segmentSummaries.find(
+          (s) => s.segmentId === seg.id,
+        );
         return {
           ...seg,
           summary: summaryData?.summary,
@@ -561,13 +599,16 @@ export const multiStagePipeline = {
       let documentSummaryText: string;
       try {
         documentSummaryText = await generateDocumentSummary(
-          segmentSummaries.map(s => s.summary),
+          segmentSummaries.map((s) => s.summary),
           userId,
           documentId,
           documentTitle,
         );
       } catch (error) {
-        logger.error({ documentId, error }, 'Document summary generation failed, using concatenation fallback');
+        logger.error(
+          { documentId, error },
+          'Document summary generation failed, using concatenation fallback',
+        );
         documentSummaryText = segmentSummaries
           .map((s, i) => `[Segment ${i + 1}]: ${s.summary}`)
           .join('\n\n')
@@ -590,7 +631,7 @@ export const multiStagePipeline = {
         successfulSummaries: successfulSummaries.length,
         failedSummaries: segments.length - successfulSummaries.length,
         regenerated: needsRegeneration.filter(Boolean).length,
-        reused: needsRegeneration.filter(n => !n).length,
+        reused: needsRegeneration.filter((n) => !n).length,
         avgMsPerSummary: Math.round(durationMs / segments.length),
       });
 
@@ -615,16 +656,26 @@ export const multiStagePipeline = {
       logStageStart(childLogger, 3, 'Entity Extraction');
 
       const progress = checkpoint?.stage3Progress;
-      const completedSegments = new Set<number>(progress?.completedSegmentIndices || []);
+      const completedSegments = new Set<number>(
+        progress?.completedSegmentIndices || [],
+      );
       extractedEntities = progress?.extractedEntities || [];
-      entityIdByName = new Map<string, string>(Object.entries(progress?.entityIdByName || {}));
-      aliasToEntityId = new Map<string, string>(Object.entries(progress?.aliasToEntityId || {}));
+      entityIdByName = new Map<string, string>(
+        Object.entries(progress?.entityIdByName || {}),
+      );
+      aliasToEntityId = new Map<string, string>(
+        Object.entries(progress?.aliasToEntityId || {}),
+      );
       accumulatedMergeSignals = progress?.mergeSignals || [];
       let totalBatchesProcessed = 0;
 
       if (completedSegments.size > 0) {
         logger.info(
-          { documentId, completedSegments: completedSegments.size, totalSegments: segments.length },
+          {
+            documentId,
+            completedSegments: completedSegments.size,
+            totalSegments: segments.length,
+          },
           'Resuming Stage 3 from checkpoint progress',
         );
       }
@@ -662,7 +713,10 @@ export const multiStagePipeline = {
             name: node.name,
             type: node.type,
             aliases: node.aliases || [],
-            facets: facets.map((f) => ({ type: f.type as FacetType, content: f.content })),
+            facets: facets.map((f) => ({
+              type: f.type as FacetType,
+              content: f.content,
+            })),
             mentionCount,
             embedding: embedding || undefined,
           });
@@ -671,19 +725,25 @@ export const multiStagePipeline = {
       }
 
       const [docWithSummaries] = await db
-        .select({ segmentSequence: documents.segmentSequence, summary: documents.summary })
+        .select({
+          segmentSequence: documents.segmentSequence,
+          summary: documents.summary,
+        })
         .from(documents)
         .where(eq(documents.id, documentId))
         .limit(1);
 
-      const segmentsWithSummaries = (docWithSummaries?.segmentSequence as Segment[]) || segments;
+      const segmentsWithSummaries =
+        (docWithSummaries?.segmentSequence as Segment[]) || segments;
       const documentSummary = docWithSummaries?.summary;
 
-      const segmentsWithText: SegmentWithText[] = segmentsWithSummaries.map((seg, idx) => ({
-        ...seg,
-        index: idx,
-        text: documentContent.slice(seg.start, seg.end),
-      }));
+      const segmentsWithText: SegmentWithText[] = segmentsWithSummaries.map(
+        (seg, idx) => ({
+          ...seg,
+          index: idx,
+          text: documentContent.slice(seg.start, seg.end),
+        }),
+      );
 
       // Find first uncompleted segment for resumption
       const firstUncompletedIndex = segmentsWithText.findIndex(
@@ -722,245 +782,283 @@ export const multiStagePipeline = {
         let completedBatchCount = 0;
         try {
           for (const batch of batches) {
-          const batchSegments = batch.includedItems;
-          const segmentIndices = batchSegments.map((s) => s.index);
+            const batchSegments = batch.includedItems;
+            const segmentIndices = batchSegments.map((s) => s.index);
 
-          // Skip batch if all segments already completed
-          if (batchSegments.every((s) => completedSegments.has(s.index))) {
-            logger.debug({ segmentIndices }, 'Skipping completed batch');
-            continue;
-          }
-
-          // Get representative embedding for first segment (for semantic registry sorting)
-          // Uses existing sentence embeddings from Stage 1, no new API calls
-          const firstSegmentEmbedding = await getSegmentRepresentativeEmbedding(
-            documentId,
-            batchSegments[0].id,
-          );
-
-          // Build entity registry for this batch (sorted by semantic relevance if embedding available)
-          const entityRegistry = buildEntityRegistryForPrompt(runtimeRegistry, firstSegmentEmbedding);
-
-          // Log batch info
-          logger.debug(
-            {
-              batchSegmentCount: batchSegments.length,
-              segmentIndices,
-              registrySize: entityRegistry.length,
-              semanticSorting: !!firstSegmentEmbedding,
-            },
-            'Processing segment batch',
-          );
-
-          broadcast(
-            3,
-            runtimeRegistry.entries.size,
-            `Processing segments ${segmentIndices[0] + 1}-${segmentIndices[segmentIndices.length - 1] + 1} of ${segments.length}...`,
-          );
-
-          // Get overlap text from previous segment if available
-          // Include overlap regardless of completion status - overlap provides context
-          let overlapText: string | undefined;
-          const firstBatchIndex = batchSegments[0].index;
-          if (firstBatchIndex > 0) {
-            const prevSeg = segmentsWithText[firstBatchIndex - 1];
-            overlapText = prevSeg?.text;
-          }
-
-          const segmentInputs: SegmentInput[] = batchSegments.map((seg) => ({
-            id: seg.id,
-            index: seg.index,
-            text: seg.text,
-          }));
-
-          const modelConfig = getTextModelConfig('gemini-2.5-flash');
-          const summaryBudgetTokens = Math.floor(
-            modelConfig.maxTokens * (modelConfig.targetUtilization ?? 0.8) * SUMMARY_CONFIG.summaryBudgetPct
-          );
-
-          const batchIndices = batchSegments.map(s => s.index);
-          const selectedSummaries = selectSummariesForContext({
-            currentBatchIndices: batchIndices,
-            allSegments: segmentsWithSummaries,
-            availableTokens: summaryBudgetTokens,
-          });
-
-          const segmentSummariesForPrompt = selectedSummaries
-            .filter(seg => seg.summary)
-            .map(seg => ({
-              index: segmentsWithSummaries.findIndex(s => s.id === seg.id),
-              summary: seg.summary!,
-            }));
-
-          const result = await extractEntitiesFromBatch(
-            segmentInputs,
-            segments.length,
-            userId,
-            documentId,
-            entityRegistry,
-            overlapText,
-            segmentSummariesForPrompt,
-            documentSummary ?? undefined,
-          );
-
-          // Check if cancelled/paused after LLM call
-          await checkForInterruption(documentId);
-
-          // Create segment lookup map
-          const segmentById = new Map(batchSegments.map((s) => [s.id, s]));
-
-          // Process extracted entities
-          for (const entity of result.entities) {
-            const segment = segmentById.get(entity.segmentId);
-            if (!segment) {
-              logger.warn(
-                { entityName: entity.name, segmentId: entity.segmentId },
-                'Entity references unknown segment, skipping',
-              );
+            // Skip batch if all segments already completed
+            if (batchSegments.every((s) => completedSegments.has(s.index))) {
+              logger.debug({ segmentIndices }, 'Skipping completed batch');
               continue;
             }
 
-            const entityFacets = result.facets
-              .filter((f) => f.entityName === entity.name && f.segmentId === entity.segmentId)
-              .map((f) => ({
-                type: f.facetType as FacetType,
-                content: f.content,
-              }));
-
-            const entityMentions = result.mentions
-              .filter((m) => m.entityName === entity.name && m.segmentId === entity.segmentId)
-              .map((m) => ({ text: m.text }));
-
-            // Determine entity ID based on LLM's existingMatch (name-based lookup)
-            let entityId: string;
-            if (entity.existingMatch && entity.existingMatch.confidence !== 'low') {
-              // First try: lookup by primary name in full registry
-              let matchedEntry = Array.from(runtimeRegistry.entries.values()).find(
-                (e) =>
-                  e.name.toLowerCase() === entity.existingMatch!.matchedName.toLowerCase() &&
-                  e.type.toLowerCase() === entity.existingMatch!.matchedType.toLowerCase(),
+            // Get representative embedding for first segment (for semantic registry sorting)
+            // Uses existing sentence embeddings from Stage 1, no new API calls
+            const firstSegmentEmbedding =
+              await getSegmentRepresentativeEmbedding(
+                documentId,
+                batchSegments[0].id,
               );
 
-              // Second try: lookup by alias
-              if (!matchedEntry) {
-                const matchedNameLower = entity.existingMatch.matchedName.toLowerCase();
-                const aliasEntityId = aliasToEntityId.get(matchedNameLower);
-                if (aliasEntityId) {
-                  matchedEntry = runtimeRegistry.entries.get(aliasEntityId);
-                  // Verify type matches
-                  if (matchedEntry && matchedEntry.type.toLowerCase() !== entity.existingMatch.matchedType.toLowerCase()) {
-                    matchedEntry = undefined;
+            // Build entity registry for this batch (sorted by semantic relevance if embedding available)
+            const entityRegistry = buildEntityRegistryForPrompt(
+              runtimeRegistry,
+              firstSegmentEmbedding,
+            );
+
+            // Log batch info
+            logger.debug(
+              {
+                batchSegmentCount: batchSegments.length,
+                segmentIndices,
+                registrySize: entityRegistry.length,
+                semanticSorting: !!firstSegmentEmbedding,
+              },
+              'Processing segment batch',
+            );
+
+            broadcast(
+              3,
+              runtimeRegistry.entries.size,
+              `Processing segments ${segmentIndices[0] + 1}-${segmentIndices[segmentIndices.length - 1] + 1} of ${segments.length}...`,
+            );
+
+            // Get overlap text from previous segment if available
+            // Include overlap regardless of completion status - overlap provides context
+            let overlapText: string | undefined;
+            const firstBatchIndex = batchSegments[0].index;
+            if (firstBatchIndex > 0) {
+              const prevSeg = segmentsWithText[firstBatchIndex - 1];
+              overlapText = prevSeg?.text;
+            }
+
+            const segmentInputs: SegmentInput[] = batchSegments.map((seg) => ({
+              id: seg.id,
+              index: seg.index,
+              text: seg.text,
+            }));
+
+            const modelConfig = getTextModelConfig('gemini-2.5-flash');
+            const summaryBudgetTokens = Math.floor(
+              modelConfig.maxTokens *
+                (modelConfig.targetUtilization ?? 0.8) *
+                SUMMARY_CONFIG.summaryBudgetPct,
+            );
+
+            const batchIndices = batchSegments.map((s) => s.index);
+            const selectedSummaries = selectSummariesForContext({
+              currentBatchIndices: batchIndices,
+              allSegments: segmentsWithSummaries,
+              availableTokens: summaryBudgetTokens,
+            });
+
+            const segmentSummariesForPrompt = selectedSummaries
+              .filter((seg) => seg.summary)
+              .map((seg) => ({
+                index: segmentsWithSummaries.findIndex((s) => s.id === seg.id),
+                summary: seg.summary!,
+              }));
+
+            const result = await extractEntitiesFromBatch(
+              segmentInputs,
+              segments.length,
+              userId,
+              documentId,
+              entityRegistry,
+              overlapText,
+              segmentSummariesForPrompt,
+              documentSummary ?? undefined,
+            );
+
+            // Check if cancelled/paused after LLM call
+            await checkForInterruption(documentId);
+
+            // Create segment lookup map
+            const segmentById = new Map(batchSegments.map((s) => [s.id, s]));
+
+            // Process extracted entities
+            for (const entity of result.entities) {
+              const segment = segmentById.get(entity.segmentId);
+              if (!segment) {
+                logger.warn(
+                  { entityName: entity.name, segmentId: entity.segmentId },
+                  'Entity references unknown segment, skipping',
+                );
+                continue;
+              }
+
+              const entityFacets = result.facets
+                .filter(
+                  (f) =>
+                    f.entityName === entity.name &&
+                    f.segmentId === entity.segmentId,
+                )
+                .map((f) => ({
+                  type: f.facetType as FacetType,
+                  content: f.content,
+                }));
+
+              const entityMentions = result.mentions
+                .filter(
+                  (m) =>
+                    m.entityName === entity.name &&
+                    m.segmentId === entity.segmentId,
+                )
+                .map((m) => ({ text: m.text }));
+
+              // Determine entity ID based on LLM's existingMatch (name-based lookup)
+              let entityId: string;
+              if (
+                entity.existingMatch &&
+                entity.existingMatch.confidence !== 'low'
+              ) {
+                // First try: lookup by primary name in full registry
+                let matchedEntry = Array.from(
+                  runtimeRegistry.entries.values(),
+                ).find(
+                  (e) =>
+                    e.name.toLowerCase() ===
+                      entity.existingMatch!.matchedName.toLowerCase() &&
+                    e.type.toLowerCase() ===
+                      entity.existingMatch!.matchedType.toLowerCase(),
+                );
+
+                // Second try: lookup by alias
+                if (!matchedEntry) {
+                  const matchedNameLower =
+                    entity.existingMatch.matchedName.toLowerCase();
+                  const aliasEntityId = aliasToEntityId.get(matchedNameLower);
+                  if (aliasEntityId) {
+                    matchedEntry = runtimeRegistry.entries.get(aliasEntityId);
+                    // Verify type matches
+                    if (
+                      matchedEntry &&
+                      matchedEntry.type.toLowerCase() !==
+                        entity.existingMatch.matchedType.toLowerCase()
+                    ) {
+                      matchedEntry = undefined;
+                    }
                   }
                 }
-              }
 
-              if (matchedEntry) {
-                entityId = matchedEntry.id;
-                logger.info(
-                  {
-                    entityName: entity.name,
-                    matchedName: matchedEntry.name,
-                    matchedType: matchedEntry.type,
-                    confidence: entity.existingMatch.confidence,
-                    reason: entity.existingMatch.reason,
-                  },
-                  'LLM matched entity to existing',
-                );
+                if (matchedEntry) {
+                  entityId = matchedEntry.id;
+                  logger.info(
+                    {
+                      entityName: entity.name,
+                      matchedName: matchedEntry.name,
+                      matchedType: matchedEntry.type,
+                      confidence: entity.existingMatch.confidence,
+                      reason: entity.existingMatch.reason,
+                    },
+                    'LLM matched entity to existing',
+                  );
+                } else {
+                  entityId = randomUUID();
+                  logger.warn(
+                    {
+                      entityName: entity.name,
+                      matchedName: entity.existingMatch.matchedName,
+                      matchedType: entity.existingMatch.matchedType,
+                    },
+                    'LLM matched to non-existent registry entry, creating new entity',
+                  );
+                }
               } else {
                 entityId = randomUUID();
-                logger.warn(
-                  {
-                    entityName: entity.name,
-                    matchedName: entity.existingMatch.matchedName,
-                    matchedType: entity.existingMatch.matchedType,
-                  },
-                  'LLM matched to non-existent registry entry, creating new entity',
-                );
               }
-            } else {
-              entityId = randomUUID();
+
+              const extracted: ExtractedEntity = {
+                segmentId: segment.id,
+                name: entity.name,
+                type: entity.type as StoryNodeType,
+                documentOrder: entity.documentOrder,
+                facets: entityFacets,
+                mentions: entityMentions,
+                existingMatch: entity.existingMatch,
+              };
+
+              extractedEntities.push(extracted);
+              entityIdByName.set(entity.name, entityId);
+              registerEntityAliases(aliasToEntityId, entityId, extracted);
+              updateEntityRegistry(runtimeRegistry, extracted, entityId);
             }
 
-            const extracted: ExtractedEntity = {
-              segmentId: segment.id,
-              name: entity.name,
-              type: entity.type as StoryNodeType,
-              documentOrder: entity.documentOrder,
-              facets: entityFacets,
-              mentions: entityMentions,
-              existingMatch: entity.existingMatch,
-            };
-
-            extractedEntities.push(extracted);
-            entityIdByName.set(entity.name, entityId);
-            registerEntityAliases(aliasToEntityId, entityId, extracted);
-            updateEntityRegistry(runtimeRegistry, extracted, entityId);
-          }
-
-          // Accumulate merge signals
-          if (result.mergeSignals && result.mergeSignals.length > 0) {
-            for (const signal of result.mergeSignals) {
-              accumulatedMergeSignals.push({
-                ...signal,
-                segmentIndex: batchSegments[0].index,
-              });
+            // Accumulate merge signals
+            if (result.mergeSignals && result.mergeSignals.length > 0) {
+              for (const signal of result.mergeSignals) {
+                accumulatedMergeSignals.push({
+                  ...signal,
+                  segmentIndex: batchSegments[0].index,
+                });
+              }
+              logger.info(
+                {
+                  batchSegmentIndices: segmentIndices,
+                  signalCount: result.mergeSignals.length,
+                },
+                'Accumulated merge signals from batch',
+              );
             }
-            logger.info(
-              { batchSegmentIndices: segmentIndices, signalCount: result.mergeSignals.length },
-              'Accumulated merge signals from batch',
+
+            // Mark batch segments as completed
+            for (const seg of batchSegments) {
+              completedSegments.add(seg.index);
+            }
+            completedBatchCount++;
+
+            await saveCheckpoint(documentId, {
+              stage3Progress: {
+                completedSegmentIndices: Array.from(completedSegments),
+                extractedEntities,
+                entityIdByName: Object.fromEntries(entityIdByName),
+                aliasToEntityId: Object.fromEntries(aliasToEntityId),
+                mergeSignals: accumulatedMergeSignals,
+              },
+            });
+
+            // Check for pause/cancel after each batch
+            await checkForInterruption(documentId);
+
+            logger.debug(
+              {
+                batchSegmentIndices: segmentIndices,
+                entityCount: runtimeRegistry.entries.size,
+                completedBatches: completedBatchCount,
+                totalBatches: batches.length,
+              },
+              'Batch extraction completed',
             );
           }
-
-          // Mark batch segments as completed
-          for (const seg of batchSegments) {
-            completedSegments.add(seg.index);
-          }
-          completedBatchCount++;
-
-          await saveCheckpoint(documentId, {
-            stage3Progress: {
-              completedSegmentIndices: Array.from(completedSegments),
-              extractedEntities,
-              entityIdByName: Object.fromEntries(entityIdByName),
-              aliasToEntityId: Object.fromEntries(aliasToEntityId),
-              mergeSignals: accumulatedMergeSignals,
-            },
-          });
-
-          // Check for pause/cancel after each batch
-          await checkForInterruption(documentId);
-
-          logger.debug(
-            {
-              batchSegmentIndices: segmentIndices,
-              entityCount: runtimeRegistry.entries.size,
-              completedBatches: completedBatchCount,
-              totalBatches: batches.length,
-            },
-            'Batch extraction completed',
-          );
-          }
         } catch (error) {
-          childLogger.error({
-            stage: 3,
-            error: (error as any)?.message,
-            stackTrace: (error as any)?.stack,
-            partialResults: {
-              batchesCompleted: completedBatchCount,
-              totalBatches: batches?.length || 0,
-              entitiesExtractedSoFar: extractedEntities.length,
-              segmentsCompleted: completedSegments.size,
-              totalSegments: segments.length,
+          childLogger.error(
+            {
+              stage: 3,
+              error: (error as any)?.message,
+              stackTrace: (error as any)?.stack,
+              partialResults: {
+                batchesCompleted: completedBatchCount,
+                totalBatches: batches?.length || 0,
+                entitiesExtractedSoFar: extractedEntities.length,
+                segmentsCompleted: completedSegments.size,
+                totalSegments: segments.length,
+              },
             },
-          }, 'Stage 3 failed with partial results');
+            'Stage 3 failed with partial results',
+          );
           throw error;
         }
       }
 
       const stage3DurationMs = Date.now() - stage3StartTime;
       const totalEntities = extractedEntities.reduce((sum) => sum + 1, 0);
-      const totalFacets = extractedEntities.reduce((sum, e) => sum + e.facets.length, 0);
-      const totalMentions = extractedEntities.reduce((sum, e) => sum + e.mentions.length, 0);
+      const totalFacets = extractedEntities.reduce(
+        (sum, e) => sum + e.facets.length,
+        0,
+      );
+      const totalMentions = extractedEntities.reduce(
+        (sum, e) => sum + e.mentions.length,
+        0,
+      );
 
       logStageComplete(childLogger, 3, 'Entity Extraction', stage3DurationMs, {
         batchCount: totalBatchesProcessed,
@@ -969,13 +1067,16 @@ export const multiStagePipeline = {
         totalEntities,
         totalFacets,
         totalMentions,
-        avgFacetsPerEntity: totalEntities > 0 ? (totalFacets / totalEntities).toFixed(1) : 0,
+        avgFacetsPerEntity:
+          totalEntities > 0 ? (totalFacets / totalEntities).toFixed(1) : 0,
         mergeSignals: accumulatedMergeSignals.length,
       });
 
       // VERBOSE MODE: Log actual entity names
       if (process.env.LOG_VERBOSE === 'true') {
-        const { logEntityExtraction } = await import('../../utils/logHelpers.js');
+        const { logEntityExtraction } = await import(
+          '../../utils/logHelpers.js'
+        );
         logEntityExtraction(childLogger, extractedEntities);
       }
 
@@ -991,8 +1092,12 @@ export const multiStagePipeline = {
       });
     } else if (checkpoint?.stage3Output) {
       extractedEntities = checkpoint.stage3Output.extractedEntities;
-      entityIdByName = new Map(Object.entries(checkpoint.stage3Output.entityIdByName || {}));
-      aliasToEntityId = new Map(Object.entries(checkpoint.stage3Output.aliasToEntityId || {}));
+      entityIdByName = new Map(
+        Object.entries(checkpoint.stage3Output.entityIdByName || {}),
+      );
+      aliasToEntityId = new Map(
+        Object.entries(checkpoint.stage3Output.aliasToEntityId || {}),
+      );
       accumulatedMergeSignals = checkpoint.stage3Output.mergeSignals || [];
       childLogger.info(
         { cachedCount: extractedEntities.length },
@@ -1098,7 +1203,8 @@ export const multiStagePipeline = {
         const firstInstance = entityInstances[0];
 
         // Determine if this is a new entity or merging into existing
-        const isExistingEntity = firstInstance.existingMatch &&
+        const isExistingEntity =
+          firstInstance.existingMatch &&
           firstInstance.existingMatch.confidence !== 'low';
 
         // Pick the primary name (first instance with no match, or most mentions)
@@ -1110,9 +1216,7 @@ export const multiStagePipeline = {
           allFacets.push(...instance.facets);
         }
         const uniqueFacets = Array.from(
-          new Map(
-            allFacets.map((f) => [`${f.type}:${f.content}`, f]),
-          ).values(),
+          new Map(allFacets.map((f) => [`${f.type}:${f.content}`, f])).values(),
         );
 
         // Build resolved entity for each instance
@@ -1167,7 +1271,10 @@ export const multiStagePipeline = {
             // Ensure at least one name facet exists (auto-create from primary name)
             const hasNameFacet = uniqueFacets.some((f) => f.type === 'name');
             if (!hasNameFacet) {
-              const nameFacet: FacetInput = { type: 'name', content: primaryName };
+              const nameFacet: FacetInput = {
+                type: 'name',
+                content: primaryName,
+              };
               const facetEmbedding = await generateEmbedding(nameFacet.content);
               logger.debug(
                 {
@@ -1177,7 +1284,11 @@ export const multiStagePipeline = {
                 },
                 'Generated name facet embedding (auto-created)',
               );
-              await graphService.createFacet(entityId, nameFacet, facetEmbedding);
+              await graphService.createFacet(
+                entityId,
+                nameFacet,
+                facetEmbedding,
+              );
               logger.debug(
                 { entityId, entityName: primaryName },
                 'Auto-created name facet from primary name',
@@ -1197,7 +1308,8 @@ export const multiStagePipeline = {
           }
         } else {
           // Add new facets to existing entity
-          const existingFacets = await graphService.getFacetsForEntity(entityId);
+          const existingFacets =
+            await graphService.getFacetsForEntity(entityId);
           const existingFacetKeys = new Set(
             existingFacets.map((f) => `${f.type}:${f.content}`),
           );
@@ -1351,11 +1463,16 @@ export const multiStagePipeline = {
         .filter((s): s is NonNullable<typeof s> => s !== null);
 
       if (segmentInputs.length === 0) {
-        logger.info({ documentId }, 'No segments with 2+ entities, skipping Stage 6');
+        logger.info(
+          { documentId },
+          'No segments with 2+ entities, skipping Stage 6',
+        );
       } else {
         // Calculate batches using budget calculator
         const modelConfig = getTextModelConfig('gemini-2.5-flash');
-        const { batchedRelationshipConfig } = await import('../contextBudget/index.js');
+        const { batchedRelationshipConfig } = await import(
+          '../contextBudget/index.js'
+        );
         const batches = calculateAllBatches({
           modelConfig,
           operationConfig: batchedRelationshipConfig,
@@ -1382,7 +1499,9 @@ export const multiStagePipeline = {
           .limit(1);
 
         // Import batch extraction function
-        const { extractRelationshipsFromBatch } = await import('../gemini/client.js');
+        const { extractRelationshipsFromBatch } = await import(
+          '../gemini/client.js'
+        );
 
         // Process all batches concurrently
         const allBatchResults = await Promise.all(
@@ -1393,7 +1512,12 @@ export const multiStagePipeline = {
               `Processing relationship batch ${batchIdx + 1}/${batches.length}...`,
             );
 
-            return extractRelationshipsFromBatch(batch.includedItems, userId, documentId, doc?.summary ?? undefined);
+            return extractRelationshipsFromBatch(
+              batch.includedItems,
+              userId,
+              documentId,
+              doc?.summary ?? undefined,
+            );
           }),
         );
 
@@ -1403,10 +1527,16 @@ export const multiStagePipeline = {
         }
 
         const stage6DurationMs = Date.now() - stage6StartTime;
-        logStageComplete(childLogger, 6, 'Intra-Segment Relationships', stage6DurationMs, {
-          relationshipCount: allRelationships.length,
-          batchCount: batches.length,
-        });
+        logStageComplete(
+          childLogger,
+          6,
+          'Intra-Segment Relationships',
+          stage6DurationMs,
+          {
+            relationshipCount: allRelationships.length,
+            batchCount: batches.length,
+          },
+        );
       }
 
       await saveCheckpoint(documentId, { lastStageCompleted: 6 });
@@ -1492,15 +1622,24 @@ export const multiStagePipeline = {
           );
         } catch (err: any) {
           if (!err?.message?.includes('would create a cycle')) {
-            childLogger.warn({ rel, error: err }, 'Failed to create relationship');
+            childLogger.warn(
+              { rel, error: err },
+              'Failed to create relationship',
+            );
           }
         }
       }
 
       const stage7DurationMs = Date.now() - stage7StartTime;
-      logStageComplete(childLogger, 7, 'Cross-Segment Relationships', stage7DurationMs, {
-        totalRelationships: allRelationships.length,
-      });
+      logStageComplete(
+        childLogger,
+        7,
+        'Cross-Segment Relationships',
+        stage7DurationMs,
+        {
+          totalRelationships: allRelationships.length,
+        },
+      );
 
       await saveCheckpoint(documentId, { lastStageCompleted: 7 });
     } else {
@@ -1658,13 +1797,19 @@ export const multiStagePipeline = {
       }
 
       const stage8DurationMs = Date.now() - stage8StartTime;
-      logStageComplete(childLogger, 8, 'Higher-Order Analysis', stage8DurationMs, {
-        threadCount: higherOrderResult?.narrativeThreads.length || 0,
-        arcCount: new Set(
-          (higherOrderResult?.arcPhases || []).map((p) => p.characterId),
-        ).size,
-        arcPhaseCount: higherOrderResult?.arcPhases?.length || 0,
-      });
+      logStageComplete(
+        childLogger,
+        8,
+        'Higher-Order Analysis',
+        stage8DurationMs,
+        {
+          threadCount: higherOrderResult?.narrativeThreads.length || 0,
+          arcCount: new Set(
+            (higherOrderResult?.arcPhases || []).map((p) => p.characterId),
+          ).size,
+          arcPhaseCount: higherOrderResult?.arcPhases?.length || 0,
+        },
+      );
 
       await saveCheckpoint(documentId, { lastStageCompleted: 8 });
     } else {
@@ -1680,14 +1825,16 @@ export const multiStagePipeline = {
         entityCount: entityIdByName.size,
       });
 
-      await processStateFacetAttachment(
-        documentId,
-        userId,
-        entityIdByName,
-      );
+      await processStateFacetAttachment(documentId, userId, entityIdByName);
 
       const stage9DurationMs = Date.now() - stage9StartTime;
-      logStageComplete(childLogger, 9, 'CharacterState Facet Attachment', stage9DurationMs, {});
+      logStageComplete(
+        childLogger,
+        9,
+        'CharacterState Facet Attachment',
+        stage9DurationMs,
+        {},
+      );
 
       await saveCheckpoint(documentId, { lastStageCompleted: 9 });
     } else {
@@ -1706,7 +1853,13 @@ export const multiStagePipeline = {
       await detectFacetConflicts(documentId, userId);
 
       const stage10DurationMs = Date.now() - stage10StartTime;
-      logStageComplete(childLogger, 10, 'Conflict Detection', stage10DurationMs, {});
+      logStageComplete(
+        childLogger,
+        10,
+        'Conflict Detection',
+        stage10DurationMs,
+        {},
+      );
 
       await saveCheckpoint(documentId, { lastStageCompleted: 10 });
     } else {
@@ -1987,7 +2140,9 @@ async function processStateFacetAttachment(
 
   for (const character of characterNodes) {
     // Get state facets attached to this character entity
-    const stateFacets = await graphService.getStateFacetsForEntity(character.id);
+    const stateFacets = await graphService.getStateFacetsForEntity(
+      character.id,
+    );
 
     if (stateFacets.length === 0) {
       continue;
@@ -2034,7 +2189,11 @@ async function processStateFacetAttachment(
       // Single state - all facets go to it (simple case)
       const onlyState = existingStates[0];
       for (const facet of stateFacets) {
-        await graphService.moveFacetToState(character.id, facet.id, onlyState.id);
+        await graphService.moveFacetToState(
+          character.id,
+          facet.id,
+          onlyState.id,
+        );
         movedFacetCount++;
       }
 
@@ -2055,10 +2214,11 @@ async function processStateFacetAttachment(
       );
 
       // Get character's mentions to estimate facet positions
-      const characterMentions = await mentionService.getByNodeIdWithAbsolutePositions(
-        character.id,
-        segments,
-      );
+      const characterMentions =
+        await mentionService.getByNodeIdWithAbsolutePositions(
+          character.id,
+          segments,
+        );
 
       // For each state facet, find the appropriate state based on position
       for (const facet of stateFacets) {
@@ -2084,10 +2244,17 @@ async function processStateFacetAttachment(
           // Use first mention to at least get the initial state right
           // For facets without explicit position, assign to first state
           // (assumption: most state facets describe initial/current state)
-          targetState = findStateForPosition(sortedStates, firstMention.absoluteStart);
+          targetState = findStateForPosition(
+            sortedStates,
+            firstMention.absoluteStart,
+          );
         }
 
-        await graphService.moveFacetToState(character.id, facet.id, targetState.id);
+        await graphService.moveFacetToState(
+          character.id,
+          facet.id,
+          targetState.id,
+        );
         movedFacetCount++;
       }
 
@@ -2227,9 +2394,9 @@ interface CharacterContext {
  * Based on TDD 2026-02-23_temporal-state-design.md Section 6.
  */
 type ConflictType =
-  | 'temporal_change'      // Has intervening event or CharacterState transition
-  | 'arc_divergence'       // Different arcs, not a conflict
-  | 'true_inconsistency'   // No explanation, route to review queue
+  | 'temporal_change' // Has intervening event or CharacterState transition
+  | 'arc_divergence' // Different arcs, not a conflict
+  | 'true_inconsistency' // No explanation, route to review queue
   | 'perspective_difference'; // Different narrators (future)
 
 interface DetectedConflict {
@@ -2245,7 +2412,9 @@ interface DetectedConflict {
 /**
  * Group facets by type.
  */
-function groupFacetsByType(facets: StoredFacet[]): Map<FacetType, StoredFacet[]> {
+function groupFacetsByType(
+  facets: StoredFacet[],
+): Map<FacetType, StoredFacet[]> {
   const map = new Map<FacetType, StoredFacet[]>();
   for (const facet of facets) {
     const existing = map.get(facet.type) || [];
@@ -2272,9 +2441,12 @@ function assessCausationQuality(description: string | null): {
     /^transition/i,
   ];
 
-  const isWeak = weakPatterns.some(pattern => pattern.test(desc));
+  const isWeak = weakPatterns.some((pattern) => pattern.test(desc));
   const isTooShort = desc.length < 15;
-  const hasNoVerb = !/(do|does|is|are|was|were|have|has|had|can|will|would|should|may|might|must)/i.test(desc);
+  const hasNoVerb =
+    !/(do|does|is|are|was|were|have|has|had|can|will|would|should|may|might|must)/i.test(
+      desc,
+    );
 
   if (isWeak || (isTooShort && hasNoVerb)) {
     return { level: 'weak', reason: 'Generic or vague description' };
@@ -2298,24 +2470,28 @@ async function buildCharacterContext(
   const arcs = await graphService.getCharacterArcs(entity.id);
 
   if (states.length === 0) {
-    return buildSimplifiedContext(entity, segments, causalOrderMap, documentId, userId);
+    return buildSimplifiedContext(
+      entity,
+      segments,
+      causalOrderMap,
+      documentId,
+      userId,
+    );
   }
 
-  const transitionMap = new Map(
-    transitions.map(t => [t.fromStateId, t])
-  );
+  const transitionMap = new Map(transitions.map((t) => [t.fromStateId, t]));
 
   const allDocEvents = await graphStoryNodesRepository.getActiveNodes(
     documentId,
-    userId
+    userId,
   );
-  const events = allDocEvents.filter(n => n.type === 'event');
+  const events = allDocEvents.filter((n) => n.type === 'event');
 
   const stateContexts = [];
   const allStateFacetIds = new Set<string>();
 
   const allStateFacets = await Promise.all(
-    states.map(s => graphService.getFacetsForState(s.id))
+    states.map((s) => graphService.getFacetsForState(s.id)),
   );
 
   for (let i = 0; i < states.length; i++) {
@@ -2326,20 +2502,21 @@ async function buildCharacterContext(
       stateFacets.map(async (facet) => {
         const mentions = await mentionService.getByNodeIdWithAbsolutePositions(
           facet.id,
-          segments
+          segments,
         );
-        const keyMentions = mentions.filter(m => m.source === 'extraction');
+        const keyMentions = mentions.filter((m) => m.source === 'extraction');
 
         const segmentIndices = keyMentions
-          .map(m => segments.findIndex(s => s.id === m.segmentId))
-          .filter(idx => idx !== -1)
+          .map((m) => segments.findIndex((s) => s.id === m.segmentId))
+          .filter((idx) => idx !== -1)
           .sort((a, b) => a - b);
 
-        const segmentRange = segmentIndices.length > 0
-          ? segmentIndices.length === 1
-            ? `${segmentIndices[0]}`
-            : `${segmentIndices[0]}-${segmentIndices[segmentIndices.length - 1]}`
-          : 'unknown';
+        const segmentRange =
+          segmentIndices.length > 0
+            ? segmentIndices.length === 1
+              ? `${segmentIndices[0]}`
+              : `${segmentIndices[0]}-${segmentIndices[segmentIndices.length - 1]}`
+            : 'unknown';
 
         return {
           id: facet.id,
@@ -2348,30 +2525,33 @@ async function buildCharacterContext(
           mentionCount: keyMentions.length,
           segmentRange,
         };
-      })
+      }),
     );
 
-    stateFacets.forEach(f => allStateFacetIds.add(f.id));
+    for (const f of stateFacets) {
+      allStateFacetIds.add(f.id);
+    }
 
-    const stateEvents = events
-      .filter(e => {
-        const eCausal = causalOrderMap.get(e.id);
-        if (!eCausal) return false;
+    const stateEvents = events.filter((e) => {
+      const eCausal = causalOrderMap.get(e.id);
+      if (!eCausal) return false;
 
-        const stateStart = state.causalOrder;
-        const stateEnd = transitionMap.get(state.id)?.toStateId
-          ? states.find(s => s.id === transitionMap.get(state.id)!.toStateId)?.causalOrder ?? Infinity
-          : Infinity;
+      const stateStart = state.causalOrder;
+      const stateEnd = transitionMap.get(state.id)?.toStateId
+        ? (states.find((s) => s.id === transitionMap.get(state.id)!.toStateId)
+            ?.causalOrder ?? Infinity)
+        : Infinity;
 
-        return eCausal >= stateStart && eCausal < stateEnd;
-      });
+      return eCausal >= stateStart && eCausal < stateEnd;
+    });
 
     const eventsWithEdges = await Promise.all(
       stateEvents.map(async (event) => {
         const edges = await graphService.getConnectionsFromNode(event.id);
-        const outgoingEdges = edges.map(e => ({
+        const outgoingEdges = edges.map((e) => ({
           type: e.edgeType,
-          toNodeName: allDocEvents.find(n => n.id === e.toNodeId)?.name ?? 'unknown',
+          toNodeName:
+            allDocEvents.find((n) => n.id === e.toNodeId)?.name ?? 'unknown',
         }));
 
         return {
@@ -2381,20 +2561,22 @@ async function buildCharacterContext(
           causalOrder: causalOrderMap.get(event.id) ?? state.causalOrder,
           outgoingEdges,
         };
-      })
+      }),
     );
 
     const transition = transitionMap.get(state.id);
     let transitionInfo = null;
 
     if (transition) {
-      const toState = states.find(s => s.id === transition.toStateId);
+      const toState = states.find((s) => s.id === transition.toStateId);
       let triggerEvent = null;
       let causationQuality = null;
 
       if (transition.triggerEventId) {
-        triggerEvent = events.find(e => e.id === transition.triggerEventId);
-        causationQuality = assessCausationQuality(triggerEvent?.description ?? null);
+        triggerEvent = events.find((e) => e.id === transition.triggerEventId);
+        causationQuality = assessCausationQuality(
+          triggerEvent?.description ?? null,
+        );
       }
 
       transitionInfo = {
@@ -2409,7 +2591,7 @@ async function buildCharacterContext(
     }
 
     const stateSegmentIndices = facetsWithMentions
-      .flatMap(f => {
+      .flatMap((f) => {
         const range = f.segmentRange.split('-');
         const start = parseInt(range[0]);
         const end = range.length > 1 ? parseInt(range[1]) : start;
@@ -2418,10 +2600,13 @@ async function buildCharacterContext(
       .filter((v, i, a) => a.indexOf(v) === i)
       .sort((a, b) => a - b);
 
-    const segmentIds = stateSegmentIndices.map(idx => segments[idx]?.id).filter(Boolean);
-    const firstSegment = stateSegmentIndices.length > 0
-      ? segments[stateSegmentIndices[0]]
-      : undefined;
+    const segmentIds = stateSegmentIndices
+      .map((idx) => segments[idx]?.id)
+      .filter(Boolean);
+    const firstSegment =
+      stateSegmentIndices.length > 0
+        ? segments[stateSegmentIndices[0]]
+        : undefined;
 
     stateContexts.push({
       id: state.id,
@@ -2438,26 +2623,30 @@ async function buildCharacterContext(
   }
 
   const allEntityFacets = await graphService.getFacetsForEntity(entity.id);
-  const permanentFacets = allEntityFacets.filter(f => !allStateFacetIds.has(f.id));
+  const permanentFacets = allEntityFacets.filter(
+    (f) => !allStateFacetIds.has(f.id),
+  );
 
   const permanentFacetsWithContext = await Promise.all(
     permanentFacets.map(async (facet) => {
       const mentions = await mentionService.getByNodeIdWithAbsolutePositions(
         facet.id,
-        segments
+        segments,
       );
-      const keyMentions = mentions.filter(m => m.source === 'extraction');
+      const keyMentions = mentions.filter((m) => m.source === 'extraction');
 
       const statesPresent = states
-        .filter(state => {
+        .filter((state) => {
           const nextState = states[state.phaseIndex + 1];
           const stateEnd = nextState?.documentOrder ?? Infinity;
 
           return keyMentions.some(
-            m => m.absoluteStart >= state.documentOrder && m.absoluteStart < stateEnd
+            (m) =>
+              m.absoluteStart >= state.documentOrder &&
+              m.absoluteStart < stateEnd,
           );
         })
-        .map(s => s.phaseIndex);
+        .map((s) => s.phaseIndex);
 
       return {
         id: facet.id,
@@ -2466,13 +2655,15 @@ async function buildCharacterContext(
         mentionCount: keyMentions.length,
         statesPresent,
       };
-    })
+    }),
   );
 
   const arcsWithStates = await Promise.all(
     arcs.map(async (arc) => {
       const arcStates = await graphService.getArcStates(arc.id);
-      const stateIndices = arcStates.map(s => s.phaseIndex).sort((a, b) => a - b);
+      const stateIndices = arcStates
+        .map((s) => s.phaseIndex)
+        .sort((a, b) => a - b);
 
       return {
         id: arc.id,
@@ -2481,24 +2672,37 @@ async function buildCharacterContext(
         summary: arc.summary,
         stateIndices,
       };
-    })
+    }),
   );
 
   const edges = await graphService.getConnectionsFromNode(entity.id);
 
   const causalEdges = edges
-    .filter(e => ['CAUSES', 'ENABLES', 'PREVENTS', 'HAPPENS_BEFORE'].includes(e.edgeType))
-    .map(e => ({
-      edgeType: e.edgeType as 'CAUSES' | 'ENABLES' | 'PREVENTS' | 'HAPPENS_BEFORE',
-      toNodeName: allDocEvents.find(n => n.id === e.toNodeId)?.name ?? 'unknown',
+    .filter((e) =>
+      ['CAUSES', 'ENABLES', 'PREVENTS', 'HAPPENS_BEFORE'].includes(e.edgeType),
+    )
+    .map((e) => ({
+      edgeType: e.edgeType as
+        | 'CAUSES'
+        | 'ENABLES'
+        | 'PREVENTS'
+        | 'HAPPENS_BEFORE',
+      toNodeName:
+        allDocEvents.find((n) => n.id === e.toNodeId)?.name ?? 'unknown',
       description: e.description,
     }));
 
   const narrativeEdges = edges
-    .filter(e => !['CAUSES', 'ENABLES', 'PREVENTS', 'HAPPENS_BEFORE'].includes(e.edgeType))
-    .map(e => ({
+    .filter(
+      (e) =>
+        !['CAUSES', 'ENABLES', 'PREVENTS', 'HAPPENS_BEFORE'].includes(
+          e.edgeType,
+        ),
+    )
+    .map((e) => ({
       edgeType: e.edgeType,
-      toNodeName: allDocEvents.find(n => n.id === e.toNodeId)?.name ?? 'unknown',
+      toNodeName:
+        allDocEvents.find((n) => n.id === e.toNodeId)?.name ?? 'unknown',
       description: e.description,
     }));
 
@@ -2533,11 +2737,13 @@ async function buildSimplifiedContext(
     allFacets.map(async (facet) => {
       const mentions = await mentionService.getByNodeIdWithAbsolutePositions(
         facet.id,
-        segments
+        segments,
       );
-      const keyMentions = mentions.filter(m => m.source === 'extraction');
+      const keyMentions = mentions.filter((m) => m.source === 'extraction');
 
-      const positions = keyMentions.map(m => m.absoluteStart).sort((a, b) => a - b);
+      const positions = keyMentions
+        .map((m) => m.absoluteStart)
+        .sort((a, b) => a - b);
       const firstPos = positions[0] ?? null;
       const lastPos = positions[positions.length - 1] ?? null;
 
@@ -2547,28 +2753,41 @@ async function buildSimplifiedContext(
         lastPosition: lastPos,
         mentionCount: keyMentions.length,
       };
-    })
+    }),
   );
 
   const allDocEvents = await graphStoryNodesRepository.getActiveNodes(
     documentId,
-    userId
+    userId,
   );
 
   const edges = await graphService.getConnectionsFromNode(entity.id);
   const causalEdges = edges
-    .filter(e => ['CAUSES', 'ENABLES', 'PREVENTS', 'HAPPENS_BEFORE'].includes(e.edgeType))
-    .map(e => ({
-      edgeType: e.edgeType as 'CAUSES' | 'ENABLES' | 'PREVENTS' | 'HAPPENS_BEFORE',
-      toNodeName: allDocEvents.find(n => n.id === e.toNodeId)?.name ?? 'unknown',
+    .filter((e) =>
+      ['CAUSES', 'ENABLES', 'PREVENTS', 'HAPPENS_BEFORE'].includes(e.edgeType),
+    )
+    .map((e) => ({
+      edgeType: e.edgeType as
+        | 'CAUSES'
+        | 'ENABLES'
+        | 'PREVENTS'
+        | 'HAPPENS_BEFORE',
+      toNodeName:
+        allDocEvents.find((n) => n.id === e.toNodeId)?.name ?? 'unknown',
       description: e.description,
     }));
 
   const narrativeEdges = edges
-    .filter(e => !['CAUSES', 'ENABLES', 'PREVENTS', 'HAPPENS_BEFORE'].includes(e.edgeType))
-    .map(e => ({
+    .filter(
+      (e) =>
+        !['CAUSES', 'ENABLES', 'PREVENTS', 'HAPPENS_BEFORE'].includes(
+          e.edgeType,
+        ),
+    )
+    .map((e) => ({
       edgeType: e.edgeType,
-      toNodeName: allDocEvents.find(n => n.id === e.toNodeId)?.name ?? 'unknown',
+      toNodeName:
+        allDocEvents.find((n) => n.id === e.toNodeId)?.name ?? 'unknown',
       description: e.description,
     }));
 
@@ -2579,7 +2798,7 @@ async function buildSimplifiedContext(
     description: entity.description,
     aliases: entity.aliases,
     states: [],
-    permanentFacets: facetsWithPositions.map(f => ({
+    permanentFacets: facetsWithPositions.map((f) => ({
       id: f.facet.id,
       type: f.facet.type,
       content: f.facet.content,
@@ -2624,7 +2843,7 @@ function buildContextPrompt(
   prompt += `Primary name: "${entityName}"\n`;
 
   if (context.aliases && context.aliases.length > 0) {
-    prompt += `Known aliases: ${context.aliases.map(a => `"${a}"`).join(', ')}\n`;
+    prompt += `Known aliases: ${context.aliases.map((a) => `"${a}"`).join(', ')}\n`;
   }
 
   if (context.description) {
@@ -2636,27 +2855,27 @@ function buildContextPrompt(
     prompt += `## CHARACTER ARC STRUCTURE\n`;
     prompt += `This character has ${context.states.length} distinct states representing their evolution:\n`;
 
-    context.states.forEach(state => {
+    context.states.forEach((state) => {
       prompt += `  State ${state.phaseIndex + 1}: "${state.name}" (phase ${state.phaseIndex})\n`;
     });
     prompt += `\n`;
 
     if (context.arcs.length > 0) {
-      context.arcs.forEach(arc => {
+      context.arcs.forEach((arc) => {
         prompt += `Arc: "${arc.name}" (arcType: ${arc.arcType})\n`;
         if (arc.summary) {
           prompt += `Arc summary: ${arc.summary}\n`;
         }
-        prompt += `Arc includes states: ${arc.stateIndices.map(i => i + 1).join(', ')}\n`;
+        prompt += `Arc includes states: ${arc.stateIndices.map((i) => i + 1).join(', ')}\n`;
 
         if (context.arcs.length > 1) {
-          const otherArcs = context.arcs.filter(a => a.id !== arc.id);
-          const overlaps = arc.stateIndices.filter(idx =>
-            otherArcs.some(other => other.stateIndices.includes(idx))
+          const otherArcs = context.arcs.filter((a) => a.id !== arc.id);
+          const overlaps = arc.stateIndices.filter((idx) =>
+            otherArcs.some((other) => other.stateIndices.includes(idx)),
           );
 
           if (overlaps.length > 0) {
-            prompt += `Note: States ${overlaps.map(i => i + 1).join(', ')} belong to multiple arcs (character in simultaneous arcs)\n`;
+            prompt += `Note: States ${overlaps.map((i) => i + 1).join(', ')} belong to multiple arcs (character in simultaneous arcs)\n`;
           }
         }
         prompt += `\n`;
@@ -2671,7 +2890,9 @@ function buildContextPrompt(
     prompt += `Document order range: ${state.documentOrder}`;
 
     if (state.transitionTo) {
-      const nextState = context.states.find(s => s.id === state.transitionTo!.toStateId);
+      const nextState = context.states.find(
+        (s) => s.id === state.transitionTo!.toStateId,
+      );
       if (nextState) {
         prompt += `-${nextState.documentOrder}`;
       }
@@ -2689,15 +2910,16 @@ function buildContextPrompt(
 
     prompt += `Facets in this state:\n`;
     const facetsByType = new Map<FacetType, typeof state.facets>();
-    state.facets.forEach(f => {
+    state.facets.forEach((f) => {
       const existing = facetsByType.get(f.type) || [];
       existing.push(f);
       facetsByType.set(f.type, existing);
     });
 
     for (const [type, typeFacets] of facetsByType) {
-      const facetStrings = typeFacets.map(f =>
-        `"${f.content}" (${f.mentionCount} mentions${f.segmentRange ? `, segments ${f.segmentRange}` : ''})`
+      const facetStrings = typeFacets.map(
+        (f) =>
+          `"${f.content}" (${f.mentionCount} mentions${f.segmentRange ? `, segments ${f.segmentRange}` : ''})`,
       );
       prompt += `  • ${type} facets: ${facetStrings.join(', ')}\n`;
     }
@@ -2709,7 +2931,7 @@ function buildContextPrompt(
 
     if (state.events.length > 0) {
       prompt += `Events within this state (causal order):\n`;
-      state.events.forEach(event => {
+      state.events.forEach((event) => {
         prompt += `  • Event at causal:${event.causalOrder} "${event.name}"\n`;
         prompt += `    - Node type: event\n`;
         if (event.description) {
@@ -2717,7 +2939,7 @@ function buildContextPrompt(
         }
         if (event.outgoingEdges.length > 0) {
           const edgeStr = event.outgoingEdges
-            .map(e => `${e.type}→"${e.toNodeName}"`)
+            .map((e) => `${e.type}→"${e.toNodeName}"`)
             .join(', ');
           prompt += `    - Outgoing edges: ${edgeStr}\n`;
         }
@@ -2727,9 +2949,12 @@ function buildContextPrompt(
 
     if (state.transitionTo) {
       prompt += `State transition:\n`;
-      prompt += `  → Transitions to State ${context.states.findIndex(s => s.id === state.transitionTo!.toStateId) + 1}: "${state.transitionTo.toStateName}"\n`;
+      prompt += `  → Transitions to State ${context.states.findIndex((s) => s.id === state.transitionTo!.toStateId) + 1}: "${state.transitionTo.toStateName}"\n`;
 
-      if (state.transitionTo.triggerEventId && state.transitionTo.triggerEventName) {
+      if (
+        state.transitionTo.triggerEventId &&
+        state.transitionTo.triggerEventName
+      ) {
         prompt += `  → Trigger event: "${state.transitionTo.triggerEventName}"\n`;
         if (state.transitionTo.triggerEventDescription) {
           prompt += `  → Event description: ${state.transitionTo.triggerEventDescription}\n`;
@@ -2758,10 +2983,10 @@ function buildContextPrompt(
     prompt += `## PERMANENT FACETS (span multiple states)\n`;
     prompt += `These facets are attached to the character entity, not specific states. They remain valid across the entire narrative:\n`;
 
-    context.permanentFacets.forEach(facet => {
+    context.permanentFacets.forEach((facet) => {
       prompt += `  • ${facet.type}: "${facet.content}" (`;
       if (facet.statesPresent.length > 0) {
-        prompt += `mentioned in states ${facet.statesPresent.map(i => i + 1).join(', ')}`;
+        prompt += `mentioned in states ${facet.statesPresent.map((i) => i + 1).join(', ')}`;
       } else {
         prompt += `consistent throughout`;
       }
@@ -2774,7 +2999,7 @@ function buildContextPrompt(
     prompt += `## CAUSAL EDGES FROM CHARACTER\n`;
     prompt += `Edges showing how this character causes or enables other events:\n`;
 
-    context.causalEdges.forEach(edge => {
+    context.causalEdges.forEach((edge) => {
       prompt += `  • ${entityName} ${edge.edgeType}→ "${edge.toNodeName}"`;
       if (edge.description) {
         prompt += ` (${edge.description})`;
@@ -2789,14 +3014,14 @@ function buildContextPrompt(
     prompt += `Non-causal relationships:\n`;
 
     const edgesByType = new Map<StoryEdgeType, typeof context.narrativeEdges>();
-    context.narrativeEdges.forEach(e => {
+    context.narrativeEdges.forEach((e) => {
       const existing = edgesByType.get(e.edgeType) || [];
       existing.push(e);
       edgesByType.set(e.edgeType, existing);
     });
 
     for (const [type, edges] of edgesByType) {
-      const targets = edges.map(e => `"${e.toNodeName}"`).join(', ');
+      const targets = edges.map((e) => `"${e.toNodeName}"`).join(', ');
       prompt += `  • ${type}→ ${targets}\n`;
     }
     prompt += `\n`;
@@ -2810,22 +3035,24 @@ function buildContextPrompt(
   facets.forEach((facet, idx) => {
     prompt += `[${idx}] "${facet.content}"\n`;
 
-    const permanent = context.permanentFacets.find(pf => pf.id === facet.id);
+    const permanent = context.permanentFacets.find((pf) => pf.id === facet.id);
     if (permanent) {
       prompt += `    - Attachment: Permanent (entity-level)\n`;
       prompt += `    - Valid across: All states\n`;
     } else {
-      const state = context.states.find(s =>
-        s.facets.some(f => f.id === facet.id)
+      const state = context.states.find((s) =>
+        s.facets.some((f) => f.id === facet.id),
       );
 
       if (state) {
-        const stateFacet = state.facets.find(f => f.id === facet.id)!;
+        const stateFacet = state.facets.find((f) => f.id === facet.id)!;
         prompt += `    - State: State ${state.phaseIndex + 1} "${state.name}"\n`;
         prompt += `    - Causal position: ${state.causalOrder}`;
 
         if (state.transitionTo) {
-          const nextState = context.states.find(s => s.id === state.transitionTo!.toStateId);
+          const nextState = context.states.find(
+            (s) => s.id === state.transitionTo!.toStateId,
+          );
           if (nextState) {
             prompt += `-${nextState.causalOrder}`;
           }
@@ -2869,34 +3096,35 @@ function buildContextPrompt(
  * Optimize character context to fit within token budget.
  * Applied in order until prompt fits.
  */
-function optimizeContextForTokens(
-  context: CharacterContext,
-): CharacterContext {
+function optimizeContextForTokens(context: CharacterContext): CharacterContext {
   const optimized = { ...context };
 
-  optimized.narrativeEdges = optimized.narrativeEdges.map(e => ({
+  optimized.narrativeEdges = optimized.narrativeEdges.map((e) => ({
     ...e,
     description: null,
   }));
 
-  optimized.states = optimized.states.map(state => ({
+  optimized.states = optimized.states.map((state) => ({
     ...state,
-    segmentSummary: state.transitionTo?.triggerEventId ? state.segmentSummary : null,
+    segmentSummary: state.transitionTo?.triggerEventId
+      ? state.segmentSummary
+      : null,
   }));
 
-  optimized.states = optimized.states.map(state => ({
+  optimized.states = optimized.states.map((state) => ({
     ...state,
-    events: state.events.map(event => ({
+    events: state.events.map((event) => ({
       ...event,
-      description: event.id === state.transitionTo?.triggerEventId
-        ? event.description
-        : null,
+      description:
+        event.id === state.transitionTo?.triggerEventId
+          ? event.description
+          : null,
     })),
   }));
 
-  optimized.states = optimized.states.map(state => ({
+  optimized.states = optimized.states.map((state) => ({
     ...state,
-    facets: state.facets.map(f => ({
+    facets: state.facets.map((f) => ({
       ...f,
       segmentRange: '',
     })),
@@ -2918,42 +3146,51 @@ async function persistConflicts(
   const insertPromises = conflicts.map(async (conflict) => {
     const entityContext = contextMap.get(conflict.entityId);
 
-    const stateIds = entityContext?.states
-      .filter(s =>
-        s.facets.some(f => f.id === conflict.facetA.id || f.id === conflict.facetB.id)
-      )
-      .map(s => s.id) || [];
+    const stateIds =
+      entityContext?.states
+        .filter((s) =>
+          s.facets.some(
+            (f) => f.id === conflict.facetA.id || f.id === conflict.facetB.id,
+          ),
+        )
+        .map((s) => s.id) || [];
 
     const reasoning = conflict.reasoning.toLowerCase();
-    const isPlotHole = reasoning.includes('gapdetected') ||
-                       reasoning.includes('plot hole') ||
-                       reasoning.includes('missing trigger');
-    const isWeakCausation = reasoning.includes('weak') ||
-                           reasoning.includes('vague causation') ||
-                           reasoning.includes('generic');
+    const isPlotHole =
+      reasoning.includes('gapdetected') ||
+      reasoning.includes('plot hole') ||
+      reasoning.includes('missing trigger');
+    const isWeakCausation =
+      reasoning.includes('weak') ||
+      reasoning.includes('vague causation') ||
+      reasoning.includes('generic');
 
-    const relevantState = entityContext?.states.find(s =>
-      s.facets.some(f => f.id === conflict.facetA.id || f.id === conflict.facetB.id)
+    const relevantState = entityContext?.states.find((s) =>
+      s.facets.some(
+        (f) => f.id === conflict.facetA.id || f.id === conflict.facetB.id,
+      ),
     );
     const causationQuality = relevantState?.transitionTo?.causationQuality;
 
     const segments = await segmentService.getDocumentSegments(documentId);
-    const facetAMentions = await mentionService.getByNodeIdWithAbsolutePositions(
-      conflict.facetA.id,
-      segments
-    );
-    const facetBMentions = await mentionService.getByNodeIdWithAbsolutePositions(
-      conflict.facetB.id,
-      segments
-    );
+    const facetAMentions =
+      await mentionService.getByNodeIdWithAbsolutePositions(
+        conflict.facetA.id,
+        segments,
+      );
+    const facetBMentions =
+      await mentionService.getByNodeIdWithAbsolutePositions(
+        conflict.facetB.id,
+        segments,
+      );
 
     const sourcePositions = {
-      facetA: facetAMentions.slice(0, 3).map(m => ({
+      facetA: facetAMentions.slice(0, 3).map((m) => ({
         segmentId: m.segmentId,
         start: m.absoluteStart,
         end: m.absoluteEnd,
       })),
-      facetB: facetBMentions.slice(0, 3).map(m => ({
+      facetB: facetBMentions.slice(0, 3).map((m) => ({
         segmentId: m.segmentId,
         start: m.absoluteStart,
         end: m.absoluteEnd,
@@ -2991,9 +3228,10 @@ async function persistConflicts(
     {
       documentId,
       conflictCount: conflicts.length,
-      plotHoleCount: conflicts.filter(c =>
-        c.reasoning.toLowerCase().includes('gapdetected') ||
-        c.reasoning.toLowerCase().includes('plot hole')
+      plotHoleCount: conflicts.filter(
+        (c) =>
+          c.reasoning.toLowerCase().includes('gapdetected') ||
+          c.reasoning.toLowerCase().includes('plot hole'),
       ).length,
     },
     'Stage 10: Conflicts persisted to review queue',
@@ -3010,12 +3248,17 @@ async function detectContradictionsWithContext(
   context: CharacterContext,
   userId: string,
   documentId: string,
-): Promise<Array<{
-  facetIndexA: number;
-  facetIndexB: number;
-  classificationType: 'true_inconsistency' | 'temporal_change' | 'arc_divergence';
-  reasoning: string;
-}>> {
+): Promise<
+  Array<{
+    facetIndexA: number;
+    facetIndexB: number;
+    classificationType:
+      | 'true_inconsistency'
+      | 'temporal_change'
+      | 'arc_divergence';
+    reasoning: string;
+  }>
+> {
   let prompt = buildContextPrompt(entityName, facetType, facets, context);
 
   const modelConfig = getTextModelConfig('gemini-2.0-flash-lite');
@@ -3036,7 +3279,12 @@ async function detectContradictionsWithContext(
     );
 
     const optimizedContext = optimizeContextForTokens(context);
-    prompt = buildContextPrompt(entityName, facetType, facets, optimizedContext);
+    prompt = buildContextPrompt(
+      entityName,
+      facetType,
+      facets,
+      optimizedContext,
+    );
     promptTokens = countTokens(prompt, charsPerToken);
 
     if (promptTokens > threshold) {
@@ -3052,7 +3300,7 @@ async function detectContradictionsWithContext(
       return detectContradictionsInBatch(
         entityName,
         facetType,
-        facets.map(f => ({ content: f.content })),
+        facets.map((f) => ({ content: f.content })),
         userId,
         documentId,
       );
@@ -3073,10 +3321,10 @@ async function detectContradictionsWithContext(
   const result = await detectContradictionsInBatch(
     entityName,
     facetType,
-    facets.map(f => ({ content: f.content })),
+    facets.map((f) => ({ content: f.content })),
     userId,
     documentId,
-    prompt
+    prompt,
   );
 
   return result;
@@ -3104,7 +3352,7 @@ async function detectFacetConflicts(
 
   const causalOrderResults = await computeCausalOrder(documentId, userId);
   const causalOrderMap = new Map(
-    causalOrderResults.map(r => [r.nodeId, r.position])
+    causalOrderResults.map((r) => [r.nodeId, r.position]),
   );
 
   const conflicts: DetectedConflict[] = [];
@@ -3116,7 +3364,7 @@ async function detectFacetConflicts(
       segments,
       causalOrderMap,
       documentId,
-      userId
+      userId,
     );
     contextMap.set(entity.id, context);
 
@@ -3188,13 +3436,15 @@ async function detectFacetConflicts(
     );
 
     const plotHoles = conflicts.filter(
-      (c) => c.reasoning.toLowerCase().includes('gapdetected') ||
-             c.reasoning.toLowerCase().includes('plot hole')
+      (c) =>
+        c.reasoning.toLowerCase().includes('gapdetected') ||
+        c.reasoning.toLowerCase().includes('plot hole'),
     );
 
     const weakCausation = conflicts.filter(
-      (c) => c.reasoning.toLowerCase().includes('weak') ||
-             c.reasoning.toLowerCase().includes('vague causation')
+      (c) =>
+        c.reasoning.toLowerCase().includes('weak') ||
+        c.reasoning.toLowerCase().includes('vague causation'),
     );
 
     for (const conflict of conflicts) {
@@ -3221,7 +3471,7 @@ async function detectFacetConflicts(
         {
           stage: 10,
           documentId,
-          plotHoles: plotHoles.map(c => ({
+          plotHoles: plotHoles.map((c) => ({
             entity: c.entityName,
             reasoning: c.reasoning,
           })),
@@ -3235,7 +3485,7 @@ async function detectFacetConflicts(
         {
           stage: 10,
           documentId,
-          weakCausation: weakCausation.map(c => ({
+          weakCausation: weakCausation.map((c) => ({
             entity: c.entityName,
             reasoning: c.reasoning,
           })),
@@ -3257,8 +3507,12 @@ async function detectFacetConflicts(
         documentId,
         totalConflicts: conflicts.length,
         trueInconsistencies: trueInconsistencies.length,
-        temporalChanges: conflicts.filter((c) => c.conflictType === 'temporal_change').length,
-        arcDivergences: conflicts.filter((c) => c.conflictType === 'arc_divergence').length,
+        temporalChanges: conflicts.filter(
+          (c) => c.conflictType === 'temporal_change',
+        ).length,
+        arcDivergences: conflicts.filter(
+          (c) => c.conflictType === 'arc_divergence',
+        ).length,
         plotHoles: plotHoles.length,
         weakCausation: weakCausation.length,
       },
@@ -3295,7 +3549,6 @@ function cosineSimilarity(a: number[], b: number[]): number {
   return dotProduct / magnitude;
 }
 
-
 /**
  * Generate descriptions for all entities using descriptionService.
  * Batches entities for efficient LLM processing.
@@ -3322,7 +3575,10 @@ async function generateEntityDescriptions(
 
   const client = await getGeminiClient();
   if (!client) {
-    logger.warn({ documentId }, 'Gemini client unavailable, skipping descriptions');
+    logger.warn(
+      { documentId },
+      'Gemini client unavailable, skipping descriptions',
+    );
     return;
   }
 

@@ -70,7 +70,7 @@ export const TIER_CONCURRENT_LIMITS: Record<UserTier, ConcurrentLimits> = {
   },
 };
 
-export const RISK_THRESHOLD = 0.90;
+export const RISK_THRESHOLD = 0.9;
 
 export type OperationType =
   | 'llm-query-1k-tokens'

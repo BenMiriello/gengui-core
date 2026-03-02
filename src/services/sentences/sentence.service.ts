@@ -141,7 +141,10 @@ export const sentenceService = {
         content_hash,
         embedding::text as embedding_text
       FROM sentence_embeddings
-      WHERE content_hash IN (${sql.join(hashes.map((h) => sql`${h}`), sql`, `)})
+      WHERE content_hash IN (${sql.join(
+        hashes.map((h) => sql`${h}`),
+        sql`, `,
+      )})
     `);
 
     return (rows as any[]).map((row) => ({
@@ -196,7 +199,10 @@ export const sentenceService = {
         updated_at
       FROM sentence_embeddings
       WHERE document_id = ${documentId}
-        AND segment_id IN (${sql.join(segmentIds.map((id) => sql`${id}`), sql`, `)})
+        AND segment_id IN (${sql.join(
+          segmentIds.map((id) => sql`${id}`),
+          sql`, `,
+        )})
     `);
 
     return (rows as any[]).map(rowToStoredSentenceFromRaw);
