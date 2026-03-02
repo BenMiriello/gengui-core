@@ -279,6 +279,8 @@ export const documents = pgTable(
     summary: text('summary'),
     summaryEditChainLength: integer('summary_edit_chain_length').default(0).notNull(),
     summaryUpdatedAt: timestamp('summary_updated_at', { withTimezone: true }),
+    layoutPositions: jsonb('layout_positions')
+      .$type<Array<{ nodeId: string; x: number; y: number }>>(),
     createdAt: timestamp('created_at', { withTimezone: true })
       .defaultNow()
       .notNull(),

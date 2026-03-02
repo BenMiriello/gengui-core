@@ -1,6 +1,9 @@
 import { randomUUID } from 'node:crypto';
+import { eq } from 'drizzle-orm';
 import Redis from 'ioredis';
+import { db } from '../../config/database.js';
 import { THREAD_COLORS } from '../../config/constants';
+import { documents } from '../../models/schema.js';
 import type {
   ArcType,
   FacetInput,
@@ -734,6 +737,9 @@ class GraphService {
       { nodeId, nodeName: node.name, type: node.type },
       'Story node created in FalkorDB',
     );
+
+    await this.invalidateLayoutPositions(documentId);
+
     return nodeId;
   }
 
@@ -784,6 +790,12 @@ class GraphService {
       { connectionId, fromId, toId, edgeType },
       'Story connection created in FalkorDB',
     );
+
+    const fromNode = await this.getStoryNodeByIdInternal(fromId);
+    if (fromNode) {
+      await this.invalidateLayoutPositions(fromNode.documentId);
+    }
+
     return connectionId;
   }
 
@@ -889,6 +901,8 @@ class GraphService {
   }
 
   async softDeleteStoryNode(nodeId: string): Promise<void> {
+    const node = await this.getStoryNodeByIdInternal(nodeId);
+
     const cypher = `
       MATCH (n:StoryNode)
       WHERE n.id = $nodeId
@@ -896,9 +910,15 @@ class GraphService {
     `;
     await this.query(cypher, { nodeId, deletedAt: new Date().toISOString() });
     logger.info({ nodeId }, 'Story node soft deleted in FalkorDB');
+
+    if (node) {
+      await this.invalidateLayoutPositions(node.documentId);
+    }
   }
 
   async softDeleteStoryConnection(fromId: string, toId: string): Promise<void> {
+    const fromNode = await this.getStoryNodeByIdInternal(fromId);
+
     const cypher = `
       MATCH (a:StoryNode)-[r]->(b:StoryNode)
       WHERE a.id = $fromId AND b.id = $toId
@@ -911,6 +931,10 @@ class GraphService {
       deletedAt: new Date().toISOString(),
     });
     logger.info({ fromId, toId }, 'Story connection soft deleted in FalkorDB');
+
+    if (fromNode) {
+      await this.invalidateLayoutPositions(fromNode.documentId);
+    }
   }
 
   async deleteAllStoryNodesForDocument(
@@ -1297,10 +1321,33 @@ class GraphService {
     return similarities;
   }
 
+  private async invalidateLayoutPositions(documentId: string): Promise<void> {
+    await db
+      .update(documents)
+      .set({ layoutPositions: null })
+      .where(eq(documents.id, documentId));
+  }
+
   async getNodeEmbeddingsProjection(
     documentId: string,
     userId: string,
   ): Promise<Array<{ nodeId: string; x: number; y: number }>> {
+    const document = await db.query.documents.findFirst({
+      where: eq(documents.id, documentId),
+      columns: { id: true, layoutPositions: true },
+    });
+
+    if (!document) {
+      throw new Error(`Document not found: ${documentId}`);
+    }
+
+    if (document.layoutPositions && Array.isArray(document.layoutPositions)) {
+      logger.debug({ documentId, nodeCount: document.layoutPositions.length }, 'PCA positions loaded from Postgres');
+      return document.layoutPositions;
+    }
+
+    logger.debug({ documentId }, 'Computing fresh PCA layout');
+
     const startTime = Date.now();
     const cypher = `
       MATCH (n:StoryNode)
@@ -1421,8 +1468,13 @@ class GraphService {
     const totalTime = Date.now() - startTime;
     logger.info(
       { documentId, nodeCount: result_positions.length, totalTime },
-      '[projection] TOTAL complete',
+      '[projection] PCA computed and stored',
     );
+
+    await db
+      .update(documents)
+      .set({ layoutPositions: result_positions })
+      .where(eq(documents.id, documentId));
 
     return result_positions;
   }
