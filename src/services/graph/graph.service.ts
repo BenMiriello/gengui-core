@@ -112,7 +112,6 @@ const ALLOWED_PROPERTY_NAMES = new Set([
   'summary',
   'triggerEventId',
   'gapDetected',
-  'isCurrent',
 ]);
 
 class GraphService {
@@ -1986,20 +1985,20 @@ class GraphService {
   }
 
   /**
-   * Create HAS_STATE edge from character to state with optional isCurrent flag.
+   * Create HAS_STATE edge from character to state.
+   * State ordering is determined by phaseIndex and CHANGES_TO edges.
    */
   async linkCharacterToState(
     characterId: string,
     stateId: string,
-    isCurrent: boolean,
   ): Promise<void> {
     const now = new Date().toISOString();
     const cypher = `
       MATCH (c:StoryNode), (s:CharacterState)
       WHERE c.id = $characterId AND s.id = $stateId
-      CREATE (c)-[:HAS_STATE {isCurrent: $isCurrent, createdAt: $now}]->(s)
+      CREATE (c)-[:HAS_STATE {createdAt: $now}]->(s)
     `;
-    await this.query(cypher, { characterId, stateId, isCurrent, now });
+    await this.query(cypher, { characterId, stateId, now });
   }
 
   /**

@@ -399,8 +399,10 @@ export const graphStoryNodesRepository = {
             facetEmbedding,
           );
 
-          // Track facet content -> ID for mention linking
-          facetContentToId.set(facet.content.toLowerCase(), facetId);
+          // Track only name facets for mention linking (non-name facets won't match verbatim mentions)
+          if (facet.type === 'name') {
+            facetContentToId.set(facet.content.toLowerCase(), facetId);
+          }
 
           // Weight by facet type: names contribute more to identity
           const weight = facet.type === 'name' ? 2.0 : 1.0;

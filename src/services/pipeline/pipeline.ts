@@ -4,13 +4,14 @@
  * Stage 1: Segmentation + Sentence Embeddings (algorithmic)
  * Stage 2: Segment Summarization (LLM, parallel)
  * Stage 3: Entity + Facet Extraction (LLM, multi-segment batching)
- * Stage 4: Text Grounding (algorithmic + embeddings)
- * Stage 5: Entity Resolution (multi-signal batch clustering)
- * Stage 6: Intra-Segment Relationships (LLM, parallel per segment)
- * Stage 7: Cross-Segment Relationships (LLM, sequential)
- * Stage 8: Higher-Order Analysis (LLM + algorithmic)
- * Stage 9: CharacterState Facet Attachment (algorithmic)
- * Stage 10: Conflict Detection (algorithmic)
+ * Stage 4: Entity Resolution (multi-signal batch clustering)
+ * Stage 5: Intra-Segment Relationships (LLM, parallel per segment)
+ * Stage 6: Cross-Segment Relationships (LLM, sequential)
+ * Stage 7: Higher-Order Analysis (LLM + algorithmic)
+ * Stage 8: CharacterState Facet Attachment (algorithmic)
+ * Stage 9: Conflict Detection (algorithmic)
+ *
+ * Note: Stage 4 (Text Grounding) was removed as it was a no-op placeholder.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -1109,35 +1110,14 @@ export const multiStagePipeline = {
       );
     }
 
-    // Stage 4: Text Grounding (algorithmic)
+    // Stage 4: Entity Creation with LLM-Determined Merges
+    let resolvedEntities: ResolvedEntity[];
+
     if (shouldRunStage(checkpoint, 4)) {
       const stage4StartTime = Date.now();
       await checkForInterruption(documentId);
       broadcast(4, extractedEntities.length);
-      logStageStart(childLogger, 4, 'Text Grounding', {
-        entityCount: extractedEntities.length,
-      });
-
-      await saveCheckpoint(documentId, { lastStageCompleted: 4 });
-
-      const stage4DurationMs = Date.now() - stage4StartTime;
-      logStageComplete(childLogger, 4, 'Text Grounding', stage4DurationMs, {
-        entitiesAttempted: extractedEntities.length,
-        entitiesGrounded: extractedEntities.length,
-        groundingSuccessRate: '1.000',
-      });
-    } else {
-      childLogger.info('Skipping Stage 4 (already completed)');
-    }
-
-    // Stage 5: Entity Creation with LLM-Determined Merges
-    let resolvedEntities: ResolvedEntity[];
-
-    if (shouldRunStage(checkpoint, 5)) {
-      const stage5StartTime = Date.now();
-      await checkForInterruption(documentId);
-      broadcast(5, extractedEntities.length);
-      logStageStart(childLogger, 5, 'Entity Resolution', {
+      logStageStart(childLogger, 4, 'Entity Resolution', {
         extractedCount: extractedEntities.length,
       });
 
@@ -1189,9 +1169,9 @@ export const multiStagePipeline = {
           extractedCount: extractedEntities.length,
           uniqueEntities: uniqueEntityIds.size,
         },
-        'Stage 5: Creating entities in database',
+        'Stage 4: Creating entities in database',
       );
-      broadcast(5, uniqueEntityIds.size, 'Creating entities...');
+      broadcast(4, uniqueEntityIds.size, 'Creating entities...');
 
       for (const entityId of uniqueEntityIds) {
         // Find ALL extracted entities that map to this entityId
@@ -1374,18 +1354,17 @@ export const multiStagePipeline = {
         }
       }
 
-      const stage5DurationMs = Date.now() - stage5StartTime;
-      logStageComplete(childLogger, 5, 'Entity Resolution', stage5DurationMs, {
+      const stage4DurationMs = Date.now() - stage4StartTime;
+      logStageComplete(childLogger, 4, 'Entity Resolution', stage4DurationMs, {
         resolvedCount: resolvedEntities.length,
         newEntities: createdEntityIds.size,
         mergedEntities: uniqueEntityIds.size - createdEntityIds.size,
       });
 
       await saveCheckpoint(documentId, {
-        lastStageCompleted: 5,
-        stage4Output: { entityIdByName: Object.fromEntries(entityIdByName) },
+        lastStageCompleted: 4,
       });
-    } else if (checkpoint?.stage4Output) {
+    } else if (checkpoint) {
       resolvedEntities = extractedEntities
         .map((e) => ({
           ...e,
@@ -1398,22 +1377,22 @@ export const multiStagePipeline = {
 
       childLogger.info(
         { cachedEntities: entityIdByName.size },
-        'Skipping Stage 5 (using cached entity mapping)',
+        'Skipping Stage 4 (using cached entity mapping)',
       );
     } else {
       throw new Error(
-        'Checkpoint inconsistency: Stage 5 skipped but no cached data',
+        'Checkpoint inconsistency: Stage 4 skipped but no cached data',
       );
     }
 
-    // Stage 6: Intra-Segment Relationship Extraction (batched, concurrent)
+    // Stage 5: Intra-Segment Relationship Extraction (batched, concurrent)
     const allRelationships: Stage4RelationshipsResult['relationships'] = [];
 
-    if (shouldRunStage(checkpoint, 6)) {
-      const stage6StartTime = Date.now();
+    if (shouldRunStage(checkpoint, 5)) {
+      const stage5StartTime = Date.now();
       await checkForInterruption(documentId);
-      broadcast(6, entityIdByName.size);
-      logStageStart(childLogger, 6, 'Intra-Segment Relationships', {
+      broadcast(5, entityIdByName.size);
+      logStageStart(childLogger, 5, 'Intra-Segment Relationships', {
         entityCount: entityIdByName.size,
       });
 
@@ -1526,12 +1505,12 @@ export const multiStagePipeline = {
           allRelationships.push(...batchResult.relationships);
         }
 
-        const stage6DurationMs = Date.now() - stage6StartTime;
+        const stage5DurationMs = Date.now() - stage5StartTime;
         logStageComplete(
           childLogger,
           6,
           'Intra-Segment Relationships',
-          stage6DurationMs,
+          stage5DurationMs,
           {
             relationshipCount: allRelationships.length,
             batchCount: batches.length,
@@ -1539,17 +1518,17 @@ export const multiStagePipeline = {
         );
       }
 
-      await saveCheckpoint(documentId, { lastStageCompleted: 6 });
+      await saveCheckpoint(documentId, { lastStageCompleted: 5 });
     } else {
-      childLogger.info('Skipping Stage 6 (already completed)');
+      childLogger.info('Skipping Stage 5 (already completed)');
     }
 
-    // Stage 7: Cross-Segment Relationships
-    if (shouldRunStage(checkpoint, 7)) {
-      const stage7StartTime = Date.now();
+    // Stage 6: Cross-Segment Relationships
+    if (shouldRunStage(checkpoint, 6)) {
+      const stage6StartTime = Date.now();
       await checkForInterruption(documentId);
-      broadcast(7, entityIdByName.size);
-      logStageStart(childLogger, 7, 'Cross-Segment Relationships', {
+      broadcast(6, entityIdByName.size);
+      logStageStart(childLogger, 6, 'Cross-Segment Relationships', {
         entityCount: entityIdByName.size,
       });
 
@@ -1630,30 +1609,30 @@ export const multiStagePipeline = {
         }
       }
 
-      const stage7DurationMs = Date.now() - stage7StartTime;
+      const stage6DurationMs = Date.now() - stage6StartTime;
       logStageComplete(
         childLogger,
         7,
         'Cross-Segment Relationships',
-        stage7DurationMs,
+        stage6DurationMs,
         {
           totalRelationships: allRelationships.length,
         },
       );
 
-      await saveCheckpoint(documentId, { lastStageCompleted: 7 });
+      await saveCheckpoint(documentId, { lastStageCompleted: 6 });
     } else {
-      childLogger.info('Skipping Stage 7 (already completed)');
+      childLogger.info('Skipping Stage 6 (already completed)');
     }
 
-    // Stage 8: Higher-Order Analysis
+    // Stage 7: Higher-Order Analysis
     let higherOrderResult: Stage5HigherOrderResult | null = null;
 
-    if (shouldRunStage(checkpoint, 8)) {
-      const stage8StartTime = Date.now();
+    if (shouldRunStage(checkpoint, 7)) {
+      const stage7StartTime = Date.now();
       await checkForInterruption(documentId);
-      broadcast(8, entityIdByName.size);
-      logStageStart(childLogger, 8, 'Higher-Order Analysis', {
+      broadcast(7, entityIdByName.size);
+      logStageStart(childLogger, 7, 'Higher-Order Analysis', {
         entityCount: entityIdByName.size,
       });
 
@@ -1796,12 +1775,12 @@ export const multiStagePipeline = {
         }
       }
 
-      const stage8DurationMs = Date.now() - stage8StartTime;
+      const stage7DurationMs = Date.now() - stage7StartTime;
       logStageComplete(
         childLogger,
         8,
         'Higher-Order Analysis',
-        stage8DurationMs,
+        stage7DurationMs,
         {
           threadCount: higherOrderResult?.narrativeThreads.length || 0,
           arcCount: new Set(
@@ -1811,27 +1790,52 @@ export const multiStagePipeline = {
         },
       );
 
-      await saveCheckpoint(documentId, { lastStageCompleted: 8 });
+      await saveCheckpoint(documentId, { lastStageCompleted: 7 });
     } else {
-      childLogger.info('Skipping Stage 8 (already completed)');
+      childLogger.info('Skipping Stage 7 (already completed)');
     }
 
-    // Stage 9: CharacterState facet attachment
-    if (shouldRunStage(checkpoint, 9)) {
-      const stage9StartTime = Date.now();
+    // Stage 8: CharacterState facet attachment
+    if (shouldRunStage(checkpoint, 8)) {
+      const stage8StartTime = Date.now();
       await checkForInterruption(documentId);
-      broadcast(9, entityIdByName.size, 'Processing character state facets...');
-      logStageStart(childLogger, 9, 'CharacterState Facet Attachment', {
+      broadcast(8, entityIdByName.size, 'Processing character state facets...');
+      logStageStart(childLogger, 8, 'CharacterState Facet Attachment', {
         entityCount: entityIdByName.size,
       });
 
       await processStateFacetAttachment(documentId, userId, entityIdByName);
 
-      const stage9DurationMs = Date.now() - stage9StartTime;
+      const stage8DurationMs = Date.now() - stage8StartTime;
       logStageComplete(
         childLogger,
         9,
         'CharacterState Facet Attachment',
+        stage8DurationMs,
+        {},
+      );
+
+      await saveCheckpoint(documentId, { lastStageCompleted: 8 });
+    } else {
+      childLogger.info('Skipping Stage 8 (already completed)');
+    }
+
+    // Stage 9: Conflict Detection
+    if (shouldRunStage(checkpoint, 9)) {
+      const stage9StartTime = Date.now();
+      await checkForInterruption(documentId);
+      broadcast(9, entityIdByName.size, 'Detecting conflicts...');
+      logStageStart(childLogger, 9, 'Conflict Detection', {
+        entityCount: entityIdByName.size,
+      });
+
+      await detectFacetConflicts(documentId, userId);
+
+      const stage9DurationMs = Date.now() - stage9StartTime;
+      logStageComplete(
+        childLogger,
+        10,
+        'Conflict Detection',
         stage9DurationMs,
         {},
       );
@@ -1839,31 +1843,6 @@ export const multiStagePipeline = {
       await saveCheckpoint(documentId, { lastStageCompleted: 9 });
     } else {
       childLogger.info('Skipping Stage 9 (already completed)');
-    }
-
-    // Stage 10: Conflict Detection
-    if (shouldRunStage(checkpoint, 10)) {
-      const stage10StartTime = Date.now();
-      await checkForInterruption(documentId);
-      broadcast(10, entityIdByName.size, 'Detecting conflicts...');
-      logStageStart(childLogger, 10, 'Conflict Detection', {
-        entityCount: entityIdByName.size,
-      });
-
-      await detectFacetConflicts(documentId, userId);
-
-      const stage10DurationMs = Date.now() - stage10StartTime;
-      logStageComplete(
-        childLogger,
-        10,
-        'Conflict Detection',
-        stage10DurationMs,
-        {},
-      );
-
-      await saveCheckpoint(documentId, { lastStageCompleted: 10 });
-    } else {
-      childLogger.info('Skipping Stage 10 (already completed)');
     }
 
     await generateEntityDescriptions(documentId, userId, entityIdByName);
@@ -2043,9 +2022,8 @@ async function processCharacterArcs(
       // Link state to arc
       await graphService.linkStateToArc(stateId, arcId, phase.phaseIndex);
 
-      // Link character to state (mark last one as current)
-      const isCurrent = phase.phaseIndex === phases.length - 1;
-      await graphService.linkCharacterToState(characterId, stateId, isCurrent);
+      // Link character to state
+      await graphService.linkCharacterToState(characterId, stateId);
 
       // Link state to facets mentioned in stateFacets
       // Find matching facets from the entity's existing facets
@@ -2098,7 +2076,7 @@ async function processCharacterArcs(
 }
 
 /**
- * Stage 8: Process state facet attachment.
+ * Stage 7: Process state facet attachment.
  *
  * For Character entities with `state` type facets:
  * 1. If no CharacterState exists, create a default one
@@ -2166,7 +2144,7 @@ async function processStateFacetAttachment(
       );
 
       // Link character to this state
-      await graphService.linkCharacterToState(character.id, stateId, true);
+      await graphService.linkCharacterToState(character.id, stateId);
 
       // Move all state facets to this CharacterState
       for (const facet of stateFacets) {
@@ -3234,7 +3212,7 @@ async function persistConflicts(
           c.reasoning.toLowerCase().includes('plot hole'),
       ).length,
     },
-    'Stage 10: Conflicts persisted to review queue',
+    'Stage 9: Conflicts persisted to review queue',
   );
 }
 
@@ -3331,7 +3309,7 @@ async function detectContradictionsWithContext(
 }
 
 /**
- * Stage 9: Detect facet conflicts.
+ * Stage 8: Detect facet conflicts.
  *
  * For each entity, compare same-type facets for contradictions.
  * Uses embedding similarity to identify potential conflicts.

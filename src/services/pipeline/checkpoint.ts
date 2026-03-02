@@ -30,7 +30,7 @@ interface MergeSignalCheckpoint {
 }
 
 export interface AnalysisCheckpoint {
-  version: 1;
+  version: 2;
   documentVersion: number;
   startedAt: string;
   lastStageCompleted: AnalysisStage | null;
@@ -78,16 +78,12 @@ export interface AnalysisCheckpoint {
     aliasToEntityId?: Record<string, string>;
     mergeSignals?: MergeSignalCheckpoint[];
   };
-
-  // Stage 4 output (needed for stages 5-7)
-  stage4Output?: {
-    entityIdByName: Record<string, string>;
-  };
 }
 
 /**
  * Load checkpoint for a document.
  * Returns null if no checkpoint exists.
+ * Handles migration from version 1 to version 2.
  */
 export async function loadCheckpoint(
   documentId: string,
@@ -102,18 +98,64 @@ export async function loadCheckpoint(
     return null;
   }
 
-  const checkpoint = doc.analysisCheckpoint as AnalysisCheckpoint;
+  const checkpoint = doc.analysisCheckpoint as any;
 
-  // Validate version
-  if (checkpoint.version !== 1) {
-    logger.warn(
-      { documentId, version: checkpoint.version },
-      'Unknown checkpoint version, ignoring',
+  // Handle version 1 checkpoints (Stage 4 removed, stages renumbered)
+  if (checkpoint.version === 1) {
+    logger.info(
+      { documentId },
+      'Migrating checkpoint from version 1 to version 2',
     );
-    return null;
+
+    // Migrate stage numbers: Stage 4 removed, so stages 5-10 become 4-9
+    let lastStageCompleted = checkpoint.lastStageCompleted;
+    if (lastStageCompleted !== null && lastStageCompleted >= 4) {
+      lastStageCompleted = lastStageCompleted - 1;
+      logger.debug(
+        { documentId, oldStage: checkpoint.lastStageCompleted, newStage: lastStageCompleted },
+        'Adjusted lastStageCompleted for removed Stage 4',
+      );
+    }
+
+    let failedAtStage = checkpoint.failedAtStage;
+    if (failedAtStage !== undefined && failedAtStage >= 4) {
+      failedAtStage = failedAtStage - 1;
+    }
+
+    // Create migrated checkpoint (remove stage4Output)
+    const migratedCheckpoint: AnalysisCheckpoint = {
+      version: 2,
+      documentVersion: checkpoint.documentVersion,
+      startedAt: checkpoint.startedAt,
+      lastStageCompleted,
+      failedAtStage,
+      failureReason: checkpoint.failureReason,
+      failureTimestamp: checkpoint.failureTimestamp,
+      summaryData: checkpoint.summaryData,
+      stage3Progress: checkpoint.stage3Progress,
+      stage3Output: checkpoint.stage3Output,
+    };
+
+    // Save migrated checkpoint
+    await db
+      .update(documents)
+      .set({ analysisCheckpoint: migratedCheckpoint })
+      .where(eq(documents.id, documentId));
+
+    return migratedCheckpoint;
   }
 
-  return checkpoint;
+  // Current version
+  if (checkpoint.version === 2) {
+    return checkpoint as AnalysisCheckpoint;
+  }
+
+  // Unknown version
+  logger.warn(
+    { documentId, version: checkpoint.version },
+    'Unknown checkpoint version, clearing checkpoint',
+  );
+  return null;
 }
 
 interface CheckpointUpdate
@@ -149,7 +191,7 @@ export async function saveCheckpoint(
       : (update.stage3Progress ?? existing?.stage3Progress);
 
   const checkpoint: AnalysisCheckpoint = {
-    version: 1,
+    version: 2,
     documentVersion: existing?.documentVersion ?? update.documentVersion ?? 0,
     startedAt:
       existing?.startedAt ?? update.startedAt ?? new Date().toISOString(),
@@ -158,7 +200,6 @@ export async function saveCheckpoint(
     summaryData: update.summaryData ?? existing?.summaryData,
     stage3Progress,
     stage3Output: update.stage3Output ?? existing?.stage3Output,
-    stage4Output: update.stage4Output ?? existing?.stage4Output,
     failedAtStage: update.failedAtStage ?? existing?.failedAtStage,
     failureReason: update.failureReason ?? existing?.failureReason,
     failureTimestamp: update.failedAtStage

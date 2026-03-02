@@ -71,6 +71,29 @@ const PRONOUNS = new Set([
   // Relative pronouns (covered by interrogative)
 ]);
 
+/**
+ * Check if a name is a proper noun (capitalized, no leading article).
+ * Examples: "Jonathan", "Count Dracula" (proper nouns)
+ * vs "the count", "a vampire" (not proper nouns)
+ */
+function isProperNoun(name: string): boolean {
+  const trimmed = name.trim();
+  if (trimmed.length === 0) return false;
+
+  // Check for leading article
+  const lowerName = trimmed.toLowerCase();
+  if (
+    lowerName.startsWith('the ') ||
+    lowerName.startsWith('a ') ||
+    lowerName.startsWith('an ')
+  ) {
+    return false;
+  }
+
+  // Check if first letter is capitalized
+  return trimmed[0] === trimmed[0].toUpperCase();
+}
+
 interface FacetWithMentionCount {
   facet: StoredFacet;
   mentionCount: number;
@@ -133,11 +156,24 @@ export async function computePrimaryName(entityId: string): Promise<string> {
       return 'Unknown Entity';
     }
 
-    // Sort by mention count descending, then alphabetically for ties
+    // Sort by mention count descending, then prefer proper nouns
     nonPronounFacets.sort((a, b) => {
       if (a.mentionCount !== b.mentionCount) {
         return b.mentionCount - a.mentionCount;
       }
+
+      // When counts are equal (especially when all are zero), prefer proper nouns
+      const aIsProperNoun = isProperNoun(a.facet.content);
+      const bIsProperNoun = isProperNoun(b.facet.content);
+
+      if (aIsProperNoun && !bIsProperNoun) {
+        return -1; // a comes first
+      }
+      if (!aIsProperNoun && bIsProperNoun) {
+        return 1; // b comes first
+      }
+
+      // Both proper nouns or both not - alphabetical
       return a.facet.content.localeCompare(b.facet.content);
     });
 

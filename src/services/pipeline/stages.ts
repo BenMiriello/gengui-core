@@ -4,16 +4,17 @@
  * Stage 1: Segmentation + Sentence Embeddings (algorithmic)
  * Stage 2: Segment Summarization (LLM, parallel)
  * Stage 3: Entity + Facet Extraction (LLM, multi-segment batching)
- * Stage 4: Text Grounding (algorithmic + embeddings)
- * Stage 5: Entity Resolution (multi-signal batch clustering)
- * Stage 6: Intra-Segment Relationships (LLM, parallel per segment)
- * Stage 7: Cross-Segment Relationships (LLM, sequential)
- * Stage 8: Higher-Order Analysis (LLM + algorithmic)
- * Stage 9: CharacterState Facet Attachment (algorithmic)
- * Stage 10: Conflict Detection (algorithmic)
+ * Stage 4: Entity Resolution (multi-signal batch clustering)
+ * Stage 5: Intra-Segment Relationships (LLM, parallel per segment)
+ * Stage 6: Cross-Segment Relationships (LLM, sequential)
+ * Stage 7: Higher-Order Analysis (LLM + algorithmic)
+ * Stage 8: CharacterState Facet Attachment (algorithmic)
+ * Stage 9: Conflict Detection (algorithmic)
+ *
+ * Note: Stage 4 (Text Grounding) was removed as it was a no-op placeholder.
  */
 
-export type AnalysisStage = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+export type AnalysisStage = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
 
 /**
  * Complete stage metadata for frontend rendering and progress tracking.
@@ -50,52 +51,45 @@ export const ANALYSIS_STAGES: StageInfo[] = [
   },
   {
     number: 4,
-    name: 'Text Grounding',
-    description: 'Linking entities to specific text positions',
-    genericLabel: 'Connecting entities to text...',
-    technicalLabel: 'Stage 4: Text Grounding',
-  },
-  {
-    number: 5,
     name: 'Entity Resolution',
     description: 'Creating nodes in knowledge graph and resolving duplicates',
     genericLabel: 'Connecting aliases and resolving identities...',
-    technicalLabel: 'Stage 5: Entity Resolution',
+    technicalLabel: 'Stage 4: Entity Resolution',
   },
   {
-    number: 6,
+    number: 5,
     name: 'Intra-Segment Relationships',
     description: 'Finding connections within scenes',
     genericLabel: 'Mapping connections...',
-    technicalLabel: 'Stage 6: Intra-Segment Relationships',
+    technicalLabel: 'Stage 5: Intra-Segment Relationships',
   },
   {
-    number: 7,
+    number: 6,
     name: 'Cross-Segment Relationships',
     description: 'Connecting entities across scenes',
     genericLabel: 'Finding connections across the story...',
-    technicalLabel: 'Stage 7: Cross-Segment Relationships',
+    technicalLabel: 'Stage 6: Cross-Segment Relationships',
   },
   {
-    number: 8,
+    number: 7,
     name: 'Higher-Order Analysis',
     description: 'Detecting narrative structure, threads, and character arcs',
     genericLabel: 'Finding narrative arcs and themes...',
-    technicalLabel: 'Stage 8: Higher-Order Analysis',
+    technicalLabel: 'Stage 7: Higher-Order Analysis',
   },
   {
-    number: 9,
+    number: 8,
     name: 'Character State',
     description: 'Tracking character state transitions',
     genericLabel: 'Organizing character states...',
-    technicalLabel: 'Stage 9: CharacterState Facet Attachment',
+    technicalLabel: 'Stage 8: CharacterState Facet Attachment',
   },
   {
-    number: 10,
+    number: 9,
     name: 'Conflict Detection',
     description: 'Identifying contradictions in the narrative',
     genericLabel: 'Checking for inconsistencies...',
-    technicalLabel: 'Stage 10: Conflict Detection',
+    technicalLabel: 'Stage 9: Conflict Detection',
   },
 ];
 
@@ -125,32 +119,28 @@ export const STAGE_LABELS: Record<
     technical: 'Stage 3: Entity + Facet Extraction',
   },
   4: {
-    generic: 'Connecting entities to text...',
-    technical: 'Stage 4: Text Grounding',
+    generic: 'Connecting aliases and resolving identities...',
+    technical: 'Stage 4: Entity Resolution',
   },
   5: {
-    generic: 'Connecting aliases and resolving identities...',
-    technical: 'Stage 5: Entity Resolution',
+    generic: 'Mapping connections...',
+    technical: 'Stage 5: Intra-Segment Relationships',
   },
   6: {
-    generic: 'Mapping connections...',
-    technical: 'Stage 6: Intra-Segment Relationships',
+    generic: 'Finding connections across the story...',
+    technical: 'Stage 6: Cross-Segment Relationships',
   },
   7: {
-    generic: 'Finding connections across the story...',
-    technical: 'Stage 7: Cross-Segment Relationships',
+    generic: 'Finding narrative arcs and themes...',
+    technical: 'Stage 7: Higher-Order Analysis',
   },
   8: {
-    generic: 'Finding narrative arcs and themes...',
-    technical: 'Stage 8: Higher-Order Analysis',
+    generic: 'Organizing character states...',
+    technical: 'Stage 8: CharacterState Facet Attachment',
   },
   9: {
-    generic: 'Organizing character states...',
-    technical: 'Stage 9: CharacterState Facet Attachment',
-  },
-  10: {
     generic: 'Checking for inconsistencies...',
-    technical: 'Stage 10: Conflict Detection',
+    technical: 'Stage 9: Conflict Detection',
   },
 };
 

@@ -78,7 +78,7 @@ EDGE TYPES:
 - HAPPENS_BEFORE: Temporal only (use sparingly - text position often suffices)
 
 **Layer 3 - Structural/Relational:**
-- PARTICIPATES_IN: Agent involved in event
+- PARTICIPATES_IN: Agent/character participates in event (Direction: Character → Event)
 - LOCATED_AT: Entity exists/occurs at location
 - PART_OF: Component of containing entity (chapter of book)
 - MEMBER_OF: Belongs to group while retaining identity
@@ -98,10 +98,15 @@ RULES:
 
 QUALITY CHECKLIST:
 - Character interactions -> CONNECTED_TO or OPPOSES
-- Character in event -> PARTICIPATES_IN
+- Character in event -> PARTICIPATES_IN (Character → Event)
 - Entity at place -> LOCATED_AT
 - One event causing another -> CAUSES with strength
-- Object owned by character -> POSSESSES`;
+- Object owned by character -> POSSESSES
+
+DIRECTION EXAMPLES:
+- PARTICIPATES_IN: (Jonathan:Character)-[PARTICIPATES_IN]->(wolves_attack:Event)
+- LOCATED_AT: (castle:Location) or (meeting:Event)-[LOCATED_AT]->(castle:Location)
+- CAUSES: (wolves_attack:Event)-[CAUSES]->(carriage_stops:Event)`;
     },
   };
 
