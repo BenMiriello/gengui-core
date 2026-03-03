@@ -1,6 +1,11 @@
 import type { Transporter } from 'nodemailer';
 import nodemailer from 'nodemailer';
 import { logger } from '../utils/logger';
+import { APP_NAME } from '../config/appConfig';
+
+const WELCOME_MESSAGE = `We are on a mission to build the most insightful and creator-friendly narrative writing tool possible. ${APP_NAME || 'our app'} is in the early stages and we are working hard to improve it, so we are very grateful for your interest and support. Any feedback you can provide is welcome.
+
+Please tell us a little bit about yourself, your interests and your needs. We are seeking a diverse group of writers and creators to help us improve our product and build our community.`;
 
 export class EmailService {
   private transporter: Transporter | null = null;
@@ -83,7 +88,7 @@ export class EmailService {
     }
 
     await this.transporter.sendMail({
-      from: process.env.SMTP_FROM || 'GenGui <noreply@localhost>',
+      from: process.env.SMTP_FROM || `${APP_NAME} <noreply@localhost>`,
       to: email,
       subject: 'Verify your email address',
       html: `
@@ -137,7 +142,7 @@ export class EmailService {
     }
 
     await this.transporter.sendMail({
-      from: process.env.SMTP_FROM || 'GenGui <noreply@localhost>',
+      from: process.env.SMTP_FROM || `${APP_NAME} <noreply@localhost>`,
       to: newEmail,
       subject: 'Verify your new email address',
       html: `
@@ -188,7 +193,7 @@ export class EmailService {
     }
 
     await this.transporter.sendMail({
-      from: process.env.SMTP_FROM || 'GenGui <noreply@localhost>',
+      from: process.env.SMTP_FROM || `${APP_NAME} <noreply@localhost>`,
       to: email,
       subject: 'Reset your password',
       html: `
@@ -235,7 +240,7 @@ export class EmailService {
     }
 
     await this.transporter.sendMail({
-      from: process.env.SMTP_FROM || 'GenGui <noreply@localhost>',
+      from: process.env.SMTP_FROM || `${APP_NAME} <noreply@localhost>`,
       to: email,
       subject: 'Password changed successfully',
       html: `
@@ -287,7 +292,7 @@ export class EmailService {
     }
 
     await this.transporter.sendMail({
-      from: process.env.SMTP_FROM || 'GenGui <noreply@localhost>',
+      from: process.env.SMTP_FROM || `${APP_NAME} <noreply@localhost>`,
       to: adminEmail,
       subject: `New ${submission.submissionType}: ${submission.subject}`,
       html: `
@@ -364,14 +369,10 @@ To respond, reply to this email or visit the admin dashboard.
       return;
     }
 
-    const welcomeMessage = `Hello! We are on a mission to build the most insightful and creator-friendly narrative writing tool possible. GenGui is in the early stages and we are working hard to improve it every day, so we are very grateful for your interest and support. Any feedback you can provide is welcome.
-
-Please tell us a little bit about yourself and your interest and needs. We are seeking a diverse group of writers and creators to help us improve our product and build our community. We'd love to hear from you!`;
-
     await this.transporter.sendMail({
-      from: process.env.SMTP_FROM || 'GenGui <noreply@localhost>',
+      from: process.env.SMTP_FROM || `${APP_NAME} <noreply@localhost>`,
       to: userEmail,
-      subject: 'Thanks for contacting GenGui',
+      subject: `Thanks for contacting ${APP_NAME || 'us'}!`,
       html: `
         <h1>Thank you for reaching out!</h1>
 
@@ -388,12 +389,12 @@ ${submission.message}
         <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
 
         <div style="color: #666; font-size: 14px; white-space: pre-line;">
-${welcomeMessage}
+${WELCOME_MESSAGE}
         </div>
 
         <p style="margin-top: 30px;">
           Best regards,<br>
-          The GenGui Team
+          ${APP_NAME || 'Our'} Team
         </p>
       `,
       text: `
@@ -411,10 +412,10 @@ ${submission.message}
 
 ---
 
-${welcomeMessage}
+${WELCOME_MESSAGE}
 
 Best regards,
-The GenGui Team
+${APP_NAME ? `The ${APP_NAME} Team` : 'Our Team'}
       `,
     });
 
