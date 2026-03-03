@@ -39,10 +39,15 @@ class TextAnalysisConsumer extends PubSubConsumer {
 
   /**
    * Start the consumer and recover any interrupted analyses.
+   * Recovery is deferred to allow HTTP server to respond immediately.
    */
   async start(): Promise<void> {
     await super.start();
-    await this.recoverInterruptedAnalyses();
+    setImmediate(() => {
+      this.recoverInterruptedAnalyses().catch((err) => {
+        logger.error({ error: err }, 'Failed to recover interrupted analyses');
+      });
+    });
   }
 
   /**

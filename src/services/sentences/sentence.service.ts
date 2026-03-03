@@ -7,7 +7,7 @@ import { and, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '../../config/database';
 import { sentenceEmbeddings } from '../../models/schema';
 import { logger } from '../../utils/logger';
-import { generateEmbedding } from '../embeddings';
+import { generateEmbedding, generateEmbeddings } from '../embeddings';
 import type { Segment } from '../segments';
 import { splitIntoSentences } from './sentence.detector';
 import type {
@@ -82,23 +82,29 @@ export const sentenceService = {
   /**
    * Process all segments of a document.
    * Returns map of segmentId -> sentences with embeddings.
+   * Processes segments in parallel with limited concurrency.
    */
   async processDocument(
     documentId: string,
     documentContent: string,
     segments: Segment[],
   ): Promise<Map<string, SentenceWithEmbedding[]>> {
+    const { default: pMap } = await import('p-map');
     const result = new Map<string, SentenceWithEmbedding[]>();
 
-    for (const segment of segments) {
-      const segmentText = documentContent.slice(segment.start, segment.end);
-      const sentences = await this.processSegment(
-        documentId,
-        segment.id,
-        segmentText,
-      );
-      result.set(segment.id, sentences);
-    }
+    await pMap(
+      segments,
+      async (segment) => {
+        const segmentText = documentContent.slice(segment.start, segment.end);
+        const sentences = await this.processSegment(
+          documentId,
+          segment.id,
+          segmentText,
+        );
+        result.set(segment.id, sentences);
+      },
+      { concurrency: 3 },
+    );
 
     return result;
   },
@@ -284,17 +290,25 @@ export const sentenceService = {
 
   /**
    * Generate embeddings for multiple texts in batch.
-   * Currently processes sequentially, could be parallelized.
+   * Uses batch API with event loop yields between batches to prevent blocking.
    */
   async generateBatchEmbeddings(texts: string[]): Promise<number[][]> {
-    const embeddings: number[][] = [];
+    if (texts.length === 0) return [];
 
-    for (const text of texts) {
-      const embedding = await generateEmbedding(text);
-      embeddings.push(embedding);
+    const BATCH_SIZE = 100;
+    const results: number[][] = [];
+
+    for (let i = 0; i < texts.length; i += BATCH_SIZE) {
+      const batch = texts.slice(i, i + BATCH_SIZE);
+      const embeddings = await generateEmbeddings(batch);
+      results.push(...embeddings);
+
+      if (i + BATCH_SIZE < texts.length) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
     }
 
-    return embeddings;
+    return results;
   },
 
   /**

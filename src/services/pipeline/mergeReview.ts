@@ -61,6 +61,7 @@ export interface MergeAction {
 /**
  * Find potential merge candidates using embedding similarity.
  * Returns entity pairs with high similarity that might be the same entity.
+ * Yields to event loop periodically to prevent blocking.
  */
 export async function findMergeCandidates(
   entities: EntityForReview[],
@@ -78,6 +79,8 @@ export async function findMergeCandidates(
     similarity: number;
   }> = [];
 
+  let iterationCount = 0;
+
   for (let i = 0; i < entities.length; i++) {
     const entity1 = entities[i];
     if (!entity1.embedding) continue;
@@ -92,6 +95,10 @@ export async function findMergeCandidates(
       const similarity = cosineSimilarity(entity1.embedding, entity2.embedding);
       if (similarity >= similarityThreshold) {
         candidates.push({ entity1, entity2, similarity });
+      }
+
+      if (++iterationCount % 100 === 0) {
+        await new Promise((resolve) => setImmediate(resolve));
       }
     }
   }
@@ -217,9 +224,11 @@ export async function buildReviewRegistry(
   const registry: EntityForReview[] = [];
 
   for (const node of nodes) {
-    const facets = await graphService.getFacetsForEntity(node.id);
-    const mentionCount = await mentionService.getMentionCount(node.id);
-    const embedding = await graphService.getNodeEmbedding(node.id);
+    const [facets, mentionCount, embedding] = await Promise.all([
+      graphService.getFacetsForEntity(node.id),
+      mentionService.getMentionCount(node.id),
+      graphService.getNodeEmbedding(node.id),
+    ]);
 
     registry.push({
       id: node.id,

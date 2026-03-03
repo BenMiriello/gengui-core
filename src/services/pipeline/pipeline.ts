@@ -719,9 +719,11 @@ export const multiStagePipeline = {
         for (const node of existingNodes) {
           if (runtimeRegistry.entries.has(node.id)) continue;
 
-          const facets = await graphService.getFacetsForEntity(node.id);
-          const mentionCount = await mentionService.getMentionCount(node.id);
-          const embedding = await graphService.getNodeEmbedding(node.id);
+          const [facets, mentionCount, embedding] = await Promise.all([
+            graphService.getFacetsForEntity(node.id),
+            mentionService.getMentionCount(node.id),
+            graphService.getNodeEmbedding(node.id),
+          ]);
 
           runtimeRegistry.entries.set(node.id, {
             registryIndex: runtimeRegistry.nextIndex++,
