@@ -83,6 +83,8 @@ export class AuthService {
       username: user.username,
       role: user.role,
       emailVerified: user.emailVerified,
+      oauthProvider: user.oauthProvider ?? null,
+      hasPassword: !!user.passwordHash,
     };
   }
 
@@ -204,6 +206,8 @@ export class AuthService {
       username: user.username,
       role: user.role,
       emailVerified: user.emailVerified ?? false,
+      oauthProvider: user.oauthProvider ?? null,
+      hasPassword: !!user.passwordHash,
     };
   }
 
@@ -272,6 +276,8 @@ export class AuthService {
       defaultImageHeight: user.defaultImageHeight ?? 1024,
       defaultStylePreset: user.defaultStylePreset ?? null,
       hiddenPresetIds: user.hiddenPresetIds ?? [],
+      oauthProvider: user.oauthProvider ?? null,
+      hasPassword: !!user.passwordHash,
     };
   }
 
@@ -813,6 +819,38 @@ export class AuthService {
     await db.delete(sessions).where(eq(sessions.userId, resetToken.userId));
 
     logger.info({ userId: resetToken.userId }, 'Password reset completed');
+  }
+
+  async setPasswordForOAuthUser(userId: string, password: string) {
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    if (!user) {
+      throw new UnauthorizedError('User not found');
+    }
+
+    if (user.passwordHash) {
+      throw new ConflictError(
+        'User already has password, use password change endpoint',
+      );
+    }
+
+    const passwordValidation = validatePassword(password);
+    if (!passwordValidation.valid) {
+      throw new ConflictError(passwordValidation.errors.join(', '));
+    }
+
+    const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+
+    await db
+      .update(users)
+      .set({ passwordHash })
+      .where(eq(users.id, userId));
+
+    logger.info({ userId }, 'Password set for OAuth user');
   }
 }
 

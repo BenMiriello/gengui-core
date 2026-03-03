@@ -14,6 +14,9 @@ import {
 } from '../middleware/rateLimiter';
 import { authService } from '../services/auth';
 import { usageService } from '../services/usage';
+import { passport } from '../config/passport';
+import { oauthService } from '../services/auth/oauth';
+import type { OAuthProfile } from '../services/auth/oauth.types';
 
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -366,6 +369,138 @@ router.post(
       }
 
       await authService.resetPassword(token, password);
+
+      return res.json({ success: true });
+    } catch (error) {
+      return next(error);
+    }
+  },
+);
+
+router.get(
+  '/auth/google',
+  passport.authenticate('google', {
+    scope: ['profile', 'email'],
+    session: false,
+  }),
+);
+
+router.get(
+  '/auth/google/callback',
+  passport.authenticate('google', {
+    session: false,
+    failureRedirect: '/login?error=oauth_failed',
+  }),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) {
+        const pendingProfile = (req.authInfo as any)?.pendingProfile;
+
+        res.cookie('pendingOAuthProfile', JSON.stringify(pendingProfile), {
+          httpOnly: true,
+          secure: env.NODE_ENV === 'production',
+          signed: true,
+          maxAge: 10 * 60 * 1000,
+        });
+
+        if (!env.FRONTEND_URL) {
+          logger.error('FRONTEND_URL not set in environment');
+          return res.status(500).json({ error: 'Server configuration error' });
+        }
+        return res.redirect(`${env.FRONTEND_URL}/auth/link-confirm`);
+      }
+
+      const ipAddress =
+        req.ip || (req.headers['x-forwarded-for'] as string) || undefined;
+      const userAgent = req.headers['user-agent'];
+      const session = await authService.createSession(
+        (req.user as any).id,
+        ipAddress,
+        userAgent,
+      );
+
+      res.cookie('sessionToken', session.token, {
+        httpOnly: true,
+        secure: env.NODE_ENV === 'production',
+        sameSite: env.NODE_ENV === 'production' ? 'none' : 'lax',
+        maxAge: ONE_WEEK_MS,
+      });
+
+      if (!env.FRONTEND_URL) {
+        logger.error('FRONTEND_URL not set in environment');
+        return res.status(500).json({ error: 'Server configuration error' });
+      }
+      return res.redirect(env.FRONTEND_URL);
+    } catch (error) {
+      return next(error);
+    }
+  },
+);
+
+router.post(
+  '/auth/link-google-with-password',
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { password } = req.body;
+      const pendingProfile = req.signedCookies.pendingOAuthProfile;
+
+      if (!pendingProfile) {
+        return res.status(400).json({
+          error: 'NO_PENDING_OAUTH_PROFILE',
+        });
+      }
+
+      if (!password) {
+        return res.status(400).json({
+          error: 'PASSWORD_REQUIRED',
+        });
+      }
+
+      const profile = JSON.parse(pendingProfile) as OAuthProfile;
+      const user = await oauthService.linkWithPasswordConfirmation(
+        profile.email,
+        password,
+        profile,
+      );
+
+      res.clearCookie('pendingOAuthProfile');
+
+      const ipAddress =
+        req.ip || (req.headers['x-forwarded-for'] as string) || undefined;
+      const userAgent = req.headers['user-agent'];
+      const session = await authService.createSession(
+        user.id,
+        ipAddress,
+        userAgent,
+      );
+
+      res.cookie('sessionToken', session.token, {
+        httpOnly: true,
+        secure: env.NODE_ENV === 'production',
+        sameSite: env.NODE_ENV === 'production' ? 'none' : 'lax',
+        maxAge: ONE_WEEK_MS,
+      });
+
+      return res.json({ user });
+    } catch (error) {
+      return next(error);
+    }
+  },
+);
+
+router.post(
+  '/auth/set-password',
+  requireAuth,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user!.id;
+      const { password } = req.body;
+
+      if (!password) {
+        return res.status(400).json({ error: 'PASSWORD_REQUIRED' });
+      }
+
+      await authService.setPasswordForOAuthUser(userId, password);
 
       return res.json({ success: true });
     } catch (error) {

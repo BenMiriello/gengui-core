@@ -46,8 +46,38 @@ const envSchema = z
     RUNPOD_API_KEY: z.string().optional(),
     RUNPOD_ENDPOINT_ID: z.string().optional(),
 
-    FRONTEND_URL: z.string().optional(),
+    FRONTEND_URL: z.string().url(),
+
+    // Google OAuth
+    GOOGLE_CLIENT_ID: z.string().optional(),
+    GOOGLE_CLIENT_SECRET: z.string().optional(),
+    GOOGLE_CALLBACK_URL: z.string().url().optional(),
+
+    // Cookie signing (for signed cookies like pendingOAuthProfile)
+    COOKIE_SECRET: z.string().optional(),
   })
+  .refine(
+    (data) => {
+      // If any OAuth var is set, all must be set
+      const oauthVars = [
+        data.GOOGLE_CLIENT_ID,
+        data.GOOGLE_CLIENT_SECRET,
+        data.GOOGLE_CALLBACK_URL,
+        data.COOKIE_SECRET,
+      ];
+      const someSet = oauthVars.some((v) => v);
+      const allSet = oauthVars.every((v) => v);
+
+      if (someSet && !allSet) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message:
+        'If OAuth is configured, all OAuth variables must be set (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_CALLBACK_URL, COOKIE_SECRET)',
+    },
+  )
   .refine(
     (data) => {
       if (data.TEXT_INFERENCE_PROVIDER === 'gemini' && !data.GEMINI_API_KEY) {

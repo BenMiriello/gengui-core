@@ -3,6 +3,7 @@ import cors from 'cors';
 import express from 'express';
 import helmet from 'helmet';
 import { env } from './config/env';
+import { passport } from './config/passport';
 import { errorHandler } from './middleware/errorHandler';
 import { requestLogger } from './middleware/requestLogger';
 import adminRoutes from './routes/admin';
@@ -51,7 +52,8 @@ export function createApp() {
   // Large document support - default 100KB is too small for narrative documents
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-  app.use(cookieParser());
+  app.use(cookieParser(process.env.COOKIE_SECRET || 'dev-secret'));
+  app.use(passport.initialize());
 
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok' });
