@@ -6,6 +6,7 @@ import {
 } from 'express';
 import { env } from '../config/env';
 import { requireAuth } from '../middleware/auth';
+import { logger } from '../utils/logger';
 import {
   authRateLimiter,
   emailVerificationRateLimiter,
