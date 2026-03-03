@@ -36,6 +36,16 @@ import {
 } from '../contextBudget';
 // TODO: Re-enable when review queue UI is built and conflict detection is fixed
 // import { reviewQueueService } from '../reviewQueue';
+import {
+  changeLogService,
+  createTrackedArc,
+  createTrackedEdge,
+  createTrackedEntity,
+  createTrackedFacet,
+  createTrackedState,
+  createTrackedStateTransition,
+  createTrackedThread,
+} from '../changelog';
 import { descriptionService } from '../descriptionGeneration';
 import { generateEmbedding, generateEmbeddings } from '../embeddings';
 import {
@@ -277,6 +287,9 @@ function buildEntityRegistryForPrompt(
           ? [...new Set([...e.aliases, ...nameFacets])]
           : undefined,
       summary: traitFacets.length > 0 ? traitFacets.join('; ') : undefined,
+      segmentIndices: e.segmentIndices.size > 0
+        ? Array.from(e.segmentIndices).sort((a, b) => a - b)
+        : undefined,
     };
   });
 }
@@ -1152,6 +1165,7 @@ export const multiStagePipeline = {
 
     if (shouldRunStage(checkpoint, 4)) {
       const stage4StartTime = Date.now();
+      const stage4BatchId = changeLogService.generateBatchId();
       await checkForInterruption(documentId);
       broadcast(4, extractedEntities.length);
       logStageStart(childLogger, 4, 'Entity Resolution', {
@@ -1263,7 +1277,7 @@ export const multiStagePipeline = {
 
         if (!isExistingEntity) {
           // Create new entity
-          const { created } = await graphService.createStoryNodeIdempotent(
+          const { created } = await createTrackedEntity(
             documentId,
             userId,
             {
@@ -1277,6 +1291,7 @@ export const multiStagePipeline = {
               stylePrompt: documentStyle?.prompt,
               existingId: entityId,
             },
+            { batchId: stage4BatchId },
           );
 
           if (created) {
@@ -1292,7 +1307,10 @@ export const multiStagePipeline = {
                 },
                 'Generated facet embedding',
               );
-              await graphService.createFacet(entityId, facet, facetEmbedding);
+              await createTrackedFacet(entityId, facet, facetEmbedding, {
+                batchId: stage4BatchId,
+                entityName: primaryName,
+              });
             }
 
             // Ensure at least one name facet exists (auto-create from primary name)
@@ -1311,11 +1329,10 @@ export const multiStagePipeline = {
                 },
                 'Generated name facet embedding (auto-created)',
               );
-              await graphService.createFacet(
-                entityId,
-                nameFacet,
-                facetEmbedding,
-              );
+              await createTrackedFacet(entityId, nameFacet, facetEmbedding, {
+                batchId: stage4BatchId,
+                entityName: primaryName,
+              });
               logger.debug(
                 { entityId, entityName: primaryName },
                 'Auto-created name facet from primary name',
@@ -1355,7 +1372,10 @@ export const multiStagePipeline = {
                 },
                 'Generated facet embedding for existing entity',
               );
-              await graphService.createFacet(entityId, facet, facetEmbedding);
+              await createTrackedFacet(entityId, facet, facetEmbedding, {
+                batchId: stage4BatchId,
+                entityName: primaryName,
+              });
               if (facet.type === 'name') {
                 addedNameFacet = true;
               }
@@ -1434,6 +1454,7 @@ export const multiStagePipeline = {
 
     // Stages 5 & 6: Relationship Extraction (parallel)
     const allRelationships: Stage4RelationshipsResult['relationships'] = [];
+    const stage5And6BatchId = changeLogService.generateBatchId();
 
     // Run Stages 5 and 6 in parallel if both need to run
     const needsStage5 = shouldRunStage(checkpoint, 5);
@@ -1700,12 +1721,13 @@ export const multiStagePipeline = {
       // Write all relationships to graph (idempotent)
       for (const rel of allRelationships) {
         try {
-          await graphService.createStoryConnectionIdempotent(
+          await createTrackedEdge(
             rel.fromId,
             rel.toId,
             rel.edgeType as StoryEdgeType,
             rel.description,
             { strength: rel.strength },
+            { batchId: stage5And6BatchId },
           );
         } catch (err: any) {
           if (!err?.message?.includes('would create a cycle')) {
@@ -1730,6 +1752,7 @@ export const multiStagePipeline = {
 
     // Stage 7: Higher-Order Analysis
     let higherOrderResult: Stage5HigherOrderResult | null = null;
+    const stage7BatchId = changeLogService.generateBatchId();
 
     if (shouldRunStage(checkpoint, 7)) {
       const stage7StartTime = Date.now();
@@ -1845,16 +1868,16 @@ export const multiStagePipeline = {
 
         // Create narrative threads (idempotent)
         for (const thread of higherOrderResult.narrativeThreads) {
-          const { id: threadId, created } =
-            await graphService.createNarrativeThreadIdempotent(
-              documentId,
-              userId,
-              {
-                name: thread.name,
-                isPrimary: thread.isPrimary,
-                eventNames: [],
-              },
-            );
+          const { id: threadId, created } = await createTrackedThread(
+            documentId,
+            userId,
+            {
+              name: thread.name,
+              isPrimary: thread.isPrimary,
+              eventNames: [],
+            },
+            { batchId: stage7BatchId },
+          );
 
           if (created) {
             for (const [i, eventId] of thread.eventIds.entries()) {
@@ -1874,6 +1897,7 @@ export const multiStagePipeline = {
             userId,
             entityIdByName,
             events,
+            stage7BatchId,
           );
         }
       }
@@ -1899,6 +1923,7 @@ export const multiStagePipeline = {
     }
 
     // Stage 8: CharacterState facet attachment
+    const stage8BatchId = changeLogService.generateBatchId();
     if (shouldRunStage(checkpoint, 8)) {
       const stage8StartTime = Date.now();
       await checkForInterruption(documentId);
@@ -1907,7 +1932,12 @@ export const multiStagePipeline = {
         entityCount: entityIdByName.size,
       });
 
-      await processStateFacetAttachment(documentId, userId, entityIdByName);
+      await processStateFacetAttachment(
+        documentId,
+        userId,
+        entityIdByName,
+        stage8BatchId,
+      );
 
       const stage8DurationMs = Date.now() - stage8StartTime;
       logStageComplete(
@@ -2062,6 +2092,7 @@ async function processCharacterArcs(
   userId: string,
   _entityIdByName: Map<string, string>,
   events: Array<{ id: string; documentOrder: number }>,
+  batchId: string,
 ): Promise<void> {
   // Group phases by characterId
   const phasesByCharacter = new Map<string, typeof arcPhases>();
@@ -2082,13 +2113,14 @@ async function processCharacterArcs(
     const arcType = phases[0].arcType;
 
     // Create the Arc node
-    const arcId = await graphService.createArc(
+    const arcId = await createTrackedArc(
       characterId,
       documentId,
       userId,
       {
         arcType,
       },
+      { batchId },
     );
 
     // Create CharacterState nodes for each phase
@@ -2108,7 +2140,7 @@ async function processCharacterArcs(
       }
 
       // Create CharacterState node
-      const stateId = await graphService.createCharacterState(
+      const stateId = await createTrackedState(
         characterId,
         documentId,
         userId,
@@ -2118,6 +2150,7 @@ async function processCharacterArcs(
           documentOrder,
           causalOrder,
         },
+        { batchId },
       );
 
       stateIds.push(stateId);
@@ -2165,10 +2198,15 @@ async function processCharacterArcs(
       const toStateId = stateIds[i + 1];
       const toPhase = phases[i + 1];
 
-      await graphService.createChangesToEdge(fromStateId, toStateId, {
-        triggerEventId: toPhase.triggerEventId,
-        gapDetected: toPhase.triggerEventId === null && i > 0,
-      });
+      await createTrackedStateTransition(
+        fromStateId,
+        toStateId,
+        {
+          triggerEventId: toPhase.triggerEventId,
+          gapDetected: toPhase.triggerEventId === null && i > 0,
+        },
+        { batchId, characterId },
+      );
     }
 
     logger.info(
@@ -2199,6 +2237,7 @@ async function processStateFacetAttachment(
   documentId: string,
   userId: string,
   _entityIdByName: Map<string, string>,
+  batchId: string,
 ): Promise<void> {
   // Get document segments for position calculations
   const [doc] = await db
@@ -2234,7 +2273,7 @@ async function processStateFacetAttachment(
 
     if (existingStates.length === 0) {
       // No states exist - create a default CharacterState
-      const stateId = await graphService.createCharacterState(
+      const stateId = await createTrackedState(
         character.id,
         documentId,
         userId,
@@ -2244,6 +2283,7 @@ async function processStateFacetAttachment(
           documentOrder: 0,
           causalOrder: 0,
         },
+        { batchId, characterName: character.name },
       );
 
       // Link character to this state

@@ -275,6 +275,7 @@ export interface EntityRegistryEntry {
   type: string;
   aliases?: string[];
   summary?: string;
+  segmentIndices?: number[];
 }
 
 /** Existing match from LLM merge detection */
@@ -417,6 +418,7 @@ export async function extractEntitiesFromBatch(
               responseMimeType: 'application/json',
               responseJsonSchema: stage1ExtractEntitiesSchema,
               maxOutputTokens,
+              temperature: 0,
               httpOptions: { timeout: 300000 },
               thinkingConfig: { thinkingBudget: 0 },
             },

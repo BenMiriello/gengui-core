@@ -14,15 +14,7 @@
  */
 
 import type { PromptDefinition } from '../types';
-
-interface EntityRegistryEntry {
-  registryIndex: number;
-  id: string;
-  name: string;
-  type: string;
-  aliases?: string[];
-  summary?: string;
-}
+import type { EntityRegistryEntry } from '../../services/gemini/client';
 
 interface SegmentInput {
   id: string;
@@ -102,6 +94,33 @@ function formatSegments(
 }
 
 /**
+ * Format event chain for prompt inclusion.
+ * Shows previous events in document order.
+ */
+function formatEventChain(registry: EntityRegistryEntry[]): string {
+  const events = registry
+    .filter(e => e.type === 'event' && e.segmentIndices && e.segmentIndices.length > 0)
+    .map(e => ({
+      name: e.name,
+      segmentIndex: Math.min(...e.segmentIndices!)
+    }))
+    .sort((a, b) => a.segmentIndex - b.segmentIndex);
+
+  if (events.length === 0) {
+    return '';
+  }
+
+  const eventLines = events.map(e => `- "${e.name}" (segment ${e.segmentIndex + 1})`);
+
+  return `
+## PREVIOUS EVENTS (Document Order)
+${eventLines.join('\n')}
+
+Use this to understand what has happened earlier in the narrative.
+`;
+}
+
+/**
  * Stage 2 prompt with LLM-first merge detection.
  * Supports batch extraction of multiple segments.
  */
@@ -170,6 +189,8 @@ ${overlapSegmentText}
 `
       : '';
 
+    const eventChainSection = formatEventChain(entityRegistry || []);
+
     const segmentWord = segments.length === 1 ? 'segment' : 'segments';
     const segmentIndices = segments.map((s) => s.index + 1).join(', ');
 
@@ -182,6 +203,7 @@ ${overlapSegmentText}
 ${documentSummarySection}
 ${summariesSection}
 ${registrySection}
+${eventChainSection}
 ${overlapSection}
 ## SEGMENTS TO EXTRACT FROM (${segmentWord} ${segmentIndices} of ${totalSegments})
 
@@ -264,12 +286,9 @@ existingMatch confidence levels:
 - **location**: Places, settings, environments, buildings
 - **event**: Actions, occurrences, and happenings that drive the narrative forward
   Include: arrivals/departures, meetings, discoveries, battles, decisions, conversations, ceremonies, deaths, births
-  Extract BOTH major and minor plot events:
-  - Major: "the battle at Helm's Deep", "Dracula's arrival in England", "the wedding"
-  - Minor: "Jonathan leaves Munich", "they meet at the inn", "the letter arrives"
+  Extract BOTH major plot-driving events and minor transitional events
   Always set documentOrder to preserve narrative sequence
-  Name events as noun phrases describing the action: "the journey to Vienna", "the discovery of the tomb"
-  Target: 2-5 events per segment with significant action
+  Name events as noun phrases describing the action
 - **concept**: Themes, motifs, abstract forces
 - **other**: Objects, artifacts, items of narrative significance
 
@@ -284,36 +303,7 @@ existingMatch confidence levels:
 8. If you find NO potential merges, omit mergeSignals or return empty array
 9. Entities appearing in multiple segments should have one entry per segment
 
-## COUNT CHECK (verify before submitting)
-For a typical narrative segment, you should produce:
-- 5-15 entities per segment (characters, locations, events combined)
-- At least 2-5 EVENT entities per segment with action
-- 25-75 facets total (avg 5-7 per entity)
-- 15-30 mentions (avg 2-3 per entity)
-
-MINIMUM REQUIREMENTS (must meet these):
-- Each CHARACTER must have at least 1 appearance facet
-- Characters with titles/aliases MUST have at least 1 name facet (e.g., "Count" -> name facet "Count Dracula")
-- Each EVENT must have documentOrder set to preserve sequence
-- Each entity MUST have at least 2 facets total
-- Named characters MUST have at least 3 facets
-
-If your counts are significantly lower, re-read the segment and extract more detail.
-
-## QUALITY CHECKLIST
-Before submitting, verify:
-- Did you check EVERY extracted entity against the registry?
-- Did you extract ALL characters mentioned in each segment?
-- Did you extract ALL events (actions, arrivals, departures, meetings, discoveries)?
-- Did you set documentOrder for all events to preserve sequence?
-- Did you capture appearance details (explicit AND inferred)?
-- Did you note any temporary states (injured, disguised, etc.)?
-- Are your mentions exact quotes from the text?
-- Did you consider whether descriptive phrases ("the driver") match named entities?
-- Does every entity/facet/mention have the correct segmentId?
-- Does each character have at least 1 appearance facet?
-- Does each event have documentOrder set?
-- Does each entity have at least 2 facets?`;
+Extract all entities with complete facets and exact mentions. Ensure every entity/facet/mention has the correct segmentId.`;
   },
 };
 
