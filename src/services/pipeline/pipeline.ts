@@ -1685,7 +1685,10 @@ export const multiStagePipeline = {
                   doc?.summary ?? documentTitle
                     ? `Document: "${documentTitle}"`
                     : undefined,
-                  items,
+                  items.map((item) => ({
+                    ...item,
+                    segmentIds: item.segmentIds ?? [],
+                  })),
                   [],
                   userId,
                   documentId,

@@ -39,12 +39,12 @@ if (env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.GOOGLE_CALLBACK_URL)
           }
 
           if (result.action === 'login') {
-            return done(null, result.user);
+            return done(null, result.user as any);
           }
 
           if (result.action === 'link') {
             await oauthService.linkOAuthToUser(result.user!.id, oauthProfile);
-            return done(null, result.user);
+            return done(null, result.user as any);
           }
 
           if (result.action === 'confirm_password') {

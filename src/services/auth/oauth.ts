@@ -100,6 +100,12 @@ export class OAuthService {
       username: user.username,
       role: user.role,
       emailVerified: user.emailVerified,
+      createdAt: user.createdAt?.toISOString() ?? new Date().toISOString(),
+      pendingEmail: user.pendingEmail ?? null,
+      defaultImageWidth: user.defaultImageWidth ?? 1024,
+      defaultImageHeight: user.defaultImageHeight ?? 1024,
+      defaultStylePreset: user.defaultStylePreset ?? null,
+      hiddenPresetIds: user.hiddenPresetIds ?? [],
       oauthProvider: user.oauthProvider ?? null,
       hasPassword: !!user.passwordHash,
     };

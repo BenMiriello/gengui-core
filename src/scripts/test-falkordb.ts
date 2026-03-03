@@ -76,7 +76,7 @@ async function main() {
 
     // Test 4: Graph info
     console.log('4. Getting graph info...');
-    const info = await getGraphInfo();
+    await getGraphInfo();
     console.log(`   ✓ Graph info retrieved\n`);
 
     console.log('All tests passed! FalkorDB utility is working autonomously.\n');
