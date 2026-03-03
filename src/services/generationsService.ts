@@ -1,12 +1,12 @@
 import { and, eq } from 'drizzle-orm';
 import { db } from '../config/database';
+import { jobService } from '../jobs';
 import { documentMedia, documents, media } from '../models/schema';
 import { notDeleted } from '../utils/db';
 import { NotFoundError } from '../utils/errors';
 import { logger } from '../utils/logger';
 import { getImageProvider } from './image-generation/factory';
 import { redis } from './redis';
-import { redisStreams } from './redis-streams';
 import { runpodClient } from './runpod/client';
 
 export interface CharacterReferences {
@@ -159,7 +159,7 @@ export class GenerationsService {
     try {
       // Check if augmentation is enabled
       if (request.promptEnhancement?.enabled) {
-        // Augmentation flow: Queue to prompt-augmentation:stream
+        // Augmentation flow: Create prompt_augmentation job
         if (
           !request.documentId ||
           request.startChar === undefined ||
@@ -170,18 +170,23 @@ export class GenerationsService {
           );
         }
 
-        await redisStreams.add('prompt-augmentation:stream', {
-          mediaId: newMedia.id,
+        await jobService.create({
+          type: 'prompt_augmentation',
+          targetType: 'media',
+          targetId: newMedia.id,
           userId,
-          documentId: request.documentId,
-          selectedText: request.sourceText || request.prompt,
-          startChar: request.startChar.toString(),
-          endChar: request.endChar.toString(),
-          settings: JSON.stringify(request.promptEnhancement),
-          stylePrompt: stylePrompt || '',
-          seed: seed.toString(),
-          width: width.toString(),
-          height: height.toString(),
+          payload: {
+            mediaId: newMedia.id,
+            documentId: request.documentId,
+            selectedText: request.sourceText || request.prompt,
+            startChar: request.startChar,
+            endChar: request.endChar,
+            settings: request.promptEnhancement,
+            stylePrompt: stylePrompt || '',
+            seed,
+            width,
+            height,
+          },
         });
 
         // Track augmentation for rate limiting

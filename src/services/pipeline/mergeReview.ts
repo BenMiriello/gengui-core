@@ -10,8 +10,8 @@
  * 2. Post-extraction: Global review of uncertain merges
  */
 
+import { cpuPool } from '../../lib/cpu-pool';
 import { logger } from '../../utils/logger';
-import { cosineSimilarity } from '../entityResolution';
 import { graphService } from '../graph/graph.service';
 import { mentionService } from '../mentions';
 
@@ -61,7 +61,7 @@ export interface MergeAction {
 /**
  * Find potential merge candidates using embedding similarity.
  * Returns entity pairs with high similarity that might be the same entity.
- * Yields to event loop periodically to prevent blocking.
+ * Runs in worker thread to prevent blocking event loop.
  */
 export async function findMergeCandidates(
   entities: EntityForReview[],
@@ -73,37 +73,20 @@ export async function findMergeCandidates(
     similarity: number;
   }>
 > {
-  const candidates: Array<{
-    entity1: EntityForReview;
-    entity2: EntityForReview;
-    similarity: number;
-  }> = [];
+  const embeddings = entities.map((e) => e.embedding || null);
+  const types = entities.map((e) => e.type);
 
-  let iterationCount = 0;
+  const candidates = await cpuPool.findMergeCandidates(
+    embeddings,
+    types,
+    similarityThreshold,
+  );
 
-  for (let i = 0; i < entities.length; i++) {
-    const entity1 = entities[i];
-    if (!entity1.embedding) continue;
-
-    for (let j = i + 1; j < entities.length; j++) {
-      const entity2 = entities[j];
-      if (!entity2.embedding) continue;
-
-      // Skip different types
-      if (entity1.type !== entity2.type) continue;
-
-      const similarity = cosineSimilarity(entity1.embedding, entity2.embedding);
-      if (similarity >= similarityThreshold) {
-        candidates.push({ entity1, entity2, similarity });
-      }
-
-      if (++iterationCount % 100 === 0) {
-        await new Promise((resolve) => setImmediate(resolve));
-      }
-    }
-  }
-
-  return candidates.sort((a, b) => b.similarity - a.similarity);
+  return candidates.map((c) => ({
+    entity1: entities[c.index1],
+    entity2: entities[c.index2],
+    similarity: c.similarity,
+  }));
 }
 
 /**

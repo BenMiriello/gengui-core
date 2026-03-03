@@ -6,6 +6,7 @@
  * multiple ways (e.g., "Harry Potter", "Harry", "Potter", "The Boy Who Lived").
  */
 
+import { cpuPool } from '../../lib/cpu-pool';
 import type { FacetInput } from '../../types/storyNodes';
 import { cosineSimilarity, scoreNameSimilarity } from './scoring';
 import type {
@@ -196,15 +197,14 @@ export function clusterBySegment(
 /**
  * Cluster entities across all segments.
  * First clusters within segments, then merges clusters across segments.
+ * Offloads O(n²) embedding similarity to worker thread.
  */
-export function clusterAcrossSegments(
+export async function clusterAcrossSegments(
   entities: EntityCandidate[],
   thresholds: ResolutionThresholds = DEFAULT_THRESHOLDS,
-): EntityCluster[] {
-  // First, cluster within each segment
+): Promise<EntityCluster[]> {
   const bySegment = clusterBySegment(entities, thresholds);
 
-  // Flatten all clusters
   const allClusters: EntityCluster[] = [];
   for (const clusters of bySegment.values()) {
     allClusters.push(...clusters);
@@ -212,47 +212,60 @@ export function clusterAcrossSegments(
 
   if (allClusters.length <= 1) return allClusters;
 
-  // Try to merge clusters across segments (higher threshold)
-  const mergedClusters: EntityCluster[] = [];
-  const crossSegmentThreshold = thresholds.withinSegment + 0.1; // Stricter for cross-segment
+  const crossSegmentThreshold = thresholds.withinSegment + 0.1;
 
-  for (const cluster of allClusters) {
-    let merged = false;
+  // Offload embedding similarity to worker thread
+  const embeddings = allClusters.map((c) => c.mergedEmbedding);
+  const types = allClusters.map((c) => c.type);
+  const embeddingThreshold = crossSegmentThreshold * 0.4;
 
-    for (const existing of mergedClusters) {
-      if (existing.type !== cluster.type) continue;
+  const similarPairs = await cpuPool.findMergeCandidates(
+    embeddings,
+    types,
+    embeddingThreshold,
+  );
 
-      // Check similarity between clusters using representative members
-      const sim = cosineSimilarity(
-        cluster.mergedEmbedding,
-        existing.mergedEmbedding,
-      );
-      const nameSim = scoreNameSimilarity(
-        cluster.primaryName,
-        existing.primaryName,
-        existing.aliases,
-      );
-      const combinedSim = sim * 0.4 + nameSim * 0.6;
+  // Build merge candidates with name similarity (lightweight, main thread)
+  const mergeTargets = new Map<number, number>();
 
-      if (combinedSim > crossSegmentThreshold) {
-        // Merge clusters
-        existing.members.push(...cluster.members);
-        existing.aliases.push(...cluster.aliases);
-        existing.mentions.push(...cluster.mentions);
-        existing.segmentIds.push(
-          ...cluster.segmentIds.filter((s) => !existing.segmentIds.includes(s)),
-        );
-        merged = true;
-        break;
-      }
-    }
+  for (const pair of similarPairs) {
+    if (mergeTargets.has(pair.index2)) continue;
 
-    if (!merged) {
-      mergedClusters.push({ ...cluster });
+    const cluster1 = allClusters[pair.index1];
+    const cluster2 = allClusters[pair.index2];
+
+    const nameSim = scoreNameSimilarity(
+      cluster2.primaryName,
+      cluster1.primaryName,
+      cluster1.aliases,
+    );
+    const combinedSim = pair.similarity * 0.4 + nameSim * 0.6;
+
+    if (combinedSim > crossSegmentThreshold) {
+      mergeTargets.set(pair.index2, pair.index1);
     }
   }
 
-  // Finalize merged clusters
+  // Apply merges
+  const mergedClusters: EntityCluster[] = [];
+
+  for (let i = 0; i < allClusters.length; i++) {
+    const targetIdx = mergeTargets.get(i);
+
+    if (targetIdx !== undefined) {
+      const target = allClusters[targetIdx];
+      const source = allClusters[i];
+      target.members.push(...source.members);
+      target.aliases.push(...source.aliases);
+      target.mentions.push(...source.mentions);
+      target.segmentIds.push(
+        ...source.segmentIds.filter((s) => !target.segmentIds.includes(s)),
+      );
+    } else if (!mergeTargets.has(i)) {
+      mergedClusters.push({ ...allClusters[i] });
+    }
+  }
+
   return mergedClusters.map((cluster) => ({
     ...cluster,
     primaryName: selectPrimaryName(cluster.members),

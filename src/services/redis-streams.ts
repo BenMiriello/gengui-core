@@ -3,13 +3,13 @@ import { logger } from '../utils/logger';
 import { redis } from './redis';
 
 /**
- * Redis Streams utility for job queue operations
+ * Redis Streams utility for job queue operations.
  *
  * ProducerStreams: ONLY non-blocking operations on SHARED client (add, ack, metrics)
- * ConsumerStreams: Extends ProducerStreams, adds blocking consume() for DEDICATED clients
  *
- * Type safety guarantee: redisStreams singleton is typed as ProducerStreams,
- * so calling .consume() on it will produce a compile-time error.
+ * Note: Consuming is now handled by job workers using database polling with
+ * SELECT FOR UPDATE SKIP LOCKED. Redis pub/sub is used only for notifications
+ * to reduce polling latency.
  */
 
 export interface StreamMessage {
@@ -21,9 +21,9 @@ export interface StreamMessage {
  * Producer-only streams using SHARED Redis client.
  * ONLY non-blocking operations: add(), ack(), getPending(), getInfo()
  *
- * Use this for services that only produce messages to streams.
- * The singleton `redisStreams` is typed as ProducerStreams to prevent
- * accidental blocking operations on the shared client.
+ * Used for:
+ * - Adding jobs to streams (consumed by external services like inference-worker)
+ * - Pub/sub notifications for job workers
  */
 export class ProducerStreams {
   protected client: Redis;
@@ -53,9 +53,9 @@ export class ProducerStreams {
       );
       logger.info({ streamName, groupName }, 'Created consumer group');
       this.ensuredGroups.add(key);
-    } catch (error: any) {
-      // BUSYGROUP error means group already exists - this is fine
-      if (error.message?.includes('BUSYGROUP')) {
+    } catch (error: unknown) {
+      const err = error as Error;
+      if (err.message?.includes('BUSYGROUP')) {
         logger.debug(
           { streamName, groupName },
           'Consumer group already exists',
@@ -116,18 +116,6 @@ export class ProducerStreams {
   }
 
   /**
-   * Parse stream entry fields from array format to object
-   * Redis returns fields as [key1, value1, key2, value2, ...]
-   */
-  protected parseFields(fields: string[]): Record<string, string> {
-    const result: Record<string, string> = {};
-    for (let i = 0; i < fields.length; i += 2) {
-      result[fields[i]] = fields[i + 1];
-    }
-    return result;
-  }
-
-  /**
    * Get pending messages for a consumer group
    */
   async getPending(
@@ -137,13 +125,13 @@ export class ProducerStreams {
     count: number;
     minId: string | null;
     maxId: string | null;
-    consumers: any[];
+    consumers: unknown[];
   }> {
     const pending = (await this.client.xpending(streamName, groupName)) as [
       number,
       string | null,
       string | null,
-      any[],
+      unknown[],
     ];
     return {
       count: pending[0],
@@ -158,20 +146,20 @@ export class ProducerStreams {
    */
   async getInfo(streamName: string): Promise<{
     length: number;
-    firstEntry: any;
-    lastEntry: any;
+    firstEntry: unknown;
+    lastEntry: unknown;
   }> {
     const info = (await this.client.call(
       'XINFO',
       'STREAM',
       streamName,
-    )) as any[];
-    const infoMap: Record<string, any> = {};
+    )) as unknown[];
+    const infoMap: Record<string, unknown> = {};
     for (let i = 0; i < info.length; i += 2) {
-      infoMap[info[i]] = info[i + 1];
+      infoMap[info[i] as string] = info[i + 1];
     }
     return {
-      length: infoMap.length ?? 0,
+      length: (infoMap.length as number) ?? 0,
       firstEntry: infoMap['first-entry'],
       lastEntry: infoMap['last-entry'],
     };
@@ -190,14 +178,14 @@ export class ProducerStreams {
       'CONSUMERS',
       streamName,
       groupName,
-    )) as any[];
+    )) as unknown[][];
     for (const consumerArr of info) {
-      const consumerMap: Record<string, any> = {};
+      const consumerMap: Record<string, unknown> = {};
       for (let i = 0; i < consumerArr.length; i += 2) {
-        consumerMap[consumerArr[i]] = consumerArr[i + 1];
+        consumerMap[consumerArr[i] as string] = consumerArr[i + 1];
       }
       if (consumerMap.name === consumerName) {
-        return consumerMap.pending ?? 0;
+        return (consumerMap.pending as number) ?? 0;
       }
     }
     return 0;
@@ -205,95 +193,11 @@ export class ProducerStreams {
 }
 
 /**
- * Consumer streams requiring DEDICATED Redis client.
- * Inherits non-blocking operations from ProducerStreams, adds blocking consume()
+ * Singleton for producers - typed as ProducerStreams
  *
- * CRITICAL: This class MUST be used with a dedicated Redis client.
- * Never use the shared client for consuming - it will block ALL Redis operations.
- *
- * Recommended: Extend BlockingConsumer instead of instantiating this directly.
- */
-export class ConsumerStreams extends ProducerStreams {
-  /**
-   * Consume messages from a stream using consumer groups.
-   *
-   * @param options.block - Block time in ms. If undefined/null, returns immediately (non-blocking).
-   *                        Note: block=0 in Redis means "block forever", so we treat undefined as non-blocking.
-   *
-   * CRITICAL for blocking reads: Must use a dedicated Redis client, never the shared client.
-   */
-  async consume(
-    streamName: string,
-    groupName: string,
-    consumerName: string,
-    options: {
-      count?: number;
-      block?: number; // milliseconds, undefined = non-blocking
-    } = {},
-  ): Promise<StreamMessage | null> {
-    const { count = 1, block } = options;
-
-    try {
-      let result: [string, [string, string[]][]][] | null;
-
-      if (block !== undefined && block !== null) {
-        // Blocking read
-        result = (await this.client.xreadgroup(
-          'GROUP',
-          groupName,
-          consumerName,
-          'COUNT',
-          count,
-          'BLOCK',
-          block,
-          'STREAMS',
-          streamName,
-          '>',
-        )) as [string, [string, string[]][]][] | null;
-      } else {
-        // Non-blocking read (no BLOCK clause = return immediately)
-        result = (await this.client.xreadgroup(
-          'GROUP',
-          groupName,
-          consumerName,
-          'COUNT',
-          count,
-          'STREAMS',
-          streamName,
-          '>',
-        )) as [string, [string, string[]][]][] | null;
-      }
-
-      if (!result || result.length === 0) {
-        return null;
-      }
-
-      const [[, entries]] = result;
-      if (entries.length === 0) {
-        return null;
-      }
-
-      const [id, fields] = entries[0];
-      const data = this.parseFields(fields);
-
-      return { id, data };
-    } catch (error) {
-      logger.error(
-        { error, streamName, groupName, consumerName },
-        'Failed to consume from stream',
-      );
-      throw error;
-    }
-  }
-}
-
-/**
- * Singleton for producers - typed as ProducerStreams (no consume method)
- *
- * Attempting to call redisStreams.consume() will produce a TypeScript compile error:
- * TS2339: Property 'consume' does not exist on type 'ProducerStreams'
- *
- * For consuming, extend BlockingConsumer which provides a dedicated client + ConsumerStreams.
+ * Used for:
+ * - Adding to generation:stream (consumed by inference-worker)
+ * - Pub/sub notifications to job workers
  */
 export const redisStreams: ProducerStreams = new ProducerStreams(
   redis.getClient(),

@@ -7,7 +7,6 @@
 
 import Redis from 'ioredis';
 import {
-  queryGraph,
   queryGraphReadOnly,
   countNodes,
   countEdges,

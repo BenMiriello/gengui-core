@@ -12,13 +12,48 @@ interface BufferedEvent {
   event: string;
   data: any;
   timestamp: number;
+  ttlMs: number;
+}
+
+interface EventBufferConfig {
+  buffer: boolean;
+  ttlMs: number;
 }
 
 class SSEService {
   private clients: Map<string, SSEClient> = new Map();
   private eventBuffer: Map<string, BufferedEvent[]> = new Map();
   private readonly BUFFER_SIZE = 10;
-  private readonly BUFFER_TTL_MS = 300000; // 5 minutes
+  private readonly DEFAULT_TTL_MS = 30_000; // 30 seconds default
+
+  // Per-event buffer configuration
+  private readonly EVENT_CONFIG: Record<string, EventBufferConfig> = {
+    // Legacy analysis events (backwards compatibility)
+    'analysis-status-changed': { buffer: true, ttlMs: 30_000 },
+    'analysis-paused': { buffer: true, ttlMs: 30_000 },
+    'analysis-progress': { buffer: true, ttlMs: 10_000 },
+    'analysis-complete': { buffer: false, ttlMs: 0 },
+    'analysis-cancelled': { buffer: false, ttlMs: 0 },
+    'analysis-failed': { buffer: false, ttlMs: 0 },
+
+    // New job-based events
+    'job-status-changed': { buffer: true, ttlMs: 30_000 },
+    'job-progress': { buffer: true, ttlMs: 10_000 },
+    'job-paused': { buffer: true, ttlMs: 30_000 },
+    'job-completed': { buffer: false, ttlMs: 0 },
+    'job-cancelled': { buffer: false, ttlMs: 0 },
+    'job-failed': { buffer: false, ttlMs: 0 },
+
+    // Other events
+    'nodes-updated': { buffer: false, ttlMs: 0 },
+    'update-failed': { buffer: false, ttlMs: 0 },
+  };
+
+  private getEventConfig(event: string): EventBufferConfig {
+    return (
+      this.EVENT_CONFIG[event] ?? { buffer: true, ttlMs: this.DEFAULT_TTL_MS }
+    );
+  }
 
   /**
    * Add an SSE client subscribed to a channel
@@ -104,9 +139,7 @@ class SSEService {
     if (!buffer || buffer.length === 0) return;
 
     const now = Date.now();
-    const validEvents = buffer.filter(
-      (e) => now - e.timestamp < this.BUFFER_TTL_MS,
-    );
+    const validEvents = buffer.filter((e) => now - e.timestamp < e.ttlMs);
 
     if (validEvents.length === 0) {
       this.eventBuffer.delete(channel);
@@ -132,13 +165,13 @@ class SSEService {
   /**
    * Buffer an event for later replay to new clients
    */
-  private bufferEvent(channel: string, event: string, data: any) {
+  private bufferEvent(channel: string, event: string, data: any, ttlMs: number) {
     if (!this.eventBuffer.has(channel)) {
       this.eventBuffer.set(channel, []);
     }
 
     const buffer = this.eventBuffer.get(channel)!;
-    buffer.push({ event, data, timestamp: Date.now() });
+    buffer.push({ event, data, timestamp: Date.now(), ttlMs });
 
     // Trim to buffer size
     if (buffer.length > this.BUFFER_SIZE) {
@@ -150,8 +183,11 @@ class SSEService {
    * Broadcast an event to all clients subscribed to a channel
    */
   broadcast(channel: string, event: string, data: any) {
-    // Always buffer the event for late-joining clients
-    this.bufferEvent(channel, event, data);
+    const config = this.getEventConfig(event);
+
+    if (config.buffer) {
+      this.bufferEvent(channel, event, data, config.ttlMs);
+    }
 
     const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 

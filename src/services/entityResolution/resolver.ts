@@ -77,8 +77,8 @@ export async function resolveEntities(
   // Load phonetic matching library (async ESM import)
   await ensurePhoneticReady();
 
-  // Step 1: Cluster extracted entities
-  const clusters = clusterAcrossSegments(extractedEntities, config.thresholds);
+  // Step 1: Cluster extracted entities (async - offloads to worker)
+  const clusters = await clusterAcrossSegments(extractedEntities, config.thresholds);
 
   logger.info(
     {

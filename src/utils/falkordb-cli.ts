@@ -43,7 +43,7 @@ export async function queryGraph(query: string): Promise<unknown> {
     const result = await client.call('GRAPH.QUERY', GRAPH_NAME, query);
     return result;
   } catch (error) {
-    logger.error('FalkorDB query error:', { query, error: String(error) });
+    logger.error({ query, error: String(error) }, 'FalkorDB query error');
     throw error;
   }
 }
@@ -67,7 +67,7 @@ export async function queryGraphReadOnly(query: string): Promise<unknown> {
       throw error;
     }
   } catch (error) {
-    logger.error('FalkorDB RO_QUERY error:', { query, error: String(error) });
+    logger.error({ query, error: String(error) }, 'FalkorDB RO_QUERY error');
     throw error;
   }
 }
@@ -82,7 +82,7 @@ export async function getGraphInfo(): Promise<unknown> {
     const result = await client.call('GRAPH.QUERY', GRAPH_NAME, 'RETURN graph.info()');
     return result;
   } catch (error) {
-    logger.error('Failed to get graph info:', error);
+    logger.error({ error }, 'Failed to get graph info');
     throw error;
   }
 }
@@ -100,7 +100,7 @@ export async function countNodes(): Promise<number> {
     }
     return 0;
   } catch (error) {
-    logger.error('Failed to count nodes:', error);
+    logger.error({ error }, 'Failed to count nodes');
     throw error;
   }
 }
@@ -117,7 +117,7 @@ export async function countEdges(): Promise<number> {
     }
     return 0;
   } catch (error) {
-    logger.error('Failed to count edges:', error);
+    logger.error({ error }, 'Failed to count edges');
     throw error;
   }
 }

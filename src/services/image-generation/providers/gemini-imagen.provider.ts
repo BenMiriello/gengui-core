@@ -1,9 +1,9 @@
 import { eq } from 'drizzle-orm';
 import { db } from '../../../config/database.js';
 import { env } from '../../../config/env.js';
+import { jobService } from '../../../jobs/index.js';
 import { media } from '../../../models/schema.js';
 import { logger } from '../../../utils/logger.js';
-import { redisStreams } from '../../redis-streams.js';
 import { s3 } from '../../s3.js';
 import type { ImageGenerationProvider } from '../provider.interface.js';
 import type { DimensionWhitelist, GenerationInput } from '../types.js';
@@ -66,10 +66,13 @@ class GeminiImagenProvider implements ImageGenerationProvider {
         .set({ status: 'processing', updatedAt: new Date() })
         .where(eq(media.id, input.mediaId));
 
-      // Broadcast status update
-      await redisStreams.add('job:status:stream', {
-        mediaId: input.mediaId,
-        status: 'processing',
+      // Broadcast status update via job system
+      await jobService.create({
+        type: 'media_status_update',
+        targetType: 'media',
+        targetId: input.mediaId,
+        userId: input.userId,
+        payload: { mediaId: input.mediaId, status: 'processing' },
       });
 
       // Map dimensions to nearest supported aspect ratio
@@ -133,11 +136,13 @@ class GeminiImagenProvider implements ImageGenerationProvider {
         })
         .where(eq(media.id, input.mediaId));
 
-      // Broadcast completion
-      await redisStreams.add('job:status:stream', {
-        mediaId: input.mediaId,
-        status: 'completed',
-        s3Key,
+      // Broadcast completion via job system
+      await jobService.create({
+        type: 'media_status_update',
+        targetType: 'media',
+        targetId: input.mediaId,
+        userId: input.userId,
+        payload: { mediaId: input.mediaId, status: 'completed', s3Key },
       });
 
       logger.info(
@@ -162,11 +167,13 @@ class GeminiImagenProvider implements ImageGenerationProvider {
         })
         .where(eq(media.id, input.mediaId));
 
-      // Broadcast failure
-      await redisStreams.add('job:status:stream', {
-        mediaId: input.mediaId,
-        status: 'failed',
-        error: errorMessage,
+      // Broadcast failure via job system
+      await jobService.create({
+        type: 'media_status_update',
+        targetType: 'media',
+        targetId: input.mediaId,
+        userId: input.userId,
+        payload: { mediaId: input.mediaId, status: 'failed', error: errorMessage },
       });
     }
   }
