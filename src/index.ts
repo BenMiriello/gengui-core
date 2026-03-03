@@ -5,14 +5,13 @@ import { closeDatabase } from './config/database';
 import { env } from './config/env';
 import { startCleanupReservationsJob } from './jobs/cleanupReservations';
 import { startCleanupJob } from './jobs/cleanupSoftDeleted';
+import { startJobWorkers, stopJobWorkers } from './jobs/index';
 import { startReconciliationJob } from './jobs/reconcileGenerations';
+import { cpuPool } from './lib/cpu-pool';
 import { graphService } from './services/graph/graph.service';
-import { jobStatusConsumer } from './services/jobStatusConsumer';
-import { promptAugmentationService } from './services/prompt-augmentation';
 import { redis } from './services/redis';
 import { jobReconciliationService } from './services/runpod';
 import { sseService } from './services/sse';
-import { textAnalysisConsumer } from './services/textAnalysisConsumer';
 import { logger } from './utils/logger';
 
 blocked(
@@ -35,10 +34,8 @@ const server = app.listen(env.PORT, '0.0.0.0', async () => {
   logger.info(`Server running on port ${env.PORT} in ${env.NODE_ENV} mode`);
 
   try {
-    await jobStatusConsumer.start();
     await jobReconciliationService.start();
-    await textAnalysisConsumer.start();
-    await promptAugmentationService.start();
+    await startJobWorkers();
     reconciliationTask = startReconciliationJob();
     cleanupTask = startCleanupJob();
     cleanupReservationsTask = startCleanupReservationsJob();
@@ -70,11 +67,11 @@ const shutdown = async (signal: string) => {
     if (cleanupTask) cleanupTask.stop();
     if (cleanupReservationsTask) cleanupReservationsTask.stop();
 
+    await cpuPool.shutdown();
+
     await Promise.all([
-      jobStatusConsumer.stop(),
       jobReconciliationService.stop(),
-      textAnalysisConsumer.stop(),
-      promptAugmentationService.stop(),
+      stopJobWorkers(),
     ]);
 
     sseService.closeAll();
