@@ -30,6 +30,7 @@ export {
 // Tier 2: Operation configs
 export {
   batchedRelationshipConfig,
+  crossSegmentRelationshipConfig,
   type EntityRegistryItem,
   entityRegistryConfig,
   estimateExtractionOutputTokens,

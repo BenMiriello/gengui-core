@@ -58,6 +58,7 @@ import type { StoredFacet, StoredStoryNode } from '../graph/graph.types';
 import { mentionService } from '../mentions';
 import type { Segment } from '../segments';
 import { segmentService } from '../segments';
+import { processBatchesInParallel } from './batchProcessing';
 import { sentenceService } from '../sentences';
 import { sseService } from '../sse';
 import {
@@ -1540,28 +1541,22 @@ export const multiStagePipeline = {
               '../gemini/client.js'
             );
 
-            // Process all batches concurrently
-            const allBatchResults = await Promise.all(
-              batches.map(async (batch, batchIdx) => {
-                broadcast(
-                  6,
-                  entityIdByName.size,
-                  `Processing relationship batch ${batchIdx + 1}/${batches.length}...`,
-                );
-
-                return extractRelationshipsFromBatch(
-                  batch.includedItems,
+            // Process all batches using reusable helper
+            const relationships = await processBatchesInParallel(
+              batches,
+              (items) =>
+                extractRelationshipsFromBatch(
+                  items,
                   userId,
                   documentId,
                   doc?.summary ?? undefined,
-                );
-              }),
+                ),
+              broadcast,
+              5,
+              entityIdByName.size,
             );
 
-            // Flatten results
-            for (const batchResult of allBatchResults) {
-              intraSegmentRels.push(...batchResult.relationships);
-            }
+            intraSegmentRels.push(...relationships);
           }
 
           const stage5DurationMs = Date.now() - stage5StartTime;
@@ -1624,22 +1619,60 @@ export const multiStagePipeline = {
             (e) => e.segmentIds.length > 1,
           );
 
-          if (entitiesInMultipleSegments.length > 0) {
-            broadcast(
-              7,
-              entityIdByName.size,
-              'Finding cross-segment connections...',
+          if (entitiesInMultipleSegments.length === 0) {
+            logger.info(
+              { documentId },
+              'No entities in multiple segments, skipping cross-segment relationships',
             );
-            // Pass empty array for existingRelationships since running in parallel
-            const crossSegmentResult = await extractCrossSegmentRelationships(
-              documentTitle ? `Document: "${documentTitle}"` : undefined,
-              entityWithSegments,
-              [],
-              userId,
-              documentId,
+          } else {
+            // Calculate batches using budget calculator (same pattern as Stage 5)
+            const modelConfig = getTextModelConfig('gemini-2.5-flash-lite');
+            const { crossSegmentRelationshipConfig } = await import(
+              '../contextBudget/index.js'
+            );
+            const batches = calculateAllBatches({
+              modelConfig,
+              operationConfig: crossSegmentRelationshipConfig,
+              items: entitiesInMultipleSegments,
+              overlapSize: 0,
+            });
+
+            logger.info(
+              {
+                documentId,
+                totalEntities: entityWithSegments.length,
+                multiSegmentEntities: entitiesInMultipleSegments.length,
+                batchCount: batches.length,
+              },
+              `Processing cross-segment relationships in ${batches.length} batch(es)`,
             );
 
-            crossSegmentRels.push(...crossSegmentResult.relationships);
+            // Get document summary for context
+            const [doc] = await db
+              .select({ summary: documents.summary })
+              .from(documents)
+              .where(eq(documents.id, documentId))
+              .limit(1);
+
+            // Process all batches using reusable helper
+            const relationships = await processBatchesInParallel(
+              batches,
+              (items) =>
+                extractCrossSegmentRelationships(
+                  doc?.summary ?? documentTitle
+                    ? `Document: "${documentTitle}"`
+                    : undefined,
+                  items,
+                  [],
+                  userId,
+                  documentId,
+                ),
+              broadcast,
+              6,
+              entityIdByName.size,
+            );
+
+            crossSegmentRels.push(...relationships);
           }
 
           const stage6DurationMs = Date.now() - stage6StartTime;

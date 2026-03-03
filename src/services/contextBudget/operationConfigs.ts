@@ -327,6 +327,65 @@ export const entityRegistryConfig: OperationBudgetConfig<EntityRegistryItem> = {
 };
 
 /**
+ * Cross-segment relationship extraction operation config.
+ * Used for Stage 6: Extract relationships between entities across different segments.
+ *
+ * Output is MUCH larger than intra-segment because:
+ * - Large entity lists in the prompt (all entities, not just one segment)
+ * - Quadratic edge space (N entities = N*(N-1)/2 potential edges)
+ * - Must avoid MAX_TOKENS by batching entities aggressively
+ */
+export const crossSegmentRelationshipConfig: OperationBudgetConfig<RelationshipEntity> =
+  {
+    operationType: 'cross_segment_relationship',
+
+    getSystemPromptTokens: (charsPerToken: number) => {
+      // System prompt includes edge types, rules, format template
+      // Measured at ~4000 chars based on actual prompt
+      return Math.ceil(4000 / charsPerToken);
+    },
+
+    estimateOutputReserve: (
+      entities: RelationshipEntity[],
+      _charsPerToken: number,
+    ) => {
+      // Cross-segment relationships have MUCH larger output than intra-segment:
+      // - Each entity can relate to many others (not just in one segment)
+      // - Output includes full relationship JSON: fromId, toId, edgeType, description, strength
+      // - Empirical data: 47 entities -> 42k tokens (truncated), so ~900 tokens/entity
+      //
+      // Conservative estimate: 10 relationships per entity, 120 tokens per relationship
+      // This accounts for:
+      // - UUID-based entity IDs (long strings)
+      // - Edge types (camelCase enums)
+      // - Descriptions (3-10 words)
+      // - Optional strength values
+      // - JSON overhead (brackets, quotes, commas)
+      const relationshipsPerEntity = 10;
+      const tokensPerRelationship = 120;
+      return entities.length * relationshipsPerEntity * tokensPerRelationship;
+    },
+
+    formatItem: (entity: RelationshipEntity) => {
+      let entry = `[${entity.id}] ${entity.type.toUpperCase()}: "${entity.name}"`;
+      if (entity.segmentIds && entity.segmentIds.length > 0) {
+        entry += `\n    Segments: ${entity.segmentIds.join(', ')}`;
+      }
+      entry += `\n    Facets: ${entity.keyFacets.join(', ') || 'none'}`;
+      return entry;
+    },
+
+    prioritize: (entities: RelationshipEntity[]) => {
+      // Entities in multiple segments are more likely to have cross-segment relationships
+      return [...entities].sort((a, b) => {
+        const aSegments = a.segmentIds?.length ?? 0;
+        const bSegments = b.segmentIds?.length ?? 0;
+        return bSegments - aSegments;
+      });
+    },
+  };
+
+/**
  * Validate estimation accuracy and return warnings.
  *
  * Helps identify when estimates are consistently off, indicating need for
