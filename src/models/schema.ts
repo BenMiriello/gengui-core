@@ -918,3 +918,90 @@ export const quotaReservations = pgTable(
     index('idx_quota_reservations_expires').on(table.expiresAt),
   ],
 );
+
+export const changeSourceEnum = pgEnum('change_source', ['user', 'system']);
+
+export const changeLog = pgTable(
+  'change_log',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    source: changeSourceEnum('source').notNull(),
+    targetType: varchar('target_type', { length: 30 }).notNull(),
+    targetId: varchar('target_id', { length: 255 }).notNull(),
+    operation: varchar('operation', { length: 20 }).notNull(),
+    relatedEntityIds: text('related_entity_ids').array().notNull().default([]),
+    summary: text('summary').notNull(),
+    changeData: jsonb('change_data').notNull(),
+    reason: text('reason'),
+    sourcePosition: integer('source_position'),
+    batchId: uuid('batch_id'),
+  },
+  (table) => [
+    index('idx_change_log_target').on(table.targetType, table.targetId),
+    index('idx_change_log_batch').on(table.batchId),
+  ],
+);
+
+// Job queue for unified background processing
+export const jobStatusEnum = pgEnum('job_status', [
+  'queued',
+  'processing',
+  'paused',
+  'completed',
+  'failed',
+  'cancelled',
+]);
+
+export const jobTypeEnum = pgEnum('job_type', [
+  'document_analysis',
+  'prompt_augmentation',
+  'thumbnail_generation',
+  'media_status_update',
+]);
+
+export const jobs = pgTable(
+  'jobs',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    type: jobTypeEnum('type').notNull(),
+    status: jobStatusEnum('status').notNull().default('queued'),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    targetType: varchar('target_type', { length: 30 }).notNull(),
+    targetId: uuid('target_id').notNull(),
+    payload: jsonb('payload').notNull().default({}),
+    progress: jsonb('progress'),
+    progressUpdatedAt: timestamp('progress_updated_at', { withTimezone: true }),
+    checkpoint: jsonb('checkpoint'),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    errorMessage: text('error_message'),
+    retryCount: integer('retry_count').notNull().default(0),
+    maxRetries: integer('max_retries').notNull().default(3),
+    workerId: varchar('worker_id', { length: 100 }),
+  },
+  (table) => [
+    index('idx_jobs_queue')
+      .on(table.type, table.status, table.createdAt)
+      .where(sql`status IN ('queued', 'paused')`),
+    index('idx_jobs_target').on(table.targetType, table.targetId),
+    index('idx_jobs_user').on(table.userId, table.createdAt),
+    index('idx_jobs_stale')
+      .on(table.status, table.startedAt, table.progressUpdatedAt)
+      .where(sql`status = 'processing'`),
+  ],
+);
+
+export const jobsRelations = relations(jobs, ({ one }) => ({
+  user: one(users, {
+    fields: [jobs.userId],
+    references: [users.id],
+  }),
+}));
