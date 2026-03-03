@@ -6,10 +6,12 @@ import {
   Router,
 } from 'express';
 import { db } from '../config/database';
+import { jobService } from '../jobs/service';
 import { requireAuth } from '../middleware/auth';
 import {
   analysisSnapshots,
   documents,
+  jobs,
   media,
   mentions,
 } from '../models/schema';
@@ -24,10 +26,8 @@ import { graphService } from '../services/graph/graph.service';
 import { graphThreads } from '../services/graph/graph.threads';
 import { mediaService } from '../services/mediaService';
 import { mentionService } from '../services/mentions/mention.service';
-import {
-  clearCheckpoint,
-  loadCheckpoint,
-} from '../services/pipeline/checkpoint';
+import { clearCheckpoint } from '../services/pipeline/checkpoint';
+import { redis } from '../services/redis';
 import { redisStreams } from '../services/redis-streams';
 import { s3 } from '../services/s3';
 import { sseService } from '../services/sse';
@@ -306,26 +306,58 @@ router.get(
       const hasChanges =
         lastAnalyzedVersion !== null && lastAnalyzedVersion < currentVersion;
 
-      // Detect stale analysis (started > 10 min ago, likely crashed)
-      let analysisStatus = document.analysisStatus;
-      const analysisStartedAt = document.analysisStartedAt;
-      const STALE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
+      // Query jobs table for active analysis job
+      const activeJob = await jobService.getActiveForTarget(
+        'document_analysis',
+        id,
+      );
 
-      if (analysisStatus === 'analyzing' && analysisStartedAt) {
-        const elapsed = Date.now() - new Date(analysisStartedAt).getTime();
-        if (elapsed > STALE_THRESHOLD_MS) {
-          analysisStatus = 'stale';
-        }
-      }
-
-      // Get current stage from checkpoint for state recovery
+      let analysisStatus: string | null = null;
+      let analysisStartedAt: Date | null = null;
       let currentStage: number | null = null;
-      if (analysisStatus === 'analyzing') {
-        const checkpoint = await loadCheckpoint(id);
-        if (checkpoint?.lastStageCompleted !== null) {
-          currentStage = (checkpoint?.lastStageCompleted ?? 0) + 1;
-        } else {
-          currentStage = 1;
+      let jobId: string | null = null;
+
+      if (activeJob) {
+        jobId = activeJob.id;
+        analysisStartedAt = activeJob.startedAt;
+
+        // Map job status to analysis status
+        switch (activeJob.status) {
+          case 'queued':
+            analysisStatus = 'queued';
+            break;
+          case 'processing':
+            analysisStatus = 'analyzing';
+            // Check for stale (progress stall detection)
+            const STALE_STARTED_MS = 10 * 60 * 1000;
+            const STALE_PROGRESS_MS = 5 * 60 * 1000;
+            if (activeJob.startedAt) {
+              const startedElapsed =
+                Date.now() - new Date(activeJob.startedAt).getTime();
+              const progressElapsed = activeJob.progressUpdatedAt
+                ? Date.now() - new Date(activeJob.progressUpdatedAt).getTime()
+                : startedElapsed;
+
+              if (
+                startedElapsed > STALE_STARTED_MS &&
+                progressElapsed > STALE_PROGRESS_MS
+              ) {
+                analysisStatus = 'stale';
+              }
+            }
+            break;
+          case 'paused':
+            analysisStatus = 'paused';
+            break;
+          case 'failed':
+            analysisStatus = 'failed';
+            break;
+        }
+
+        // Get current stage from progress
+        const progress = activeJob.progress as { stage?: number } | null;
+        if (progress?.stage) {
+          currentStage = progress.stage;
         }
       }
 
@@ -338,6 +370,7 @@ router.get(
         analysisStatus,
         analysisStartedAt,
         currentStage,
+        jobId,
       });
     } catch (error) {
       next(error);
@@ -377,6 +410,7 @@ router.post(
 
       const document = await documentsService.get(id, userId);
 
+      // Check quota before creating job
       const wordCount = document.content
         ? document.content.split(/\s+/).filter((word) => word.length > 0).length
         : 0;
@@ -388,14 +422,42 @@ router.post(
         units: tokenUnits,
       });
 
-      await redisStreams.add('text-analysis:stream', {
-        documentId: id,
+      // Create job (fails if one already exists due to unique constraint)
+      const job = await jobService.create({
+        type: 'document_analysis',
+        targetType: 'document',
+        targetId: id,
         userId,
-        operationId: operationId || '',
-        reanalyze: reanalyze ? 'true' : 'false',
+        payload: {
+          reanalyze,
+          operationId: operationId || undefined,
+        },
       });
 
-      res.status(202).json({ message: 'Analysis queued' });
+      if (!job) {
+        // Job already exists for this document - release quota reservation
+        if (operationId) {
+          await usageService.finalizeReservation({
+            operationId,
+            userId,
+            success: false,
+          });
+        }
+
+        res.status(409).json({
+          error: {
+            code: 'ANALYSIS_IN_PROGRESS',
+            message: 'Analysis is already in progress for this document',
+          },
+        });
+        return;
+      }
+
+      res.status(202).json({
+        jobId: job.id,
+        status: job.status,
+        message: 'Analysis queued',
+      });
     } catch (error) {
       if (error instanceof UsageQuotaExceededError) {
         res.status(403).json({
@@ -418,9 +480,15 @@ router.post(
       const userId = (req as any).user.id;
       const { id } = req.params;
 
-      const document = await documentsService.get(id, userId);
+      await documentsService.get(id, userId);
 
-      if (document.analysisStatus !== 'analyzing') {
+      // Find active job
+      const activeJob = await jobService.getActiveForTarget(
+        'document_analysis',
+        id,
+      );
+
+      if (!activeJob || activeJob.status !== 'processing') {
         res.status(400).json({
           error: {
             message: 'No active analysis to pause',
@@ -430,19 +498,28 @@ router.post(
         return;
       }
 
+      // Update job status to paused - worker will see it at next checkInterruption()
+      await db
+        .update(jobs)
+        .set({ status: 'paused' })
+        .where(eq(jobs.id, activeJob.id));
+
+      // Also update document status for backwards compatibility with pipeline
       await db
         .update(documents)
         .set({ analysisStatus: 'paused' })
         .where(eq(documents.id, id));
 
       // Broadcast immediately so frontend gets feedback
-      sseService.broadcastToDocument(id, 'analysis-status-changed', {
+      sseService.broadcastToDocument(id, 'job-status-changed', {
+        jobId: activeJob.id,
+        jobType: 'document_analysis',
+        status: 'paused',
         documentId: id,
-        analysisStatus: 'paused',
         timestamp: new Date().toISOString(),
       });
 
-      res.json({ success: true });
+      res.json({ success: true, jobId: activeJob.id });
     } catch (error) {
       next(error);
     }
@@ -457,9 +534,15 @@ router.post(
       const userId = (req as any).user.id;
       const { id } = req.params;
 
-      const document = await documentsService.get(id, userId);
+      await documentsService.get(id, userId);
 
-      if (!['analyzing', 'paused'].includes(document.analysisStatus || '')) {
+      // Find active job
+      const activeJob = await jobService.getActiveForTarget(
+        'document_analysis',
+        id,
+      );
+
+      if (!activeJob) {
         res.status(400).json({
           error: {
             message: 'No active analysis to cancel',
@@ -469,23 +552,37 @@ router.post(
         return;
       }
 
-      // Clean up immediately (whether paused or analyzing)
-      await clearCheckpoint(id);
-      await graphService.deleteAllStoryNodesForDocument(id, userId);
-      await mentionService.deleteByDocumentId(id);
+      // Update job status to cancelled
+      await db
+        .update(jobs)
+        .set({
+          status: 'cancelled',
+          completedAt: new Date(),
+          checkpoint: null,
+        })
+        .where(eq(jobs.id, activeJob.id));
 
+      // Also update document status for backwards compatibility
       await db
         .update(documents)
         .set({ analysisStatus: 'cancelled' })
         .where(eq(documents.id, id));
 
-      sseService.broadcastToDocument(id, 'analysis-status-changed', {
+      // Clean up immediately (whether paused or processing)
+      await clearCheckpoint(id);
+      await graphService.deleteAllStoryNodesForDocument(id, userId);
+      await mentionService.deleteByDocumentId(id);
+
+      sseService.broadcastToDocument(id, 'job-cancelled', {
+        jobId: activeJob.id,
+        jobType: 'document_analysis',
         documentId: id,
-        analysisStatus: 'cancelled',
         timestamp: new Date().toISOString(),
       });
 
-      res.json({ success: true });
+      sseService.clearDocumentBuffer(id);
+
+      res.json({ success: true, jobId: activeJob.id });
     } catch (error) {
       next(error);
     }
@@ -500,9 +597,15 @@ router.post(
       const userId = (req as any).user.id;
       const { id } = req.params;
 
-      const document = await documentsService.get(id, userId);
+      await documentsService.get(id, userId);
 
-      if (document.analysisStatus !== 'paused') {
+      // Find paused job
+      const activeJob = await jobService.getActiveForTarget(
+        'document_analysis',
+        id,
+      );
+
+      if (!activeJob || activeJob.status !== 'paused') {
         res.status(400).json({
           error: {
             message: 'No paused analysis to resume',
@@ -512,19 +615,30 @@ router.post(
         return;
       }
 
-      // Re-queue the analysis (checkpoint will be used)
-      await redisStreams.add('text-analysis:stream', {
-        documentId: id,
-        userId,
-        resume: 'true',
-      });
+      // Set job back to queued - worker will pick it up
+      await db
+        .update(jobs)
+        .set({ status: 'queued' })
+        .where(eq(jobs.id, activeJob.id));
 
+      // Also update document status for backwards compatibility
       await db
         .update(documents)
         .set({ analysisStatus: 'analyzing' })
         .where(eq(documents.id, id));
 
-      res.json({ success: true });
+      // Notify worker
+      await redis.publish('jobs:notify:document_analysis', activeJob.id);
+
+      sseService.broadcastToDocument(id, 'job-status-changed', {
+        jobId: activeJob.id,
+        jobType: 'document_analysis',
+        status: 'queued',
+        documentId: id,
+        timestamp: new Date().toISOString(),
+      });
+
+      res.json({ success: true, jobId: activeJob.id });
     } catch (error) {
       next(error);
     }

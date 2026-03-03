@@ -6,6 +6,7 @@ import { db } from '../config/database';
 import { requireAuth, requireEmailVerified } from '../middleware/auth';
 import { documents } from '../models/schema';
 import { characterSheetService } from '../services/characterSheetService';
+import { changeLogService } from '../services/changelog';
 import { graphService } from '../services/graph/graph.service';
 import { mentionService } from '../services/mentions';
 import { segmentService } from '../services/segments';
@@ -219,7 +220,6 @@ router.patch('/nodes/:id', requireAuth, async (req, res, next) => {
     const { id } = req.params;
     const validatedData = updateNodeSchema.parse(req.body);
 
-    // Verify ownership first
     const existing = await graphService.getStoryNodeById(id, req.user!.id);
     if (!existing) {
       res
@@ -228,12 +228,22 @@ router.patch('/nodes/:id', requireAuth, async (req, res, next) => {
       return;
     }
 
-    // Update in FalkorDB
     await graphService.updateStoryNode(id, validatedData);
 
-    // Get updated node
-    const updated = await graphService.getStoryNodeById(id, req.user!.id);
+    await changeLogService.log({
+      source: 'user',
+      targetType: 'entity',
+      targetId: id,
+      operation: 'update',
+      relatedEntityIds: [id],
+      changeData: changeLogService.buildUpdateChangeData(
+        existing as unknown as Record<string, unknown>,
+        validatedData,
+      ),
+      entityName: existing.name,
+    });
 
+    const updated = await graphService.getStoryNodeById(id, req.user!.id);
     res.json(updated);
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -600,6 +610,30 @@ router.get('/nodes/:id/arc', requireAuth, async (req, res, next) => {
       transitions,
       threads,
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Get changelog entries for a node
+router.get('/nodes/:id/changelog', requireAuth, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const limit = Math.min(parseInt(req.query.limit as string) || 10, 100);
+    const offset = parseInt(req.query.offset as string) || 0;
+
+    // Verify node exists and user has access
+    const node = await graphService.getStoryNodeById(id, req.user!.id);
+    if (!node) {
+      res
+        .status(404)
+        .json({ error: { message: 'Node not found', code: 'NOT_FOUND' } });
+      return;
+    }
+
+    const result = await changeLogService.getForEntity(id, limit, offset);
+
+    res.json(result);
   } catch (error) {
     next(error);
   }
