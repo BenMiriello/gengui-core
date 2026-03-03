@@ -30,16 +30,18 @@ export function getLogConfig() {
     };
   }
 
-  // Development: JSON to rotating daily files + pretty console
+  // Development: JSON to daily files + pretty console
   if (isDevelopment) {
     mkdirSync('./logs', { recursive: true });
+
+    const today = new Date().toISOString().split('T')[0];
+    const logFile = path.join(process.cwd(), 'logs', `app-${today}.jsonl`);
 
     return {
       level: logLevel,
       transport: {
         targets: [
           {
-            // Pretty console for real-time monitoring
             target: 'pino-pretty',
             level: logLevel,
             options: {
@@ -49,11 +51,10 @@ export function getLogConfig() {
             },
           },
           {
-            // Structured JSON to rotating daily files
             target: 'pino/file',
             level: logLevel,
             options: {
-              destination: path.join(process.cwd(), 'logs', 'app-%DATE%.jsonl'),
+              destination: logFile,
               mkdir: true,
             },
           },
