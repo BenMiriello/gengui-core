@@ -47,7 +47,10 @@ if (
           }
 
           if (result.action === 'link') {
-            await oauthService.linkOAuthToUser(result.user?.id, oauthProfile);
+            if (!result.user?.id) {
+              return done(new Error('User ID missing for OAuth link'));
+            }
+            await oauthService.linkOAuthToUser(result.user.id, oauthProfile);
             return done(null, result.user as any);
           }
 
