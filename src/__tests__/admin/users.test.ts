@@ -60,7 +60,8 @@ describe('Admin Users', () => {
           password: adminPassword,
         }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(`${baseUrl}/api/admin/users`, {
         headers: { Cookie: cookie },
@@ -85,7 +86,8 @@ describe('Admin Users', () => {
           password: adminPassword,
         }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(`${baseUrl}/api/admin/users?search=alice`, {
         headers: { Cookie: cookie },
@@ -110,7 +112,8 @@ describe('Admin Users', () => {
           password: adminPassword,
         }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(`${baseUrl}/api/admin/users?role=admin`, {
         headers: { Cookie: cookie },
@@ -134,7 +137,8 @@ describe('Admin Users', () => {
           password: adminPassword,
         }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(
         `${baseUrl}/api/admin/users?emailVerified=false`,
@@ -164,7 +168,8 @@ describe('Admin Users', () => {
           password: adminPassword,
         }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(`${baseUrl}/api/admin/users?limit=2&offset=0`, {
         headers: { Cookie: cookie },
@@ -194,7 +199,8 @@ describe('Admin Users', () => {
           password: adminPassword,
         }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(`${baseUrl}/api/admin/users?includeStats=true`, {
         headers: { Cookie: cookie },
@@ -219,7 +225,8 @@ describe('Admin Users', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emailOrUsername: user.email, password }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(`${baseUrl}/api/admin/users`, {
         headers: { Cookie: cookie },
@@ -247,7 +254,8 @@ describe('Admin Users', () => {
           password: adminPassword,
         }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(`${baseUrl}/api/admin/users/${user.id}`, {
         headers: { Cookie: cookie },
@@ -274,7 +282,8 @@ describe('Admin Users', () => {
           password: adminPassword,
         }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(
         `${baseUrl}/api/admin/users/00000000-0000-0000-0000-000000000000`,
@@ -295,7 +304,8 @@ describe('Admin Users', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emailOrUsername: user.email, password }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(`${baseUrl}/api/admin/users/${otherUser.id}`, {
         headers: { Cookie: cookie },

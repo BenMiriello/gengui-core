@@ -53,7 +53,8 @@ describe('Admin Limits', () => {
           password: adminPassword,
         }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(`${baseUrl}/api/admin/users/${user.id}/limits`, {
         headers: { Cookie: cookie },
@@ -73,7 +74,8 @@ describe('Admin Limits', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emailOrUsername: user.email, password }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(`${baseUrl}/api/admin/users/${user.id}/limits`, {
         headers: { Cookie: cookie },
@@ -101,7 +103,8 @@ describe('Admin Limits', () => {
           password: adminPassword,
         }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(`${baseUrl}/api/admin/users/${user.id}/limits`, {
         method: 'PATCH',
@@ -136,7 +139,8 @@ describe('Admin Limits', () => {
           password: adminPassword,
         }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(`${baseUrl}/api/admin/users/${user.id}/limits`, {
         method: 'PATCH',
@@ -161,7 +165,8 @@ describe('Admin Limits', () => {
           password: adminPassword,
         }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(`${baseUrl}/api/admin/users/${user.id}/limits`, {
         method: 'PATCH',
@@ -184,7 +189,8 @@ describe('Admin Limits', () => {
           password: adminPassword,
         }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(`${baseUrl}/api/admin/users/${user.id}/limits`, {
         method: 'PATCH',
@@ -209,7 +215,8 @@ describe('Admin Limits', () => {
           password: adminPassword,
         }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(`${baseUrl}/api/admin/users/${user.id}/limits`, {
         method: 'PATCH',
@@ -231,7 +238,8 @@ describe('Admin Limits', () => {
           password: adminPassword,
         }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(
         `${baseUrl}/api/admin/users/00000000-0000-0000-0000-000000000000/limits`,
@@ -253,7 +261,8 @@ describe('Admin Limits', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emailOrUsername: user.email, password }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(`${baseUrl}/api/admin/users/${user.id}/limits`, {
         method: 'PATCH',

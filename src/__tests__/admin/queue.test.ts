@@ -52,7 +52,8 @@ describe('Admin Queue', () => {
           password: adminPassword,
         }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(`${baseUrl}/api/admin/queue/status`, {
         headers: { Cookie: cookie },
@@ -77,7 +78,8 @@ describe('Admin Queue', () => {
           password: adminPassword,
         }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(`${baseUrl}/api/admin/queue/status`, {
         headers: { Cookie: cookie },
@@ -96,7 +98,8 @@ describe('Admin Queue', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emailOrUsername: user.email, password }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(`${baseUrl}/api/admin/queue/status`, {
         headers: { Cookie: cookie },

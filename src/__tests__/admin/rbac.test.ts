@@ -69,7 +69,8 @@ describe('Admin RBAC', () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ emailOrUsername: user.email, password }),
         });
-        const cookie = loginRes.headers.get('set-cookie')!;
+        const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
         const fetchOptions: RequestInit = {
           method: endpoint.method,
