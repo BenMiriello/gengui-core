@@ -51,7 +51,8 @@ describe('Generations List', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emailOrUsername: user.email, password }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(`${baseUrl}/api/generations`, {
         headers: { Cookie: cookie },
@@ -73,7 +74,8 @@ describe('Generations List', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emailOrUsername: user.email, password }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(`${baseUrl}/api/generations`, {
         headers: { Cookie: cookie },
@@ -96,7 +98,8 @@ describe('Generations List', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emailOrUsername: user.email, password }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(`${baseUrl}/api/generations?limit=3`, {
         headers: { Cookie: cookie },
@@ -122,7 +125,8 @@ describe('Generations List', () => {
           password: password1,
         }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(`${baseUrl}/api/generations`, {
         headers: { Cookie: cookie },
@@ -153,7 +157,8 @@ describe('Generations List', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emailOrUsername: user.email, password }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(`${baseUrl}/api/generations`, {
         headers: { Cookie: cookie },
@@ -185,7 +190,8 @@ describe('Generations List', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emailOrUsername: user.email, password }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(`${baseUrl}/api/generations/${generation.id}`, {
         headers: { Cookie: cookie },
@@ -205,7 +211,8 @@ describe('Generations List', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emailOrUsername: user.email, password }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(
         `${baseUrl}/api/generations/00000000-0000-0000-0000-000000000000`,

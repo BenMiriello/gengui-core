@@ -54,7 +54,8 @@ describe('Media Delete', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emailOrUsername: user.email, password }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(`${baseUrl}/api/media/${media.id}`, {
         method: 'DELETE',
@@ -80,7 +81,8 @@ describe('Media Delete', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emailOrUsername: user.email, password }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       await fetch(`${baseUrl}/api/media/${mediaToDelete.id}`, {
         method: 'DELETE',
@@ -100,7 +102,8 @@ describe('Media Delete', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emailOrUsername: user.email, password }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(
         `${baseUrl}/api/media/00000000-0000-0000-0000-000000000000`,
@@ -126,7 +129,8 @@ describe('Media Delete', () => {
           password: password1,
         }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(`${baseUrl}/api/media/${media.id}`, {
         method: 'DELETE',
@@ -148,7 +152,8 @@ describe('Media Delete', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emailOrUsername: user.email, password }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       await fetch(`${baseUrl}/api/media/${media.id}`, {
         method: 'DELETE',

@@ -58,7 +58,8 @@ describe('Document Ownership', () => {
           password: otherPassword,
         }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(`${baseUrl}/api/documents/${doc.id}`, {
         headers: { Cookie: cookie },
@@ -86,7 +87,8 @@ describe('Document Ownership', () => {
           password: otherPassword,
         }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(`${baseUrl}/api/documents/${doc.id}`, {
         method: 'PATCH',
@@ -117,7 +119,8 @@ describe('Document Ownership', () => {
           password: otherPassword,
         }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(`${baseUrl}/api/documents/${doc.id}`, {
         method: 'DELETE',
@@ -143,7 +146,8 @@ describe('Document Ownership', () => {
           password: otherPassword,
         }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(`${baseUrl}/api/documents/${doc.id}/copy`, {
         method: 'POST',
@@ -170,7 +174,8 @@ describe('Document Ownership', () => {
           password: otherPassword,
         }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(`${baseUrl}/api/documents/${doc.id}/modes`, {
         method: 'PATCH',
@@ -197,7 +202,8 @@ describe('Document Ownership', () => {
           password: otherPassword,
         }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(`${baseUrl}/api/documents/${doc.id}/versions`, {
         headers: { Cookie: cookie },
@@ -222,7 +228,8 @@ describe('Document Ownership', () => {
           password: otherPassword,
         }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(`${baseUrl}/api/documents/${doc.id}/versions/1`, {
         headers: { Cookie: cookie },
@@ -248,7 +255,8 @@ describe('Document Ownership', () => {
           password: passwordA,
         }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(`${baseUrl}/api/documents`, {
         headers: { Cookie: cookie },
@@ -267,7 +275,8 @@ describe('Document Ownership', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emailOrUsername: user.email, password }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const createRes = await fetch(`${baseUrl}/api/documents`, {
         method: 'POST',

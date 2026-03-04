@@ -56,7 +56,8 @@ describe('Generations Cancel', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emailOrUsername: user.email, password }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(
         `${baseUrl}/api/generations/${generation.id}/cancel`,
@@ -85,7 +86,8 @@ describe('Generations Cancel', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emailOrUsername: user.email, password }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(
         `${baseUrl}/api/generations/${generation.id}/cancel`,
@@ -109,7 +111,8 @@ describe('Generations Cancel', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emailOrUsername: user.email, password }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(
         `${baseUrl}/api/generations/${generation.id}/cancel`,
@@ -133,7 +136,8 @@ describe('Generations Cancel', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emailOrUsername: user.email, password }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(
         `${baseUrl}/api/generations/${generation.id}/cancel`,
@@ -157,7 +161,8 @@ describe('Generations Cancel', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emailOrUsername: user.email, password }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(
         `${baseUrl}/api/generations/00000000-0000-0000-0000-000000000000/cancel`,

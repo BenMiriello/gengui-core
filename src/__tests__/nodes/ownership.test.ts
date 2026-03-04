@@ -73,7 +73,8 @@ describe('Node Ownership', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emailOrUsername: user.email, password }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(`${baseUrl}/api/nodes/${nodeId}`, {
         headers: { Cookie: cookie },
@@ -115,7 +116,8 @@ describe('Node Ownership', () => {
           password: attackerPassword,
         }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(`${baseUrl}/api/nodes/${nodeId}`, {
         headers: { Cookie: cookie },
@@ -155,7 +157,8 @@ describe('Node Ownership', () => {
           password: attackerPassword,
         }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(`${baseUrl}/api/nodes/${nodeId}`, {
         method: 'PATCH',
@@ -197,7 +200,8 @@ describe('Node Ownership', () => {
           password: attackerPassword,
         }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(`${baseUrl}/api/nodes/${nodeId}/style`, {
         method: 'PATCH',

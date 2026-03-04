@@ -93,7 +93,7 @@ export function logStageStart(
   logger: Logger,
   stage: number,
   stageName: string,
-  context?: Record<string, any>,
+  context?: Record<string, unknown>,
 ): void {
   logger.info(
     {
@@ -111,7 +111,7 @@ export function logStageComplete(
   stage: number,
   stageName: string,
   durationMs: number,
-  metrics: Record<string, any>,
+  metrics: Record<string, unknown>,
 ): void {
   logger.info(
     {
@@ -138,7 +138,7 @@ export function logEntityExtraction(
     type: string;
     facets: Array<{ type: string; content: string }>;
   }>,
-  context?: Record<string, any>,
+  context?: Record<string, unknown>,
 ): void {
   const isVerbose = isVerboseLoggingEnabled();
 

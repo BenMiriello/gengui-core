@@ -59,7 +59,8 @@ describe('Document Versioning', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emailOrUsername: user.email, password }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       await fetch(`${baseUrl}/api/documents/${doc.id}`, {
         method: 'PATCH',
@@ -88,7 +89,8 @@ describe('Document Versioning', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emailOrUsername: user.email, password }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       await fetch(`${baseUrl}/api/documents/${doc.id}`, {
         method: 'PATCH',
@@ -132,7 +134,8 @@ describe('Document Versioning', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emailOrUsername: user.email, password }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       await fetch(`${baseUrl}/api/documents/${doc.id}`, {
         method: 'PATCH',
@@ -169,7 +172,8 @@ describe('Document Versioning', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emailOrUsername: user.email, password }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       await fetch(`${baseUrl}/api/documents/${doc.id}`, {
         method: 'PATCH',
@@ -196,7 +200,8 @@ describe('Document Versioning', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emailOrUsername: user.email, password }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(`${baseUrl}/api/documents/${doc.id}/versions`, {
         headers: { Cookie: cookie },
@@ -218,7 +223,8 @@ describe('Document Versioning', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emailOrUsername: user.email, password }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       await fetch(`${baseUrl}/api/documents/${doc.id}`, {
         method: 'PATCH',
@@ -262,7 +268,8 @@ describe('Document Versioning', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emailOrUsername: user.email, password }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       for (let i = 1; i <= 5; i++) {
         await fetch(`${baseUrl}/api/documents/${doc.id}`, {
@@ -295,7 +302,8 @@ describe('Document Versioning', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emailOrUsername: user.email, password }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(
         `${baseUrl}/api/documents/00000000-0000-0000-0000-000000000000/versions`,
@@ -325,7 +333,8 @@ describe('Document Versioning', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emailOrUsername: user.email, password }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       await fetch(`${baseUrl}/api/documents/${doc.id}`, {
         method: 'PATCH',
@@ -356,7 +365,8 @@ describe('Document Versioning', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emailOrUsername: user.email, password }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(
         `${baseUrl}/api/documents/${doc.id}/versions/999`,
@@ -376,7 +386,8 @@ describe('Document Versioning', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emailOrUsername: user.email, password }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(
         `${baseUrl}/api/documents/00000000-0000-0000-0000-000000000000/versions/1`,

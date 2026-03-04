@@ -58,7 +58,8 @@ describe('Generations Ownership', () => {
           password: password2,
         }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(`${baseUrl}/api/generations/${generation.id}`, {
         headers: { Cookie: cookie },
@@ -82,7 +83,8 @@ describe('Generations Ownership', () => {
           password: password2,
         }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(
         `${baseUrl}/api/generations/${generation.id}/cancel`,
@@ -111,7 +113,8 @@ describe('Generations Ownership', () => {
           password: password1,
         }),
       });
-      const cookie = loginRes.headers.get('set-cookie')!;
+      const cookie = loginRes.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const res = await fetch(`${baseUrl}/api/generations`, {
         headers: { Cookie: cookie },
