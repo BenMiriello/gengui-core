@@ -13,7 +13,7 @@ router.post(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { subject, message, submissionType } = req.body;
-      const userId = req.user?.id;
+      const userId = req.user!.id;
       const email = req.user?.email || req.body.email;
 
       if (!email) {

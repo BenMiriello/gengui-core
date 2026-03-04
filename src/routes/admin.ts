@@ -372,7 +372,7 @@ router.patch(
       const { id } = req.params;
       const { status, notes } = req.body;
 
-      await contactService.markStatus(id, status, req.user?.id, notes);
+      await contactService.markStatus(id, status, req.user!.id, notes);
       res.json({ success: true });
     } catch (error) {
       next(error);

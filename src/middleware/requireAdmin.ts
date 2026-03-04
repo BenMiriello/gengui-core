@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
-import { ForbiddenError } from '../utils/errors';
+import { ForbiddenError, UnauthorizedError } from '../utils/errors';
 import { logger } from '../utils/logger';
 import { requireAuth } from './auth';
 
