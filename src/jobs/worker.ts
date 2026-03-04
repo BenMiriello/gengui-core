@@ -221,10 +221,12 @@ export abstract class JobWorker<
    * - No progress update in last 5 minutes (or never had one)
    */
   protected async recoverStaleJobs(): Promise<void> {
-    const startedThreshold = new Date(Date.now() - STALE_STARTED_THRESHOLD_MS);
+    const startedThreshold = new Date(
+      Date.now() - STALE_STARTED_THRESHOLD_MS,
+    ).toISOString();
     const progressThreshold = new Date(
       Date.now() - STALE_PROGRESS_THRESHOLD_MS,
-    );
+    ).toISOString();
 
     try {
       const result = await db.execute(sql`
