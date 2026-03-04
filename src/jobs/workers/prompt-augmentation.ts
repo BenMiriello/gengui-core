@@ -8,7 +8,6 @@ import { db } from '../../config/database';
 import { documents, media } from '../../models/schema';
 import { getGeminiClient } from '../../services/gemini';
 import type { ReferenceImage } from '../../services/image-generation/types';
-import { sseService } from '../../services/sse';
 import { buildContext } from '../../services/prompt-augmentation/contextBuilder';
 import { fetchEntityReferenceData } from '../../services/prompt-augmentation/entityReferences';
 import type {
@@ -17,9 +16,10 @@ import type {
   PromptEnhancementSettings,
 } from '../../services/prompt-augmentation/promptBuilder';
 import { buildGeminiPrompt } from '../../services/prompt-augmentation/promptBuilder';
+import { sseService } from '../../services/sse';
 import { logger } from '../../utils/logger';
-import { JobWorker } from '../worker';
 import type { Job, JobProgress, JobType } from '../types';
+import { JobWorker } from '../worker';
 
 interface AugmentationPayload {
   mediaId: string;
@@ -34,14 +34,20 @@ interface AugmentationPayload {
   height: number;
 }
 
-class PromptAugmentationWorker extends JobWorker<AugmentationPayload, JobProgress> {
+class PromptAugmentationWorker extends JobWorker<
+  AugmentationPayload,
+  JobProgress
+> {
   protected jobType: JobType = 'prompt_augmentation';
 
   constructor() {
     super('prompt-augmentation-worker');
   }
 
-  protected async processJob(job: Job, payload: AugmentationPayload): Promise<void> {
+  protected async processJob(
+    job: Job,
+    payload: AugmentationPayload,
+  ): Promise<void> {
     const {
       mediaId,
       documentId,
@@ -186,7 +192,9 @@ class PromptAugmentationWorker extends JobWorker<AugmentationPayload, JobProgres
       );
     } catch (error: unknown) {
       const errorMessage =
-        error instanceof Error ? error.message : 'Augmentation failed. Please try again.';
+        error instanceof Error
+          ? error.message
+          : 'Augmentation failed. Please try again.';
       logger.error(
         { error, mediaId, documentId, errorMessage },
         'Prompt augmentation failed',

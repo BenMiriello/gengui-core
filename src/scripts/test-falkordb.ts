@@ -7,11 +7,11 @@
 
 import Redis from 'ioredis';
 import {
-  queryGraphReadOnly,
-  countNodes,
-  countEdges,
-  getGraphInfo,
   closeConnection,
+  countEdges,
+  countNodes,
+  getGraphInfo,
+  queryGraphReadOnly,
 } from '../utils/falkordb-cli';
 
 async function testConnection() {
@@ -71,7 +71,9 @@ async function main() {
 
     // Test 3: Read-only query
     console.log('3. Running read-only query...');
-    const result = await queryGraphReadOnly('MATCH (n) RETURN count(n) as count LIMIT 1');
+    const result = await queryGraphReadOnly(
+      'MATCH (n) RETURN count(n) as count LIMIT 1',
+    );
     console.log(`   ✓ Result: ${JSON.stringify(result, null, 2)}\n`);
 
     // Test 4: Graph info
@@ -79,11 +81,17 @@ async function main() {
     await getGraphInfo();
     console.log(`   ✓ Graph info retrieved\n`);
 
-    console.log('All tests passed! FalkorDB utility is working autonomously.\n');
+    console.log(
+      'All tests passed! FalkorDB utility is working autonomously.\n',
+    );
   } catch (error) {
-    console.error('Query test failed (this may be expected if graph is empty):');
+    console.error(
+      'Query test failed (this may be expected if graph is empty):',
+    );
     console.error(String(error));
-    console.log('\nFalkorDB utility is properly configured for autonomous queries.');
+    console.log(
+      '\nFalkorDB utility is properly configured for autonomous queries.',
+    );
   } finally {
     await closeConnection();
   }

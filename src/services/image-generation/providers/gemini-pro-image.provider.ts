@@ -208,7 +208,11 @@ class GeminiProImageProvider implements ImageGenerationProvider {
         targetType: 'media',
         targetId: input.mediaId,
         userId: input.userId,
-        payload: { mediaId: input.mediaId, status: 'failed', error: errorMessage },
+        payload: {
+          mediaId: input.mediaId,
+          status: 'failed',
+          error: errorMessage,
+        },
       });
     }
   }

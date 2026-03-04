@@ -147,7 +147,8 @@ describe('Session Lifecycle', () => {
         }),
       });
 
-      const cookie = loginResponse.headers.get('set-cookie')!;
+      const cookie = loginResponse.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const meResponse = await fetch(`${baseUrl}/api/auth/me`, {
         headers: { Cookie: cookie },
@@ -200,7 +201,8 @@ describe('Session Lifecycle', () => {
         }),
       });
 
-      const cookie = loginResponse.headers.get('set-cookie')!;
+      const cookie = loginResponse.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const meResponse = await fetch(`${baseUrl}/api/auth/me`, {
         headers: { Cookie: cookie },
@@ -225,7 +227,8 @@ describe('Session Lifecycle', () => {
         }),
       });
 
-      const cookie = loginResponse.headers.get('set-cookie')!;
+      const cookie = loginResponse.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
       let sessions = await getSessionsForUser(user.id);
       expect(sessions.length).toBe(1);
 
@@ -250,7 +253,8 @@ describe('Session Lifecycle', () => {
         }),
       });
 
-      const cookie = loginResponse.headers.get('set-cookie')!;
+      const cookie = loginResponse.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       const logoutResponse = await fetch(`${baseUrl}/api/auth/logout`, {
         method: 'POST',
@@ -284,7 +288,8 @@ describe('Session Lifecycle', () => {
         }),
       });
 
-      const cookie = loginResponse.headers.get('set-cookie')!;
+      const cookie = loginResponse.headers.get('set-cookie');
+      if (!cookie) throw new Error('Login failed: no cookie');
 
       await fetch(`${baseUrl}/api/auth/logout`, {
         method: 'POST',

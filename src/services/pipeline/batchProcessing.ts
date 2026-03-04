@@ -15,14 +15,18 @@ export async function processBatchesInParallel<
 >(
   batches: BatchBudgetResult<TBatchInput>[],
   extractFn: (items: TBatchInput[]) => Promise<TExtractResult>,
-  broadcast: (stage: AnalysisStage, entityCount?: number, statusHint?: string) => void,
+  broadcast: (
+    stage: AnalysisStage,
+    entityCount?: number,
+    statusHint?: string,
+  ) => void,
   stageNumber: AnalysisStage,
   totalCount: number,
 ): Promise<TExtractResult['relationships']> {
   const allBatchResults = await Promise.all(
     batches.map(async (batch, batchIdx) => {
       broadcast(
-        stageNumber + 1 as AnalysisStage,
+        (stageNumber + 1) as AnalysisStage,
         totalCount,
         `Processing batch ${batchIdx + 1}/${batches.length}...`,
       );

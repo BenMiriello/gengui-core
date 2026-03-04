@@ -160,7 +160,7 @@ function extractEntityDescriptions(
     .map((node) => ({
       type: mapNodeTypeToEntityType(node.type),
       name: node.name,
-      description: node.description!.trim(),
+      description: node.description?.trim(),
     }));
 }
 

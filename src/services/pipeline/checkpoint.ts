@@ -112,7 +112,11 @@ export async function loadCheckpoint(
     if (lastStageCompleted !== null && lastStageCompleted >= 4) {
       lastStageCompleted = lastStageCompleted - 1;
       logger.debug(
-        { documentId, oldStage: checkpoint.lastStageCompleted, newStage: lastStageCompleted },
+        {
+          documentId,
+          oldStage: checkpoint.lastStageCompleted,
+          newStage: lastStageCompleted,
+        },
         'Adjusted lastStageCompleted for removed Stage 4',
       );
     }

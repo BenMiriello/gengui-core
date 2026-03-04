@@ -326,7 +326,7 @@ router.get(
           case 'queued':
             analysisStatus = 'queued';
             break;
-          case 'processing':
+          case 'processing': {
             analysisStatus = 'analyzing';
             // Check for stale (progress stall detection)
             const STALE_STARTED_MS = 10 * 60 * 1000;
@@ -346,6 +346,7 @@ router.get(
               }
             }
             break;
+          }
           case 'paused':
             analysisStatus = 'paused';
             break;

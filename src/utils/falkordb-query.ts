@@ -5,8 +5,8 @@
  * Use this instead of raw redis-cli calls for consistency.
  */
 
-import { exec } from 'child_process';
-import { promisify } from 'util';
+import { exec } from 'node:child_process';
+import { promisify } from 'node:util';
 
 const execAsync = promisify(exec);
 
@@ -18,7 +18,7 @@ const FALKORDB_HOST = process.env.FALKORDB_HOST || 'localhost';
  */
 export async function queryGraph(cypher: string): Promise<string> {
   const { stdout } = await execAsync(
-    `redis-cli -h ${FALKORDB_HOST} -p ${FALKORDB_PORT} GRAPH.QUERY gengui "${cypher.replace(/"/g, '\\"')}"`
+    `redis-cli -h ${FALKORDB_HOST} -p ${FALKORDB_PORT} GRAPH.QUERY gengui "${cypher.replace(/"/g, '\\"')}"`,
   );
   return stdout.trim();
 }
@@ -38,7 +38,9 @@ export async function countNodes(pattern?: string): Promise<number> {
  */
 export async function countEdges(edgeType?: string): Promise<number> {
   const typePattern = edgeType ? `:${edgeType}` : '';
-  const result = await queryGraph(`MATCH ()-[r${typePattern}]->() RETURN count(r)`);
+  const result = await queryGraph(
+    `MATCH ()-[r${typePattern}]->() RETURN count(r)`,
+  );
   const match = result.match(/\d+/);
   return match ? parseInt(match[0], 10) : 0;
 }
@@ -65,6 +67,6 @@ export async function getSchemaInfo(): Promise<{
 function parseSchemaResult(output: string): string[] {
   const lines = output.split('\n');
   return lines
-    .filter(line => line.trim() && !line.includes('Cached execution'))
-    .map(line => line.trim());
+    .filter((line) => line.trim() && !line.includes('Cached execution'))
+    .map((line) => line.trim());
 }

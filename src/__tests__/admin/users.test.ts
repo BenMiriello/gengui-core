@@ -121,7 +121,9 @@ describe('Admin Users', () => {
 
       expect(res.status).toBe(200);
       const body = await res.json();
-      expect(body.users.every((u: { role: string }) => u.role === 'admin')).toBe(true);
+      expect(
+        body.users.every((u: { role: string }) => u.role === 'admin'),
+      ).toBe(true);
     });
 
     test('filters by emailVerified', async () => {
@@ -149,9 +151,11 @@ describe('Admin Users', () => {
 
       expect(res.status).toBe(200);
       const body = await res.json();
-      expect(body.users.every((u: { emailVerified: boolean }) => u.emailVerified === false)).toBe(
-        true,
-      );
+      expect(
+        body.users.every(
+          (u: { emailVerified: boolean }) => u.emailVerified === false,
+        ),
+      ).toBe(true);
     });
 
     test('pagination with limit and offset', async () => {
@@ -209,7 +213,9 @@ describe('Admin Users', () => {
       expect(res.status).toBe(200);
       const body = await res.json();
 
-      const targetUser = body.users.find((u: { id: string }) => u.id === user.id);
+      const targetUser = body.users.find(
+        (u: { id: string }) => u.id === user.id,
+      );
       expect(targetUser.stats).toBeDefined();
       expect(targetUser.stats.totalGenerations).toBe(3);
       expect(targetUser.stats.queuedGenerations).toBe(1);

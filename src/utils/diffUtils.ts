@@ -397,7 +397,7 @@ function groupIntoHunks(
         for (let j = contextStart; j < i; j++) {
           const ctxOp = operations[j];
           if (ctxOp.type === 'equal' && ctxOp.oldLine !== undefined) {
-            currentHunk.lines.push(' ' + ctxOp.oldLine);
+            currentHunk.lines.push(` ${ctxOp.oldLine}`);
             currentHunk.oldCount++;
             currentHunk.newCount++;
           }
@@ -408,7 +408,7 @@ function groupIntoHunks(
         for (let j = lastAddedIdx + 1; j < i; j++) {
           const ctxOp = operations[j];
           if (ctxOp.type === 'equal' && ctxOp.oldLine !== undefined) {
-            currentHunk.lines.push(' ' + ctxOp.oldLine);
+            currentHunk.lines.push(` ${ctxOp.oldLine}`);
             currentHunk.oldCount++;
             currentHunk.newCount++;
           }
@@ -417,10 +417,10 @@ function groupIntoHunks(
 
       // Add the change
       if (op.type === 'delete' && op.oldLine !== undefined) {
-        currentHunk.lines.push('-' + op.oldLine);
+        currentHunk.lines.push(`-${op.oldLine}`);
         currentHunk.oldCount++;
       } else if (op.type === 'insert' && op.newLine !== undefined) {
-        currentHunk.lines.push('+' + op.newLine);
+        currentHunk.lines.push(`+${op.newLine}`);
         currentHunk.newCount++;
       }
 
@@ -429,7 +429,7 @@ function groupIntoHunks(
     } else if (currentHunk && i - lastChangeIdx <= contextLines) {
       // Trailing context within range
       if (op.oldLine !== undefined) {
-        currentHunk.lines.push(' ' + op.oldLine);
+        currentHunk.lines.push(` ${op.oldLine}`);
         currentHunk.oldCount++;
         currentHunk.newCount++;
         lastAddedIdx = i;
@@ -477,10 +477,10 @@ export function invertDiff(diff: string): string {
     .split('\n')
     .map((line) => {
       if (line.startsWith('+') && !line.startsWith('+++')) {
-        return '-' + line.slice(1);
+        return `-${line.slice(1)}`;
       }
       if (line.startsWith('-') && !line.startsWith('---')) {
-        return '+' + line.slice(1);
+        return `+${line.slice(1)}`;
       }
       // Swap line counts in hunk headers
       const hunkMatch = line.match(

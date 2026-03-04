@@ -5,8 +5,8 @@ import {
   Router,
 } from 'express';
 import { env } from '../config/env';
+import { passport } from '../config/passport';
 import { requireAuth } from '../middleware/auth';
-import { logger } from '../utils/logger';
 import {
   authRateLimiter,
   emailVerificationRateLimiter,
@@ -14,10 +14,10 @@ import {
   signupRateLimiter,
 } from '../middleware/rateLimiter';
 import { authService } from '../services/auth';
-import { usageService } from '../services/usage';
-import { passport } from '../config/passport';
 import { oauthService } from '../services/auth/oauth';
 import type { OAuthProfile } from '../services/auth/oauth.types';
+import { usageService } from '../services/usage';
+import { logger } from '../utils/logger';
 
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -143,7 +143,7 @@ router.get(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const usage = await usageService.getUserUsage(req.user!.id);
+      const usage = await usageService.getUserUsage(req.user?.id);
       res.json(usage);
     } catch (error) {
       return next(error);
@@ -260,7 +260,7 @@ router.post(
   emailVerificationRateLimiter,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const result = await authService.resendVerificationEmail(req.user!.id);
+      const result = await authService.resendVerificationEmail(req.user?.id);
       res.json(result);
     } catch (error) {
       next(error);
@@ -494,7 +494,7 @@ router.post(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const userId = req.user!.id;
+      const userId = req.user?.id;
       const { password } = req.body;
 
       if (!password) {

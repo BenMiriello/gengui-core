@@ -69,10 +69,7 @@ const shutdown = async (signal: string) => {
 
     await cpuPool.shutdown();
 
-    await Promise.all([
-      jobReconciliationService.stop(),
-      stopJobWorkers(),
-    ]);
+    await Promise.all([jobReconciliationService.stop(), stopJobWorkers()]);
 
     sseService.closeAll();
 

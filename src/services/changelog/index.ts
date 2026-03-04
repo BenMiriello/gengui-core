@@ -8,12 +8,12 @@ export type {
   TargetType,
 } from './changelog.types';
 export {
+  createTrackedArc,
+  createTrackedEdge,
   createTrackedEntity,
   createTrackedFacet,
-  createTrackedEdge,
-  createTrackedThread,
-  createTrackedArc,
   createTrackedState,
   createTrackedStateTransition,
+  createTrackedThread,
   type TrackedMutationOptions,
 } from './tracked-mutations';

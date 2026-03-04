@@ -54,7 +54,7 @@ export async function createTestUser(
     RETURNING id, email, username, role, email_verified
   `);
 
-  const row = result[0] as any;
+  const row = result[0] as unknown;
 
   return {
     user: {
@@ -101,7 +101,7 @@ export async function loginAs(
   password: string,
 ): Promise<string> {
   const response = await fetch(
-    `http://127.0.0.1:${(app as any).address?.()?.port || 0}/api/auth/login`,
+    `http://127.0.0.1:${(app as unknown).address?.()?.port || 0}/api/auth/login`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -211,7 +211,7 @@ export async function getUserFromDb(userId: string) {
   const result = await db.execute(sql`
     SELECT * FROM users WHERE id = ${userId}
   `);
-  return result[0] as any;
+  return result[0] as unknown;
 }
 
 export async function getSessionsForUser(userId: string) {
@@ -219,7 +219,7 @@ export async function getSessionsForUser(userId: string) {
   const result = await db.execute(sql`
     SELECT * FROM sessions WHERE user_id = ${userId}
   `);
-  return result as any[];
+  return result as unknown[];
 }
 
 export async function getEmailVerificationTokensForUser(userId: string) {
@@ -227,7 +227,7 @@ export async function getEmailVerificationTokensForUser(userId: string) {
   const result = await db.execute(sql`
     SELECT * FROM email_verification_tokens WHERE user_id = ${userId}
   `);
-  return result as any[];
+  return result as unknown[];
 }
 
 export async function getPasswordResetTokensForUser(userId: string) {
@@ -235,7 +235,7 @@ export async function getPasswordResetTokensForUser(userId: string) {
   const result = await db.execute(sql`
     SELECT * FROM password_reset_tokens WHERE user_id = ${userId}
   `);
-  return result as any[];
+  return result as unknown[];
 }
 
 interface DocumentInsert {
@@ -278,7 +278,7 @@ export async function createTestDocument(
     RETURNING id, user_id, title, content, narrative_mode_enabled, media_mode_enabled, current_version, created_at, updated_at
   `);
 
-  const row = result[0] as any;
+  const row = result[0] as unknown;
 
   return {
     id: row.id,
@@ -299,7 +299,7 @@ export async function getDocumentsForUser(userId: string) {
     SELECT * FROM documents WHERE user_id = ${userId} AND deleted_at IS NULL
     ORDER BY updated_at DESC
   `);
-  return result as any[];
+  return result as unknown[];
 }
 
 export async function getDocumentById(documentId: string) {
@@ -307,7 +307,7 @@ export async function getDocumentById(documentId: string) {
   const result = await db.execute(sql`
     SELECT * FROM documents WHERE id = ${documentId}
   `);
-  return result[0] as any;
+  return result[0] as unknown;
 }
 
 export async function getDocumentVersions(documentId: string) {
@@ -316,7 +316,7 @@ export async function getDocumentVersions(documentId: string) {
     SELECT * FROM document_versions WHERE document_id = ${documentId}
     ORDER BY version_number DESC
   `);
-  return result as any[];
+  return result as unknown[];
 }
 
 export function resetDocumentCounter() {
@@ -371,7 +371,7 @@ export async function createTestMedia(
     RETURNING id, user_id, storage_key, s3_key, size, mime_type, hash, generated, status, created_at
   `);
 
-  const row = result[0] as any;
+  const row = result[0] as unknown;
 
   return {
     id: row.id,
@@ -393,7 +393,7 @@ export async function getMediaForUser(userId: string) {
     SELECT * FROM media WHERE user_id = ${userId} AND deleted_at IS NULL
     ORDER BY created_at DESC
   `);
-  return result as any[];
+  return result as unknown[];
 }
 
 export async function getMediaById(mediaId: string) {
@@ -401,7 +401,7 @@ export async function getMediaById(mediaId: string) {
   const result = await db.execute(sql`
     SELECT * FROM media WHERE id = ${mediaId}
   `);
-  return result[0] as any;
+  return result[0] as unknown;
 }
 
 export function resetMediaCounter() {
@@ -431,7 +431,7 @@ export async function createTestTag(
     RETURNING id, user_id, name, created_at
   `);
 
-  const row = result[0] as any;
+  const row = result[0] as unknown;
 
   return {
     id: row.id,
@@ -447,7 +447,7 @@ export async function getTagsForUser(userId: string) {
     SELECT * FROM tags WHERE user_id = ${userId}
     ORDER BY name
   `);
-  return result as any[];
+  return result as unknown[];
 }
 
 export async function addTagToMedia(mediaId: string, tagId: string) {
@@ -465,7 +465,7 @@ export async function getMediaTags(mediaId: string) {
     INNER JOIN media_tags mt ON t.id = mt.tag_id
     WHERE mt.media_id = ${mediaId}
   `);
-  return result as any[];
+  return result as unknown[];
 }
 
 export function resetTagCounter() {
@@ -515,7 +515,7 @@ export async function createTestGeneration(
     RETURNING id, user_id, prompt, seed, width, height, status, created_at
   `);
 
-  const row = result[0] as any;
+  const row = result[0] as unknown;
 
   const generation: TestGeneration = {
     id: row.id,
@@ -586,7 +586,7 @@ export async function getGenerationsForUser(userId: string) {
     AND deleted_at IS NULL
     ORDER BY created_at DESC
   `);
-  return result as any[];
+  return result as unknown[];
 }
 
 export async function getGenerationById(generationId: string) {
@@ -594,7 +594,7 @@ export async function getGenerationById(generationId: string) {
   const result = await db.execute(sql`
     SELECT * FROM media WHERE id = ${generationId}
   `);
-  return result[0] as any;
+  return result[0] as unknown;
 }
 
 export function resetGenerationCounter() {

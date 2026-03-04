@@ -19,7 +19,7 @@ router.post('/', requireAuth, upload.single('file'), async (req, res, next) => {
       return;
     }
 
-    const result = await mediaService.upload(req.user!.id, req.file);
+    const result = await mediaService.upload(req.user?.id, req.file);
 
     res.status(201).json({
       id: result.id,
@@ -41,7 +41,7 @@ router.get('/', requireAuth, async (req, res, next) => {
       ? excludeRolesParam.split(',')
       : undefined;
 
-    const results = await mediaService.list(req.user!.id, limit, {
+    const results = await mediaService.list(req.user?.id, limit, {
       excludeRoles,
     });
 
@@ -53,7 +53,7 @@ router.get('/', requireAuth, async (req, res, next) => {
 
 router.get('/:id', requireAuth, async (req, res, next) => {
   try {
-    const mediaItem = await mediaService.getById(req.params.id, req.user!.id);
+    const mediaItem = await mediaService.getById(req.params.id, req.user?.id);
 
     res.json(mediaItem);
   } catch (error) {
@@ -69,7 +69,7 @@ router.get('/:id/url', requireAuth, async (req, res, next) => {
     const type = (req.query.type as string) === 'thumb' ? 'thumb' : 'full';
     const url = await mediaService.getSignedUrl(
       req.params.id,
-      req.user!.id,
+      req.user?.id,
       expiresIn,
       type,
     );
@@ -114,7 +114,7 @@ router.get('/:id/node', requireAuth, async (req, res, next) => {
 
 router.delete('/:id', requireAuth, async (req, res, next) => {
   try {
-    const result = await mediaService.delete(req.params.id, req.user!.id);
+    const result = await mediaService.delete(req.params.id, req.user?.id);
 
     res.json({ message: 'Media deleted', id: result.id });
   } catch (error) {

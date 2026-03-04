@@ -351,7 +351,7 @@ export const sentenceService = {
 };
 
 // @ts-expect-error - Reserved for future use
-function rowToStoredSentence(
+function _rowToStoredSentence(
   row: typeof sentenceEmbeddings.$inferSelect,
 ): StoredSentenceEmbedding {
   return {

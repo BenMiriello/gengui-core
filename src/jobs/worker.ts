@@ -24,7 +24,10 @@ const STALE_PROGRESS_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes since last progr
 // Poll interval for checking jobs (fallback when no pub/sub notification)
 const POLL_INTERVAL_MS = 30_000;
 
-export abstract class JobWorker<TPayload = unknown, TProgress extends JobProgress = JobProgress> {
+export abstract class JobWorker<
+  TPayload = unknown,
+  TProgress extends JobProgress = JobProgress,
+> {
   protected abstract jobType: JobType;
   protected abstract processJob(job: Job, payload: TPayload): Promise<void>;
 
@@ -48,7 +51,10 @@ export abstract class JobWorker<TPayload = unknown, TProgress extends JobProgres
     }
 
     this.isRunning = true;
-    logger.info({ service: this.serviceName, workerId: this.workerId }, 'Starting job worker');
+    logger.info(
+      { service: this.serviceName, workerId: this.workerId },
+      'Starting job worker',
+    );
 
     // Subscribe to job notifications
     const redisUrl = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
@@ -87,12 +93,18 @@ export abstract class JobWorker<TPayload = unknown, TProgress extends JobProgres
 
     // Initial check for pending jobs
     this.processAvailable().catch((error) => {
-      logger.error({ error, service: this.serviceName }, 'Initial job check failed');
+      logger.error(
+        { error, service: this.serviceName },
+        'Initial job check failed',
+      );
     });
 
     // Initial stale job recovery
     this.recoverStaleJobs().catch((error) => {
-      logger.error({ error, service: this.serviceName }, 'Initial stale recovery failed');
+      logger.error(
+        { error, service: this.serviceName },
+        'Initial stale recovery failed',
+      );
     });
 
     logger.info({ service: this.serviceName, channel }, 'Job worker started');
@@ -123,7 +135,10 @@ export abstract class JobWorker<TPayload = unknown, TProgress extends JobProgres
     if (this.processingPromise) {
       const timeout = new Promise<void>((resolve) => {
         setTimeout(() => {
-          logger.warn({ service: this.serviceName }, 'Processing did not complete in time');
+          logger.warn(
+            { service: this.serviceName },
+            'Processing did not complete in time',
+          );
           resolve();
         }, 5000);
       });
@@ -207,7 +222,9 @@ export abstract class JobWorker<TPayload = unknown, TProgress extends JobProgres
    */
   protected async recoverStaleJobs(): Promise<void> {
     const startedThreshold = new Date(Date.now() - STALE_STARTED_THRESHOLD_MS);
-    const progressThreshold = new Date(Date.now() - STALE_PROGRESS_THRESHOLD_MS);
+    const progressThreshold = new Date(
+      Date.now() - STALE_PROGRESS_THRESHOLD_MS,
+    );
 
     try {
       const result = await db.execute(sql`
@@ -227,19 +244,29 @@ export abstract class JobWorker<TPayload = unknown, TProgress extends JobProgres
 
       if (rows.length > 0) {
         logger.info(
-          { jobIds: rows.map((r) => r.id), count: rows.length, service: this.serviceName },
+          {
+            jobIds: rows.map((r) => r.id),
+            count: rows.length,
+            service: this.serviceName,
+          },
           'Recovered stale jobs',
         );
       }
     } catch (error) {
-      logger.error({ error, service: this.serviceName }, 'Failed to recover stale jobs');
+      logger.error(
+        { error, service: this.serviceName },
+        'Failed to recover stale jobs',
+      );
     }
   }
 
   /**
    * Update progress and broadcast to SSE subscribers.
    */
-  protected async updateProgress(jobId: string, progress: TProgress): Promise<void> {
+  protected async updateProgress(
+    jobId: string,
+    progress: TProgress,
+  ): Promise<void> {
     const job = await jobService.updateProgress(jobId, progress);
 
     if (job) {
@@ -371,7 +398,12 @@ export abstract class JobWorker<TPayload = unknown, TProgress extends JobProgres
       sseService.clearDocumentBuffer(job.targetId);
 
       logger.error(
-        { jobId, targetId: job.targetId, error: errorMessage, service: this.serviceName },
+        {
+          jobId,
+          targetId: job.targetId,
+          error: errorMessage,
+          service: this.serviceName,
+        },
         'Job failed',
       );
     }

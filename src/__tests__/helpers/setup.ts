@@ -61,7 +61,7 @@ async function getStoredSchemaVersion(
     const result = await db.execute(sql`
       SELECT version FROM _test_schema_meta LIMIT 1
     `);
-    return (result as any)[0]?.version ?? null;
+    return (result as unknown)[0]?.version ?? null;
   } catch {
     return null;
   }

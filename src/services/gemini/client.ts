@@ -3,7 +3,7 @@
  * Thin wrapper handling API calls, retries, and error handling.
  */
 
-import { randomUUID } from 'crypto';
+import { randomUUID } from 'node:crypto';
 import { getTextModelConfig } from '../../config/text-models';
 import {
   analyzeHigherOrderPrompt,
@@ -436,7 +436,7 @@ export async function extractEntitiesFromBatch(
       const signalCount = parsed.mergeSignals?.length ?? 0;
 
       // @ts-expect-error - Used below for logging, false positive
-      const inputTokens =
+      const _inputTokens =
         result.usageMetadata?.promptTokenCount || estimatedInputTokens;
       const outputTokens =
         result.usageMetadata?.candidatesTokenCount || estimatedOutputTokens;

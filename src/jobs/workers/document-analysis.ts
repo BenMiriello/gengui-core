@@ -6,20 +6,20 @@
 import { and, eq } from 'drizzle-orm';
 import { db } from '../../config/database';
 import { documents } from '../../models/schema';
-import { type Segment, segmentService } from '../../services/segments';
-import { splitIntoSentences } from '../../services/sentences/sentence.detector';
-import { sseService } from '../../services/sse';
-import { stalenessService } from '../../services/staleness';
 import {
   AnalysisCancelledError,
   AnalysisPausedError,
   multiStagePipeline,
 } from '../../services/pipeline';
+import { type Segment, segmentService } from '../../services/segments';
+import { splitIntoSentences } from '../../services/sentences/sentence.detector';
+import { sseService } from '../../services/sse';
+import { stalenessService } from '../../services/staleness';
 import { usageService } from '../../services/usage';
 import { logger } from '../../utils/logger';
-import { JobWorker } from '../worker';
 import type { AnalysisProgress, Job, JobType } from '../types';
 import { JobCancelledError, JobPausedError } from '../types';
+import { JobWorker } from '../worker';
 
 const MIN_CONTENT_LENGTH = 50;
 const MAX_CONTENT_LENGTH = 50000;
@@ -29,14 +29,20 @@ interface AnalysisPayload {
   operationId?: string;
 }
 
-class DocumentAnalysisWorker extends JobWorker<AnalysisPayload, AnalysisProgress> {
+class DocumentAnalysisWorker extends JobWorker<
+  AnalysisPayload,
+  AnalysisProgress
+> {
   protected jobType: JobType = 'document_analysis';
 
   constructor() {
     super('document-analysis-worker');
   }
 
-  protected async processJob(job: Job, payload: AnalysisPayload): Promise<void> {
+  protected async processJob(
+    job: Job,
+    payload: AnalysisPayload,
+  ): Promise<void> {
     const { reanalyze = false, operationId } = payload;
     const documentId = job.targetId;
     const userId = job.userId;
@@ -188,7 +194,9 @@ class DocumentAnalysisWorker extends JobWorker<AnalysisPayload, AnalysisProgress
     const content = document.content.trim();
 
     if (!content) {
-      throw new Error('Document is empty. Please add some text before analyzing.');
+      throw new Error(
+        'Document is empty. Please add some text before analyzing.',
+      );
     }
 
     if (content.length < MIN_CONTENT_LENGTH) {

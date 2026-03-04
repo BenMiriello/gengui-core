@@ -78,7 +78,10 @@ export async function resolveEntities(
   await ensurePhoneticReady();
 
   // Step 1: Cluster extracted entities (async - offloads to worker)
-  const clusters = await clusterAcrossSegments(extractedEntities, config.thresholds);
+  const clusters = await clusterAcrossSegments(
+    extractedEntities,
+    config.thresholds,
+  );
 
   logger.info(
     {

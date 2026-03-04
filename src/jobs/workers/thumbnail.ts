@@ -5,8 +5,8 @@
 
 import { thumbnailProcessor } from '../../services/thumbnailProcessor';
 import { logger } from '../../utils/logger';
-import { JobWorker } from '../worker';
 import type { Job, JobProgress, JobType } from '../types';
+import { JobWorker } from '../worker';
 
 interface ThumbnailPayload {
   mediaId: string;
@@ -19,7 +19,10 @@ class ThumbnailWorker extends JobWorker<ThumbnailPayload, JobProgress> {
     super('thumbnail-worker');
   }
 
-  protected async processJob(job: Job, payload: ThumbnailPayload): Promise<void> {
+  protected async processJob(
+    job: Job,
+    payload: ThumbnailPayload,
+  ): Promise<void> {
     const { mediaId } = payload;
 
     if (!mediaId) {

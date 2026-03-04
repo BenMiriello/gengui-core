@@ -845,10 +845,7 @@ export class AuthService {
 
     const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
 
-    await db
-      .update(users)
-      .set({ passwordHash })
-      .where(eq(users.id, userId));
+    await db.update(users).set({ passwordHash }).where(eq(users.id, userId));
 
     logger.info({ userId }, 'Password set for OAuth user');
   }

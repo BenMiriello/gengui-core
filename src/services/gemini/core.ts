@@ -10,7 +10,7 @@ import { logger } from '../../utils/logger';
 
 // Cached client instance
 // @ts-expect-error - Used in initialization promise chain
-let genAIClient: Awaited<ReturnType<typeof createClient>> | null = null;
+let _genAIClient: Awaited<ReturnType<typeof createClient>> | null = null;
 let initPromise: Promise<Awaited<ReturnType<typeof createClient>>> | null =
   null;
 
@@ -31,7 +31,7 @@ export async function getGeminiClient() {
       if (!client) {
         logger.warn('GEMINI_API_KEY not configured');
       }
-      genAIClient = client;
+      _genAIClient = client;
       return client;
     });
   }

@@ -28,12 +28,6 @@ import type {
 } from '../../types/storyNodes';
 import { generateRequestId, logger } from '../../utils/logger';
 import { logStageComplete, logStageStart } from '../../utils/logHelpers';
-import {
-  calculateAllBatches,
-  countTokens,
-  extractionConfig,
-  type SegmentWithText,
-} from '../contextBudget';
 // TODO: Re-enable when review queue UI is built and conflict detection is fixed
 // import { reviewQueueService } from '../reviewQueue';
 import {
@@ -46,6 +40,12 @@ import {
   createTrackedStateTransition,
   createTrackedThread,
 } from '../changelog';
+import {
+  calculateAllBatches,
+  countTokens,
+  extractionConfig,
+  type SegmentWithText,
+} from '../contextBudget';
 import { descriptionService } from '../descriptionGeneration';
 import { generateEmbedding, generateEmbeddings } from '../embeddings';
 import {
@@ -68,7 +68,6 @@ import type { StoredFacet, StoredStoryNode } from '../graph/graph.types';
 import { mentionService } from '../mentions';
 import type { Segment } from '../segments';
 import { segmentService } from '../segments';
-import { processBatchesInParallel } from './batchProcessing';
 import { sentenceService } from '../sentences';
 import { sseService } from '../sse';
 import {
@@ -81,6 +80,7 @@ import {
   CONFIG as SUMMARY_CONFIG,
   selectSummariesForContext,
 } from '../summarization';
+import { processBatchesInParallel } from './batchProcessing';
 import {
   clearCheckpoint,
   isCheckpointValid,
@@ -287,9 +287,10 @@ function buildEntityRegistryForPrompt(
           ? [...new Set([...e.aliases, ...nameFacets])]
           : undefined,
       summary: traitFacets.length > 0 ? traitFacets.join('; ') : undefined,
-      segmentIndices: e.segmentIndices.size > 0
-        ? Array.from(e.segmentIndices).sort((a, b) => a - b)
-        : undefined,
+      segmentIndices:
+        e.segmentIndices.size > 0
+          ? Array.from(e.segmentIndices).sort((a, b) => a - b)
+          : undefined,
     };
   });
 }
@@ -713,7 +714,9 @@ export const multiStagePipeline = {
         const entityId = entityIdByName.get(entity.name);
         if (entityId) {
           // Find segment index for this entity
-          const segmentIndex = segments.findIndex((s) => s.id === entity.segmentId);
+          const segmentIndex = segments.findIndex(
+            (s) => s.id === entity.segmentId,
+          );
           updateEntityRegistry(
             runtimeRegistry,
             entity,
@@ -968,9 +971,9 @@ export const multiStagePipeline = {
                 ).find(
                   (e) =>
                     e.name.toLowerCase() ===
-                      entity.existingMatch!.matchedName.toLowerCase() &&
+                      entity.existingMatch?.matchedName.toLowerCase() &&
                     e.type.toLowerCase() ===
-                      entity.existingMatch!.matchedType.toLowerCase(),
+                      entity.existingMatch?.matchedType.toLowerCase(),
                 );
 
                 // Second try: lookup by alias
@@ -1031,7 +1034,12 @@ export const multiStagePipeline = {
               extractedEntities.push(extracted);
               entityIdByName.set(entity.name, entityId);
               registerEntityAliases(aliasToEntityId, entityId, extracted);
-              updateEntityRegistry(runtimeRegistry, extracted, entityId, segment.index);
+              updateEntityRegistry(
+                runtimeRegistry,
+                extracted,
+                entityId,
+                segment.index,
+              );
             }
 
             // Accumulate merge signals
@@ -1484,12 +1492,16 @@ export const multiStagePipeline = {
             entityCount: entityIdByName.size,
           });
 
-          const intraSegmentRels: Stage4RelationshipsResult['relationships'] = [];
+          const intraSegmentRels: Stage4RelationshipsResult['relationships'] =
+            [];
 
           // Build segment inputs with entities
           const segmentInputs = segments
             .map((segment, i) => {
-              const segmentText = documentContent.slice(segment.start, segment.end);
+              const segmentText = documentContent.slice(
+                segment.start,
+                segment.end,
+              );
 
               // Get resolved entities in this segment
               const entitiesInSegment = resolvedEntities.filter(
@@ -1611,7 +1623,8 @@ export const multiStagePipeline = {
             entityCount: entityIdByName.size,
           });
 
-          const crossSegmentRels: Stage4RelationshipsResult['relationships'] = [];
+          const crossSegmentRels: Stage4RelationshipsResult['relationships'] =
+            [];
 
           // Build entity list with segment associations
           const entityWithSegments: EntityWithSegments[] = [];
@@ -1682,7 +1695,7 @@ export const multiStagePipeline = {
               batches,
               (items) =>
                 extractCrossSegmentRelationships(
-                  doc?.summary ?? documentTitle
+                  (doc?.summary ?? documentTitle)
                     ? `Document: "${documentTitle}"`
                     : undefined,
                   items.map((item) => ({
@@ -1751,7 +1764,6 @@ export const multiStagePipeline = {
         'Relationship extraction complete (parallel execution)',
       );
     }
-
 
     // Stage 7: Higher-Order Analysis
     let higherOrderResult: Stage5HigherOrderResult | null = null;
@@ -2662,7 +2674,7 @@ async function buildCharacterContext(
 
       const stateStart = state.causalOrder;
       const stateEnd = transitionMap.get(state.id)?.toStateId
-        ? (states.find((s) => s.id === transitionMap.get(state.id)!.toStateId)
+        ? (states.find((s) => s.id === transitionMap.get(state.id)?.toStateId)
             ?.causalOrder ?? Infinity)
         : Infinity;
 
@@ -2717,8 +2729,8 @@ async function buildCharacterContext(
     const stateSegmentIndices = facetsWithMentions
       .flatMap((f) => {
         const range = f.segmentRange.split('-');
-        const start = parseInt(range[0]);
-        const end = range.length > 1 ? parseInt(range[1]) : start;
+        const start = parseInt(range[0], 10);
+        const end = range.length > 1 ? parseInt(range[1], 10) : start;
         return Array.from({ length: end - start + 1 }, (_, i) => start + i);
       })
       .filter((v, i, a) => a.indexOf(v) === i)
@@ -3015,7 +3027,7 @@ function buildContextPrompt(
 
     if (state.transitionTo) {
       const nextState = context.states.find(
-        (s) => s.id === state.transitionTo!.toStateId,
+        (s) => s.id === state.transitionTo?.toStateId,
       );
       if (nextState) {
         prompt += `-${nextState.documentOrder}`;
@@ -3073,7 +3085,7 @@ function buildContextPrompt(
 
     if (state.transitionTo) {
       prompt += `State transition:\n`;
-      prompt += `  → Transitions to State ${context.states.findIndex((s) => s.id === state.transitionTo!.toStateId) + 1}: "${state.transitionTo.toStateName}"\n`;
+      prompt += `  → Transitions to State ${context.states.findIndex((s) => s.id === state.transitionTo?.toStateId) + 1}: "${state.transitionTo.toStateName}"\n`;
 
       if (
         state.transitionTo.triggerEventId &&
@@ -3175,7 +3187,7 @@ function buildContextPrompt(
 
         if (state.transitionTo) {
           const nextState = context.states.find(
-            (s) => s.id === state.transitionTo!.toStateId,
+            (s) => s.id === state.transitionTo?.toStateId,
           );
           if (nextState) {
             prompt += `-${nextState.causalOrder}`;

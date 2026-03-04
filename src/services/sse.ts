@@ -80,7 +80,7 @@ class SSEService {
     const heartbeat = setInterval(() => {
       try {
         res.write(':keepalive\n\n');
-      } catch (err) {
+      } catch (_err) {
         logger.debug({ clientId }, 'Heartbeat failed, cleaning up connection');
         clearInterval(heartbeat);
         this.clients.delete(clientId);
@@ -165,7 +165,12 @@ class SSEService {
   /**
    * Buffer an event for later replay to new clients
    */
-  private bufferEvent(channel: string, event: string, data: any, ttlMs: number) {
+  private bufferEvent(
+    channel: string,
+    event: string,
+    data: any,
+    ttlMs: number,
+  ) {
     if (!this.eventBuffer.has(channel)) {
       this.eventBuffer.set(channel, []);
     }

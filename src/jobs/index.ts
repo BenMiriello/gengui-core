@@ -19,8 +19,8 @@ export { JobWorker } from './worker';
 
 // Workers
 export { documentAnalysisWorker } from './workers/document-analysis';
-export { promptAugmentationWorker } from './workers/prompt-augmentation';
 export { mediaStatusWorker } from './workers/media-status';
+export { promptAugmentationWorker } from './workers/prompt-augmentation';
 export { thumbnailWorker } from './workers/thumbnail';
 
 /**
@@ -28,8 +28,12 @@ export { thumbnailWorker } from './workers/thumbnail';
  * Call this from index.ts after server starts.
  */
 export async function startJobWorkers(): Promise<void> {
-  const { documentAnalysisWorker } = await import('./workers/document-analysis.js');
-  const { promptAugmentationWorker } = await import('./workers/prompt-augmentation.js');
+  const { documentAnalysisWorker } = await import(
+    './workers/document-analysis.js'
+  );
+  const { promptAugmentationWorker } = await import(
+    './workers/prompt-augmentation.js'
+  );
   const { mediaStatusWorker } = await import('./workers/media-status.js');
   const { thumbnailWorker } = await import('./workers/thumbnail.js');
 
@@ -46,8 +50,12 @@ export async function startJobWorkers(): Promise<void> {
  * Call this during shutdown.
  */
 export async function stopJobWorkers(): Promise<void> {
-  const { documentAnalysisWorker } = await import('./workers/document-analysis.js');
-  const { promptAugmentationWorker } = await import('./workers/prompt-augmentation.js');
+  const { documentAnalysisWorker } = await import(
+    './workers/document-analysis.js'
+  );
+  const { promptAugmentationWorker } = await import(
+    './workers/prompt-augmentation.js'
+  );
   const { mediaStatusWorker } = await import('./workers/media-status.js');
   const { thumbnailWorker } = await import('./workers/thumbnail.js');
 

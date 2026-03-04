@@ -107,8 +107,8 @@ function formatEntityForContext(entity: {
   }
 
   return `[${entity.id}] ${entity.type.toUpperCase()}: "${entity.name}" (${entity.mentionCount} mentions)
-  Names: ${facetsByType['name']?.join(', ') || 'none'}
-  Appearance: ${facetsByType['appearance']?.join(', ') || 'none'}`;
+  Names: ${facetsByType.name?.join(', ') || 'none'}
+  Appearance: ${facetsByType.appearance?.join(', ') || 'none'}`;
 }
 
 /**

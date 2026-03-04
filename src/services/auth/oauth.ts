@@ -5,10 +5,7 @@ import { users } from '../../models/schema';
 import { ConflictError, UnauthorizedError } from '../../utils/errors';
 import { logger } from '../../utils/logger';
 import { validateUsername } from '../../utils/validation';
-import type {
-  OAuthProfile,
-  OAuthUserLookupResult,
-} from './oauth.types';
+import type { OAuthProfile, OAuthUserLookupResult } from './oauth.types';
 
 export class OAuthService {
   async determineAction(profile: OAuthProfile): Promise<OAuthUserLookupResult> {
@@ -36,10 +33,11 @@ export class OAuthService {
       };
     }
 
-    if (user.oauthProvider !== null && user.oauthProvider !== profile.provider) {
-      throw new ConflictError(
-        `Email already linked to ${user.oauthProvider}`,
-      );
+    if (
+      user.oauthProvider !== null &&
+      user.oauthProvider !== profile.provider
+    ) {
+      throw new ConflictError(`Email already linked to ${user.oauthProvider}`);
     }
 
     if (user.emailVerified && profile.emailVerified) {

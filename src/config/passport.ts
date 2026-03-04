@@ -1,10 +1,14 @@
 import passport from 'passport';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
-import { env } from './env';
 import { oauthService } from '../services/auth/oauth';
 import type { OAuthProfile } from '../services/auth/oauth.types';
+import { env } from './env';
 
-if (env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.GOOGLE_CALLBACK_URL) {
+if (
+  env.GOOGLE_CLIENT_ID &&
+  env.GOOGLE_CLIENT_SECRET &&
+  env.GOOGLE_CALLBACK_URL
+) {
   passport.use(
     new GoogleStrategy(
       {
@@ -43,7 +47,7 @@ if (env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.GOOGLE_CALLBACK_URL)
           }
 
           if (result.action === 'link') {
-            await oauthService.linkOAuthToUser(result.user!.id, oauthProfile);
+            await oauthService.linkOAuthToUser(result.user?.id, oauthProfile);
             return done(null, result.user as any);
           }
 

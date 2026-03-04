@@ -37,7 +37,7 @@ export function buildBlockingIndex(entities: ExistingEntity[]): BlockingIndex {
       if (!index.byNameToken.has(key)) {
         index.byNameToken.set(key, new Set());
       }
-      index.byNameToken.get(key)!.add(entity.id);
+      index.byNameToken.get(key)?.add(entity.id);
     }
 
     // Index by aliases
@@ -49,7 +49,7 @@ export function buildBlockingIndex(entities: ExistingEntity[]): BlockingIndex {
           if (!index.byNameToken.has(key)) {
             index.byNameToken.set(key, new Set());
           }
-          index.byNameToken.get(key)!.add(entity.id);
+          index.byNameToken.get(key)?.add(entity.id);
         }
       }
     }
@@ -60,14 +60,14 @@ export function buildBlockingIndex(entities: ExistingEntity[]): BlockingIndex {
       if (!index.byPhoneticCode.has(code)) {
         index.byPhoneticCode.set(code, new Set());
       }
-      index.byPhoneticCode.get(code)!.add(entity.id);
+      index.byPhoneticCode.get(code)?.add(entity.id);
     }
 
     // Index by type
     if (!index.byType.has(entity.type)) {
       index.byType.set(entity.type, new Set());
     }
-    index.byType.get(entity.type)!.add(entity.id);
+    index.byType.get(entity.type)?.add(entity.id);
   }
 
   return index;

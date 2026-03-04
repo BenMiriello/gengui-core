@@ -39,10 +39,7 @@ export const jobService = {
       // Notify workers via pub/sub
       await redis.publish(`jobs:notify:${type}`, job.id);
 
-      logger.info(
-        { jobId: job.id, type, targetId },
-        'Job created',
-      );
+      logger.info({ jobId: job.id, type, targetId }, 'Job created');
 
       return job;
     } catch (error: any) {
@@ -101,7 +98,7 @@ export const jobService = {
     targetId: string,
     statuses?: JobStatus[],
   ): Promise<Job[]> {
-    let query = db
+    const query = db
       .select()
       .from(jobs)
       .where(
@@ -129,7 +126,11 @@ export const jobService = {
     if (status === 'processing') {
       updates.startedAt = new Date();
       updates.progressUpdatedAt = new Date();
-    } else if (status === 'completed' || status === 'failed' || status === 'cancelled') {
+    } else if (
+      status === 'completed' ||
+      status === 'failed' ||
+      status === 'cancelled'
+    ) {
       updates.completedAt = new Date();
     }
 
@@ -192,10 +193,7 @@ export const jobService = {
    * Clear checkpoint (e.g., on completion or cancellation).
    */
   async clearCheckpoint(jobId: string): Promise<void> {
-    await db
-      .update(jobs)
-      .set({ checkpoint: null })
-      .where(eq(jobs.id, jobId));
+    await db.update(jobs).set({ checkpoint: null }).where(eq(jobs.id, jobId));
   },
 
   /**

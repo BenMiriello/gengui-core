@@ -1,7 +1,7 @@
 import type { Transporter } from 'nodemailer';
 import nodemailer from 'nodemailer';
-import { logger } from '../utils/logger';
 import { APP_NAME } from '../config/appConfig';
+import { logger } from '../utils/logger';
 
 const WELCOME_MESSAGE = `We are on a mission to build the most insightful and creator-friendly narrative writing tool possible. ${APP_NAME || 'our app'} is in the early stages and we are working hard to improve it, so we are very grateful for your interest and support. Any feedback you can provide is welcome.
 

@@ -62,10 +62,10 @@ export const resolveEntityPrompt: PromptDefinition<ResolveEntityInput> = {
 CANDIDATE ${i + 1}: [ID: ${c.id}] "${c.name}" (${c.type})
   Similarity Score: ${(c.similarityScore * 100).toFixed(1)}%
   Mentions: ${c.mentionCount}
-  Names: ${cFacetsByType['name']?.join(', ') || 'none'}
-  Appearance: ${cFacetsByType['appearance']?.join(', ') || 'none'}
-  Traits: ${cFacetsByType['trait']?.join(', ') || 'none'}
-  States: ${cFacetsByType['state']?.join(', ') || 'none'}`;
+  Names: ${cFacetsByType.name?.join(', ') || 'none'}
+  Appearance: ${cFacetsByType.appearance?.join(', ') || 'none'}
+  Traits: ${cFacetsByType.trait?.join(', ') || 'none'}
+  States: ${cFacetsByType.state?.join(', ') || 'none'}`;
             })
             .join('\n')
         : '\n(No candidates found - entity will be created as NEW)';
@@ -82,10 +82,10 @@ ${documentContext}
     return `Decide if this extracted entity matches any existing entity.
 
 EXTRACTED ENTITY: "${extractedEntity.name}" (${extractedEntity.type})
-  Names: ${extractedFacetsByType['name']?.join(', ') || 'none'}
-  Appearance: ${extractedFacetsByType['appearance']?.join(', ') || 'none'}
-  Traits: ${extractedFacetsByType['trait']?.join(', ') || 'none'}
-  States: ${extractedFacetsByType['state']?.join(', ') || 'none'}
+  Names: ${extractedFacetsByType.name?.join(', ') || 'none'}
+  Appearance: ${extractedFacetsByType.appearance?.join(', ') || 'none'}
+  Traits: ${extractedFacetsByType.trait?.join(', ') || 'none'}
+  States: ${extractedFacetsByType.state?.join(', ') || 'none'}
   Mentions: ${extractedEntity.mentions.map((m) => `"${m.text}"`).join(', ')}
 ${candidatesSection}
 ${contextSection}
@@ -166,8 +166,8 @@ export const batchResolveEntitiesPrompt: PromptDefinition<BatchResolveInput> = {
         }
         return `
 [${i + 1}] "${e.name}" (${e.type})
-    Names: ${facetsByType['name']?.join(', ') || 'none'}
-    Appearance: ${facetsByType['appearance']?.join(', ') || 'none'}
+    Names: ${facetsByType.name?.join(', ') || 'none'}
+    Appearance: ${facetsByType.appearance?.join(', ') || 'none'}
     Candidates: ${e.candidateIds.length > 0 ? e.candidateIds.join(', ') : 'none'}`;
       })
       .join('\n');
@@ -179,7 +179,7 @@ export const batchResolveEntitiesPrompt: PromptDefinition<BatchResolveInput> = {
           if (!facetsByType[f.type]) facetsByType[f.type] = [];
           facetsByType[f.type].push(f.content);
         }
-        return `[${c.id}] "${c.name}" (${c.type}): ${facetsByType['name']?.join(', ') || 'no aliases'}`;
+        return `[${c.id}] "${c.name}" (${c.type}): ${facetsByType.name?.join(', ') || 'no aliases'}`;
       })
       .join('\n');
 

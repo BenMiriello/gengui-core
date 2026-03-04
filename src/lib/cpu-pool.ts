@@ -5,8 +5,8 @@
  * Keeps event loop responsive during heavy computation.
  */
 
-import { cpus } from 'os';
-import { resolve } from 'path';
+import { cpus } from 'node:os';
+import { resolve } from 'node:path';
 import Piscina from 'piscina';
 import { logger } from '../utils/logger';
 

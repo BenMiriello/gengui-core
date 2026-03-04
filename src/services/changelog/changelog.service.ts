@@ -12,7 +12,7 @@ import type {
 
 function truncate(str: string, maxLength: number): string {
   if (str.length <= maxLength) return str;
-  return str.slice(0, maxLength - 3) + '...';
+  return `${str.slice(0, maxLength - 3)}...`;
 }
 
 function generateSummary(input: CreateChangeLogInput): string {
@@ -44,7 +44,10 @@ function generateSummary(input: CreateChangeLogInput): string {
 
     case 'facet': {
       if (operation === 'create') {
-        const created = changeData.created as { type?: string; content?: string };
+        const created = changeData.created as {
+          type?: string;
+          content?: string;
+        };
         const content = truncate(created?.content || '', 50);
         return `Added ${created?.type || 'facet'} '${content}' to ${entityName || 'entity'}`;
       }
@@ -53,7 +56,10 @@ function generateSummary(input: CreateChangeLogInput): string {
         return `Changed ${before?.type || 'facet'} on ${entityName || 'entity'}`;
       }
       if (operation === 'delete') {
-        const deleted = changeData.deleted as { type?: string; content?: string };
+        const deleted = changeData.deleted as {
+          type?: string;
+          content?: string;
+        };
         const content = truncate(deleted?.content || '', 50);
         return `Removed ${deleted?.type || 'facet'} '${content}' from ${entityName || 'entity'}`;
       }
@@ -126,9 +132,7 @@ function generateSummary(input: CreateChangeLogInput): string {
   return `${operation} ${targetType}`;
 }
 
-function rowToEntry(
-  row: typeof changeLog.$inferSelect,
-): ChangeLogEntry {
+function rowToEntry(row: typeof changeLog.$inferSelect): ChangeLogEntry {
   return {
     id: row.id,
     createdAt: row.createdAt,

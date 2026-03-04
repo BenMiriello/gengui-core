@@ -13,8 +13,8 @@
  * - Segment attribution for batch processing
  */
 
-import type { PromptDefinition } from '../types';
 import type { EntityRegistryEntry } from '../../services/gemini/client';
+import type { PromptDefinition } from '../types';
 
 interface SegmentInput {
   id: string;
@@ -99,10 +99,13 @@ function formatSegments(
  */
 function formatEventChain(registry: EntityRegistryEntry[]): string {
   const events = registry
-    .filter(e => e.type === 'event' && e.segmentIndices && e.segmentIndices.length > 0)
-    .map(e => ({
+    .filter(
+      (e) =>
+        e.type === 'event' && e.segmentIndices && e.segmentIndices.length > 0,
+    )
+    .map((e) => ({
       name: e.name,
-      segmentIndex: Math.min(...e.segmentIndices!)
+      segmentIndex: Math.min(...e.segmentIndices!),
     }))
     .sort((a, b) => a.segmentIndex - b.segmentIndex);
 
@@ -110,7 +113,9 @@ function formatEventChain(registry: EntityRegistryEntry[]): string {
     return '';
   }
 
-  const eventLines = events.map(e => `- "${e.name}" (segment ${e.segmentIndex + 1})`);
+  const eventLines = events.map(
+    (e) => `- "${e.name}" (segment ${e.segmentIndex + 1})`,
+  );
 
   return `
 ## PREVIOUS EVENTS (Document Order)

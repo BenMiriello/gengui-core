@@ -10,8 +10,8 @@ import { graphService } from '../../services/graph/graph.service';
 import { sseService } from '../../services/sse';
 import { logger } from '../../utils/logger';
 import { jobService } from '../service';
-import { JobWorker } from '../worker';
 import type { Job, JobProgress, JobType } from '../types';
+import { JobWorker } from '../worker';
 
 interface MediaStatusPayload {
   mediaId: string;
@@ -27,7 +27,10 @@ class MediaStatusWorker extends JobWorker<MediaStatusPayload, JobProgress> {
     super('media-status-worker');
   }
 
-  protected async processJob(job: Job, payload: MediaStatusPayload): Promise<void> {
+  protected async processJob(
+    job: Job,
+    payload: MediaStatusPayload,
+  ): Promise<void> {
     const { mediaId, status, s3Key, error } = payload;
 
     if (!mediaId) {
@@ -36,11 +39,17 @@ class MediaStatusWorker extends JobWorker<MediaStatusPayload, JobProgress> {
     }
 
     if (!status) {
-      logger.error({ jobId: job.id, payload }, 'Status update missing status field');
+      logger.error(
+        { jobId: job.id, payload },
+        'Status update missing status field',
+      );
       return;
     }
 
-    logger.info({ jobId: job.id, mediaId, status }, 'Processing media status update');
+    logger.info(
+      { jobId: job.id, mediaId, status },
+      'Processing media status update',
+    );
 
     if (status === 'processing') {
       await db
@@ -62,7 +71,10 @@ class MediaStatusWorker extends JobWorker<MediaStatusPayload, JobProgress> {
         .limit(1);
 
       if (mediaRecord?.cancelledAt) {
-        logger.info({ mediaId }, 'Ignoring completed message for cancelled job');
+        logger.info(
+          { mediaId },
+          'Ignoring completed message for cancelled job',
+        );
         return;
       }
 
@@ -104,7 +116,10 @@ class MediaStatusWorker extends JobWorker<MediaStatusPayload, JobProgress> {
     await this.broadcastMediaUpdate(mediaId);
   }
 
-  private async queueThumbnailJob(userId: string, mediaId: string): Promise<void> {
+  private async queueThumbnailJob(
+    userId: string,
+    mediaId: string,
+  ): Promise<void> {
     try {
       await jobService.create({
         type: 'thumbnail_generation',
@@ -130,7 +145,10 @@ class MediaStatusWorker extends JobWorker<MediaStatusPayload, JobProgress> {
       if (docMedia.length > 0) {
         const documentId = docMedia[0].documentId;
         sseService.broadcastToDocument(documentId, 'media-update', { mediaId });
-        logger.debug({ mediaId, documentId }, 'Broadcasted media update via SSE');
+        logger.debug(
+          { mediaId, documentId },
+          'Broadcasted media update via SSE',
+        );
       }
 
       const nodeMed = await db
@@ -142,7 +160,10 @@ class MediaStatusWorker extends JobWorker<MediaStatusPayload, JobProgress> {
       if (nodeMed.length > 0) {
         const nodeId = nodeMed[0].nodeId;
         sseService.broadcastToNode(nodeId, 'node-media-update', { mediaId });
-        logger.debug({ mediaId, nodeId }, 'Broadcasted node media update via SSE');
+        logger.debug(
+          { mediaId, nodeId },
+          'Broadcasted node media update via SSE',
+        );
       }
     } catch (error) {
       logger.error({ error, mediaId }, 'Failed to broadcast media update');
