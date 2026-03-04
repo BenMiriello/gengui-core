@@ -19,7 +19,15 @@ export async function requireAdmin(
         return next(err);
       }
 
-      const user = req.user!;
+      if (!req.user) {
+        logger.error(
+          { path: req.path },
+          'Admin check: no user after authentication',
+        );
+        return next(new UnauthorizedError('Authentication required'));
+      }
+
+      const user = req.user;
       const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
       const userAgent = req.headers['user-agent'] || 'unknown';
 

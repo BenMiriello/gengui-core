@@ -1,4 +1,4 @@
-import Redis from 'ioredis';
+import Redis, { type RedisOptions } from 'ioredis';
 import { logger } from './logger';
 
 /**
@@ -16,7 +16,7 @@ let redis: Redis | null = null;
 
 function getRedisClient(): Redis {
   if (!redis) {
-    const redisConfig: any = {
+    const redisConfig: RedisOptions = {
       host: FALKORDB_HOST,
       port: FALKORDB_PORT,
       enableReadyCheck: false,
@@ -61,7 +61,9 @@ export async function queryGraphReadOnly(query: string): Promise<unknown> {
       return result;
     } catch (error) {
       if (String(error).includes('unknown command')) {
-        logger.info('GRAPH.RO_QUERY not available, falling back to GRAPH.QUERY');
+        logger.info(
+          'GRAPH.RO_QUERY not available, falling back to GRAPH.QUERY',
+        );
         return queryGraph(query);
       }
       throw error;
@@ -79,7 +81,11 @@ export async function queryGraphReadOnly(query: string): Promise<unknown> {
 export async function getGraphInfo(): Promise<unknown> {
   try {
     const client = getRedisClient();
-    const result = await client.call('GRAPH.QUERY', GRAPH_NAME, 'RETURN graph.info()');
+    const result = await client.call(
+      'GRAPH.QUERY',
+      GRAPH_NAME,
+      'RETURN graph.info()',
+    );
     return result;
   } catch (error) {
     logger.error({ error }, 'Failed to get graph info');
@@ -93,7 +99,9 @@ export async function getGraphInfo(): Promise<unknown> {
  */
 export async function countNodes(): Promise<number> {
   try {
-    const result = await queryGraphReadOnly('MATCH (n) RETURN count(n) as count');
+    const result = await queryGraphReadOnly(
+      'MATCH (n) RETURN count(n) as count',
+    );
     // Result format: [columns, [count_value]]
     if (Array.isArray(result) && result[1] && Array.isArray(result[1][0])) {
       return result[1][0][0];
@@ -111,7 +119,9 @@ export async function countNodes(): Promise<number> {
  */
 export async function countEdges(): Promise<number> {
   try {
-    const result = await queryGraphReadOnly('MATCH ()-[e]->() RETURN count(e) as count');
+    const result = await queryGraphReadOnly(
+      'MATCH ()-[e]->() RETURN count(e) as count',
+    );
     if (Array.isArray(result) && result[1] && Array.isArray(result[1][0])) {
       return result[1][0][0];
     }

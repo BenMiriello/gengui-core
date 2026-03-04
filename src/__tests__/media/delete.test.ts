@@ -91,7 +91,9 @@ describe('Media Delete', () => {
 
       const mediaList = await getMediaForUser(user.id);
       expect(mediaList.length).toBe(1);
-      expect(mediaList.some((m: any) => m.id === mediaToDelete.id)).toBe(false);
+      expect(
+        mediaList.some((m: { id: string }) => m.id === mediaToDelete.id),
+      ).toBe(false);
     });
 
     test('returns 404 for non-existent media', async () => {

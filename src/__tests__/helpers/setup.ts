@@ -109,7 +109,7 @@ async function applyMigrations(db: ReturnType<typeof drizzle>): Promise<void> {
       if (statement) {
         try {
           await db.execute(sql.raw(statement));
-        } catch (error: any) {
+        } catch (error: unknown) {
           // Handle idempotent migration conflicts from overlapping CREATE statements
           // These occur when migration files were generated with duplicate definitions
           const pgCode = error.cause?.code || error.code;

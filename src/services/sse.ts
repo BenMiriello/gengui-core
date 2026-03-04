@@ -10,7 +10,7 @@ interface SSEClient {
 
 interface BufferedEvent {
   event: string;
-  data: any;
+  data: unknown;
   timestamp: number;
   ttlMs: number;
 }
@@ -168,14 +168,15 @@ class SSEService {
   private bufferEvent(
     channel: string,
     event: string,
-    data: any,
+    data: unknown,
     ttlMs: number,
   ) {
     if (!this.eventBuffer.has(channel)) {
       this.eventBuffer.set(channel, []);
     }
 
-    const buffer = this.eventBuffer.get(channel)!;
+    const buffer = this.eventBuffer.get(channel);
+    if (!buffer) return;
     buffer.push({ event, data, timestamp: Date.now(), ttlMs });
 
     // Trim to buffer size
@@ -187,7 +188,7 @@ class SSEService {
   /**
    * Broadcast an event to all clients subscribed to a channel
    */
-  broadcast(channel: string, event: string, data: any) {
+  broadcast(channel: string, event: string, data: unknown) {
     const config = this.getEventConfig(event);
 
     if (config.buffer) {
@@ -234,7 +235,7 @@ class SSEService {
   /**
    * Broadcast to all connected clients (regardless of channel)
    */
-  broadcastAll(event: string, data: any) {
+  broadcastAll(event: string, data: unknown) {
     const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 
     for (const [clientId, client] of this.clients) {

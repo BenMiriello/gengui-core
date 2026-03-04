@@ -143,7 +143,7 @@ router.get(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const usage = await usageService.getUserUsage(req.user!.id);
+      const usage = await usageService.getUserUsage(req.user?.id);
       res.json(usage);
     } catch (error) {
       return next(error);
@@ -260,7 +260,7 @@ router.post(
   emailVerificationRateLimiter,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const result = await authService.resendVerificationEmail(req.user!.id);
+      const result = await authService.resendVerificationEmail(req.user?.id);
       res.json(result);
     } catch (error) {
       next(error);
@@ -494,7 +494,7 @@ router.post(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const userId = req.user!.id;
+      const userId = req.user?.id;
       const { password } = req.body;
 
       if (!password) {

@@ -263,7 +263,8 @@ describe('Node Ownership', () => {
           password: password1,
         }),
       });
-      const cookie1 = loginRes1.headers.get('set-cookie')!;
+      const cookie1 = loginRes1.headers.get('set-cookie');
+      if (!cookie1) throw new Error('Login failed: no cookie');
 
       const loginRes2 = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
@@ -273,7 +274,8 @@ describe('Node Ownership', () => {
           password: password2,
         }),
       });
-      const cookie2 = loginRes2.headers.get('set-cookie')!;
+      const cookie2 = loginRes2.headers.get('set-cookie');
+      if (!cookie2) throw new Error('Login failed: no cookie');
 
       const res1 = await fetch(`${baseUrl}/api/nodes/${nodeId1}`, {
         headers: { Cookie: cookie1 },

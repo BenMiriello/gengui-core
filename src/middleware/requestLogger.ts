@@ -23,7 +23,7 @@ export function requestLogger(
     path: req.path,
     query: Object.keys(req.query).length > 0 ? req.query : undefined,
     userAgent: req.get('user-agent'),
-    userId: (req as any).user?.id,
+    userId: req.user?.id,
     ip: req.ip,
   });
 

@@ -42,9 +42,9 @@ export const jobService = {
       logger.info({ jobId: job.id, type, targetId }, 'Job created');
 
       return job;
-    } catch (error: any) {
+    } catch (error: unknown) {
       // Unique constraint violation = job already exists for this target
-      if (error.code === '23505') {
+      if ((error as { code?: string }).code === '23505') {
         logger.debug(
           { type, targetId },
           'Job creation rejected: active job exists',

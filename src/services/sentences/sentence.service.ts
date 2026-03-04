@@ -153,7 +153,7 @@ export const sentenceService = {
       )})
     `);
 
-    return (rows as any[]).map((row) => ({
+    return (rows as unknown[]).map((row: any) => ({
       contentHash: row.content_hash,
       embedding: JSON.parse(row.embedding_text),
     }));

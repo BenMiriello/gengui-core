@@ -57,7 +57,7 @@ router.post(
       const validatedData = generateCharacterSheetSchema.parse(req.body);
       const result = await characterSheetService.generate({
         nodeId: req.params.id,
-        userId: req.user!.id,
+        userId: req.user?.id,
         settings: validatedData.settings,
         aspectRatio: validatedData.aspectRatio,
         stylePreset: validatedData.stylePreset,
@@ -103,7 +103,7 @@ router.patch(
       await characterSheetService.setPrimaryMedia(
         req.params.id,
         validatedData.mediaId,
-        req.user!.id,
+        req.user?.id,
       );
 
       res.json({ success: true });
@@ -140,7 +140,7 @@ router.get('/nodes/:id', requireAuth, async (req, res, next) => {
   try {
     const result = await characterSheetService.getNodeMedia(
       req.params.id,
-      req.user!.id,
+      req.user?.id,
     );
     res.json(result);
   } catch (error) {
@@ -159,7 +159,7 @@ router.get('/nodes/:id/stream', requireAuth, async (req, res, next) => {
   try {
     const { id } = req.params;
     // Verify node exists and user has access
-    await characterSheetService.getNodeMedia(id, req.user!.id);
+    await characterSheetService.getNodeMedia(id, req.user?.id);
 
     const clientId = randomUUID();
     sseService.addClient(clientId, `node:${id}`, res);
@@ -187,7 +187,7 @@ router.patch('/nodes/:id/style', requireAuth, async (req, res, next) => {
       validatedData.stylePrompt,
     );
 
-    if (!updated || updated.userId !== req.user!.id) {
+    if (!updated || updated.userId !== req.user?.id) {
       res
         .status(404)
         .json({ error: { message: 'Node not found', code: 'NOT_FOUND' } });
@@ -220,7 +220,7 @@ router.patch('/nodes/:id', requireAuth, async (req, res, next) => {
     const { id } = req.params;
     const validatedData = updateNodeSchema.parse(req.body);
 
-    const existing = await graphService.getStoryNodeById(id, req.user!.id);
+    const existing = await graphService.getStoryNodeById(id, req.user?.id);
     if (!existing) {
       res
         .status(404)
@@ -243,7 +243,7 @@ router.patch('/nodes/:id', requireAuth, async (req, res, next) => {
       entityName: existing.name,
     });
 
-    const updated = await graphService.getStoryNodeById(id, req.user!.id);
+    const updated = await graphService.getStoryNodeById(id, req.user?.id);
     res.json(updated);
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -349,7 +349,7 @@ router.get('/nodes/:id/mentions', requireAuth, async (req, res, next) => {
     // Get all event nodes for this document to find context for each mention
     const allNodes = await graphService.getStoryNodesForDocument(
       documentId,
-      req.user!.id,
+      req.user?.id,
     );
     const eventNodes = allNodes.filter((n) => n.type === 'event');
 
@@ -523,7 +523,7 @@ router.get('/nodes/:id/facets', requireAuth, async (req, res, next) => {
     const { id } = req.params;
 
     // Verify node exists and user has access
-    const node = await graphService.getStoryNodeById(id, req.user!.id);
+    const node = await graphService.getStoryNodeById(id, req.user?.id);
     if (!node) {
       res
         .status(404)
@@ -544,7 +544,7 @@ router.get('/nodes/:id/graph', requireAuth, async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const graphData = await graphService.getEntityGraph(id, req.user!.id);
+    const graphData = await graphService.getEntityGraph(id, req.user?.id);
 
     if (!graphData) {
       res
@@ -565,7 +565,7 @@ router.get('/nodes/:id/arc', requireAuth, async (req, res, next) => {
     const { id } = req.params;
 
     // Verify node exists and is a character
-    const node = await graphService.getStoryNodeById(id, req.user!.id);
+    const node = await graphService.getStoryNodeById(id, req.user?.id);
     if (!node) {
       res
         .status(404)
@@ -623,7 +623,7 @@ router.get('/nodes/:id/changelog', requireAuth, async (req, res, next) => {
     const offset = parseInt(req.query.offset as string, 10) || 0;
 
     // Verify node exists and user has access
-    const node = await graphService.getStoryNodeById(id, req.user!.id);
+    const node = await graphService.getStoryNodeById(id, req.user?.id);
     if (!node) {
       res
         .status(404)

@@ -272,13 +272,13 @@ mock.module('../../services/redis-streams', () => ({
   },
 }));
 
-const mockStoryNodes = new Map<string, any>();
+const mockStoryNodes = new Map<string, unknown>();
 
 export function clearMockStoryNodes() {
   mockStoryNodes.clear();
 }
 
-export function setMockStoryNode(nodeId: string, node: any) {
+export function setMockStoryNode(nodeId: string, node: unknown) {
   mockStoryNodes.set(nodeId, node);
 }
 
@@ -300,7 +300,7 @@ mock.module('../../services/graph/graph.service', () => ({
     getStoryNodeByIdInternal: async (nodeId: string) =>
       mockStoryNodes.get(nodeId) || null,
     getStoryNodesForDocument: async (documentId: string, userId: string) => {
-      const nodes: any[] = [];
+      const nodes: unknown[] = [];
       for (const node of mockStoryNodes.values()) {
         if (node.documentId === documentId && node.userId === userId) {
           nodes.push(node);

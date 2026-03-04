@@ -105,7 +105,7 @@ function formatEventChain(registry: EntityRegistryEntry[]): string {
     )
     .map((e) => ({
       name: e.name,
-      segmentIndex: Math.min(...e.segmentIndices!),
+      segmentIndex: e.segmentIndices ? Math.min(...e.segmentIndices) : 0,
     }))
     .sort((a, b) => a.segmentIndex - b.segmentIndex);
 

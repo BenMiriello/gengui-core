@@ -43,7 +43,7 @@ if (
           }
 
           if (result.action === 'login') {
-            return done(null, result.user as any);
+            return done(null, result.user as Express.User);
           }
 
           if (result.action === 'link') {
@@ -51,7 +51,7 @@ if (
               return done(new Error('User ID missing for OAuth link'));
             }
             await oauthService.linkOAuthToUser(result.user.id, oauthProfile);
-            return done(null, result.user as any);
+            return done(null, result.user as Express.User);
           }
 
           if (result.action === 'confirm_password') {
