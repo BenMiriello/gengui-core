@@ -30,18 +30,23 @@ function createNodeInput(
 
 (isFalkorDBAvailable ? describe : describe.skip)('Graph: StoryNodes', () => {
   // Unique IDs for this test file - enables parallel execution with other graph test files
-  const testUserId = 'graph-test-nodes';
-  const testDocumentId = 'graph-test-nodes-doc';
+  const testUserId = '00000000-0000-0000-0000-000000000001';
+  const testDocumentId = '00000000-0000-0000-0000-000000000002';
 
   beforeAll(async () => {
     await graphService.connect();
     await graphService.initializeIndexes();
   });
 
+  const otherUserId = '00000000-0000-0000-0000-000000000003';
+  const differentUserId = '00000000-0000-0000-0000-000000000004';
+  const emptyDocId = '00000000-0000-0000-0000-000000000005';
+  const otherDocId = '00000000-0000-0000-0000-000000000006';
+
   afterAll(async () => {
-    // Clean up all test nodes (including test-specific 'other-user' nodes)
+    // Clean up all test nodes (including test-specific otherUserId nodes)
     await graphService.query(
-      `MATCH (n) WHERE n.userId IN ['${testUserId}', 'other-user', 'different-user'] DETACH DELETE n`,
+      `MATCH (n) WHERE n.userId IN ['${testUserId}', '${otherUserId}', '${differentUserId}'] DETACH DELETE n`,
     );
     await graphService.disconnect();
   });
@@ -49,7 +54,7 @@ function createNodeInput(
   beforeEach(async () => {
     // Clean up all test nodes before each test
     await graphService.query(
-      `MATCH (n) WHERE n.userId IN ['${testUserId}', 'other-user', 'different-user'] DETACH DELETE n`,
+      `MATCH (n) WHERE n.userId IN ['${testUserId}', '${otherUserId}', '${differentUserId}'] DETACH DELETE n`,
     );
   });
 
@@ -166,7 +171,7 @@ function createNodeInput(
 
       const node = await graphService.getStoryNodeById(
         nodeId,
-        'different-user',
+        differentUserId,
       );
       expect(node).toBeNull();
     });
@@ -191,7 +196,7 @@ function createNodeInput(
   describe('getStoryNodesForDocument', () => {
     test('returns empty array for document with no nodes', async () => {
       const nodes = await graphService.getStoryNodesForDocument(
-        'empty-doc',
+        emptyDocId,
         testUserId,
       );
       expect(nodes).toEqual([]);
@@ -262,7 +267,7 @@ function createNodeInput(
       );
       await graphService.createStoryNode(
         testDocumentId,
-        'other-user',
+        otherUserId,
         createNodeInput({
           type: 'character',
           name: 'Other Node',
@@ -521,7 +526,7 @@ function createNodeInput(
         }),
       );
       await graphService.createStoryNode(
-        'other-doc',
+        otherDocId,
         testUserId,
         createNodeInput({
           type: 'character',
@@ -535,7 +540,7 @@ function createNodeInput(
       );
 
       const otherNodes = await graphService.getStoryNodesForDocument(
-        'other-doc',
+        otherDocId,
         testUserId,
       );
       expect(otherNodes).toHaveLength(1);
@@ -553,7 +558,7 @@ function createNodeInput(
       );
       await graphService.createStoryNode(
         testDocumentId,
-        'other-user',
+        otherUserId,
         createNodeInput({
           type: 'character',
           name: 'Other User Node',
@@ -567,7 +572,7 @@ function createNodeInput(
 
       const otherNodes = await graphService.getStoryNodesForDocument(
         testDocumentId,
-        'other-user',
+        otherUserId,
       );
       expect(otherNodes).toHaveLength(1);
       expect(otherNodes[0].name).toBe('Other User Node');
