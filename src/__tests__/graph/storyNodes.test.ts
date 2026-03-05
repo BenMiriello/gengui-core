@@ -169,10 +169,7 @@ function createNodeInput(
         }),
       );
 
-      const node = await graphService.getStoryNodeById(
-        nodeId,
-        differentUserId,
-      );
+      const node = await graphService.getStoryNodeById(nodeId, differentUserId);
       expect(node).toBeNull();
     });
 

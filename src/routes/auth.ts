@@ -418,7 +418,7 @@ router.get(
         req.ip || (req.headers['x-forwarded-for'] as string) || undefined;
       const userAgent = req.headers['user-agent'];
       const session = await authService.createSession(
-        (req.user as Record<string, unknown>).id as string,
+        req.user.id,
         ipAddress,
         userAgent,
       );

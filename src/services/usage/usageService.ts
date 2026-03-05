@@ -1,5 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import type { ExtractTablesWithRelations } from 'drizzle-orm';
 import { and, eq, gt, lt, sql } from 'drizzle-orm';
+import type { PgTransaction } from 'drizzle-orm/pg-core';
+import type { PostgresJsQueryResultHKT } from 'drizzle-orm/postgres-js';
 import { db } from '../../config/database';
 import type { OperationType, UserTier } from '../../config/pricing';
 import {
@@ -8,8 +11,15 @@ import {
   RISK_THRESHOLD,
   TIER_CONCURRENT_LIMITS,
 } from '../../config/pricing';
+import type * as schema from '../../models/schema';
 import { quotaReservations, userSubscriptions } from '../../models/schema';
 import { logger } from '../../utils/logger';
+
+type DbTransaction = PgTransaction<
+  PostgresJsQueryResultHKT,
+  typeof schema,
+  ExtractTablesWithRelations<typeof schema>
+>;
 
 export class UsageQuotaExceededError extends Error {
   constructor(
@@ -92,7 +102,7 @@ export class UsageService {
 
   private async calculateRisk(
     subscription: typeof userSubscriptions.$inferSelect,
-    tx: Record<string, unknown>,
+    tx: DbTransaction,
   ): Promise<number> {
     const quotaUsage = subscription.usageConsumed / subscription.usageQuota;
 
@@ -122,7 +132,7 @@ export class UsageService {
     operationId: string;
     units: number;
     subscription: typeof userSubscriptions.$inferSelect;
-    tx: Record<string, unknown>;
+    tx: DbTransaction;
   }): Promise<void> {
     const { userId, operationId, units, subscription, tx } = params;
 
@@ -188,7 +198,7 @@ export class UsageService {
   private async optimisticCheckAndDeduct(params: {
     userId: string;
     units: number;
-    tx: Record<string, unknown>;
+    tx: DbTransaction;
   }): Promise<void> {
     const { userId, units, tx } = params;
 
@@ -300,7 +310,7 @@ export class UsageService {
 
   private async resetPeriodWithLock(
     subscription: typeof userSubscriptions.$inferSelect,
-    tx: Record<string, unknown>,
+    tx: DbTransaction,
   ): Promise<typeof userSubscriptions.$inferSelect> {
     const now = new Date();
 
