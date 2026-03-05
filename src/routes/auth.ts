@@ -260,7 +260,9 @@ router.post(
   emailVerificationRateLimiter,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const result = await authService.resendVerificationEmail(req.user?.id as string);
+      const result = await authService.resendVerificationEmail(
+        req.user?.id as string,
+      );
       res.json(result);
     } catch (error) {
       next(error);
@@ -273,7 +275,7 @@ router.patch(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const userId = (req as any).user.id;
+      const userId = req.user?.id as string;
       const { currentPassword, newPassword } = req.body;
 
       if (!currentPassword || !newPassword) {
@@ -299,7 +301,7 @@ router.get(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const userId = (req as any).user.id;
+      const userId = req.user?.id as string;
       const preferences = await authService.getUserPreferences(userId);
       res.json({ preferences });
     } catch (error) {
@@ -313,7 +315,7 @@ router.patch(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const userId = (req as any).user.id;
+      const userId = req.user?.id as string;
       const {
         defaultImageWidth,
         defaultImageHeight,
@@ -395,7 +397,8 @@ router.get(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       if (!req.user) {
-        const pendingProfile = (req.authInfo as any)?.pendingProfile;
+        const pendingProfile = (req.authInfo as Record<string, unknown>)
+          ?.pendingProfile;
 
         res.cookie('pendingOAuthProfile', JSON.stringify(pendingProfile), {
           httpOnly: true,
@@ -415,7 +418,7 @@ router.get(
         req.ip || (req.headers['x-forwarded-for'] as string) || undefined;
       const userAgent = req.headers['user-agent'];
       const session = await authService.createSession(
-        (req.user as any).id,
+        (req.user as Record<string, unknown>).id as string,
         ipAddress,
         userAgent,
       );
@@ -494,7 +497,7 @@ router.post(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const userId = req.user!.id;
+      const userId = req.user?.id as string;
       const { password } = req.body;
 
       if (!password) {

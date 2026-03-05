@@ -13,7 +13,7 @@ export class ThumbnailProcessor {
   private bucket: string;
 
   constructor() {
-    const config: any = {
+    const config: Record<string, unknown> = {
       region: process.env.AWS_REGION || 'us-east-1',
       credentials: {
         accessKeyId:

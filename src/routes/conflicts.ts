@@ -31,8 +31,12 @@ router.get(
 
       const transformed = conflicts.map((c: Record<string, unknown>) => {
         const resolution = c.resolution as Record<string, unknown> | undefined;
-        const metadata = resolution?.metadata as Record<string, unknown> | undefined;
-        const facets = resolution?.facets as Record<string, unknown> | undefined;
+        const metadata = resolution?.metadata as
+          | Record<string, unknown>
+          | undefined;
+        const facets = resolution?.facets as
+          | Record<string, unknown>
+          | undefined;
 
         return {
           id: c.id,
@@ -66,7 +70,7 @@ router.patch(
     try {
       const { conflictId } = req.params;
       const { resolution: userResolution, notes } = req.body;
-      const userId = (req as any).user.id;
+      const userId = req.user?.id as string;
 
       const [existing] = await db
         .select()

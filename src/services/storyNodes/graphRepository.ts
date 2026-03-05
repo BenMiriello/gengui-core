@@ -536,9 +536,14 @@ export const graphStoryNodesRepository = {
             },
             'Story node connection created',
           );
-        } catch (error: any) {
+        } catch (error: unknown) {
           // Skip connections that would create cycles (Gemini sometimes suggests these)
-          if (error?.message?.includes('would create a cycle')) {
+          const err = error as Record<string, unknown>;
+          if (
+            err?.message &&
+            typeof err.message === 'string' &&
+            err.message.includes('would create a cycle')
+          ) {
             logger.warn(
               {
                 from: connData.fromName,

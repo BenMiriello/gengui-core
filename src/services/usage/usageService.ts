@@ -92,7 +92,7 @@ export class UsageService {
 
   private async calculateRisk(
     subscription: typeof userSubscriptions.$inferSelect,
-    tx: any,
+    tx: Record<string, unknown>,
   ): Promise<number> {
     const quotaUsage = subscription.usageConsumed / subscription.usageQuota;
 
@@ -122,7 +122,7 @@ export class UsageService {
     operationId: string;
     units: number;
     subscription: typeof userSubscriptions.$inferSelect;
-    tx: any;
+    tx: Record<string, unknown>;
   }): Promise<void> {
     const { userId, operationId, units, subscription, tx } = params;
 
@@ -188,7 +188,7 @@ export class UsageService {
   private async optimisticCheckAndDeduct(params: {
     userId: string;
     units: number;
-    tx: any;
+    tx: Record<string, unknown>;
   }): Promise<void> {
     const { userId, units, tx } = params;
 
@@ -300,7 +300,7 @@ export class UsageService {
 
   private async resetPeriodWithLock(
     subscription: typeof userSubscriptions.$inferSelect,
-    tx: any,
+    tx: Record<string, unknown>,
   ): Promise<typeof userSubscriptions.$inferSelect> {
     const now = new Date();
 

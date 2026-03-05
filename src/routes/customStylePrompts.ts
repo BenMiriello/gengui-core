@@ -18,7 +18,7 @@ router.get(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const userId = req.user!.id;
+      const userId = req.user?.id as string;
       const prompts = await customStylePromptsService.list(userId);
       res.json({ prompts });
     } catch (error) {
@@ -32,7 +32,7 @@ router.post(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const userId = req.user!.id;
+      const userId = req.user?.id as string;
       const { name, prompt } = req.body;
 
       if (!name || !prompt) {
@@ -83,7 +83,7 @@ router.patch(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const userId = req.user!.id;
+      const userId = req.user?.id as string;
       const { id } = req.params;
       const { name, prompt } = req.body;
 
@@ -115,7 +115,7 @@ router.delete(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const userId = req.user!.id;
+      const userId = req.user?.id as string;
       const { id } = req.params;
 
       await customStylePromptsService.softDelete(id, userId);
