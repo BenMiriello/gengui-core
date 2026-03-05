@@ -12,6 +12,7 @@ import conflictsRoutes from './routes/conflicts';
 import contactRoutes from './routes/contact';
 import customStylePromptsRoutes from './routes/customStylePrompts';
 import documentsRoutes from './routes/documents';
+import { exportRouter } from './routes/export';
 import generationsRoutes from './routes/generations';
 import mediaRoutes from './routes/media';
 import nodesRoutes from './routes/nodes';
@@ -96,6 +97,7 @@ export function createApp() {
   app.use('/api', customStylePromptsRoutes);
   app.use('/api', adminRoutes);
   app.use('/api', nodesRoutes);
+  app.use('/api', exportRouter);
 
   app.use(errorHandler);
 

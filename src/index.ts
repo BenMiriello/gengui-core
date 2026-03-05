@@ -9,6 +9,7 @@ import { startJobWorkers, stopJobWorkers } from './jobs/index';
 import { startReconciliationJob } from './jobs/reconcileGenerations';
 import { cpuPool } from './lib/cpu-pool';
 import { graphService } from './services/graph/graph.service';
+import { puppeteerPool } from './services/puppeteerPool';
 import { redis } from './services/redis';
 import { jobReconciliationService } from './services/runpod';
 import { sseService } from './services/sse';
@@ -70,6 +71,8 @@ const shutdown = async (signal: string) => {
     await cpuPool.shutdown();
 
     await Promise.all([jobReconciliationService.stop(), stopJobWorkers()]);
+
+    await puppeteerPool.shutdown();
 
     sseService.closeAll();
 

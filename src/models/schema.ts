@@ -960,6 +960,7 @@ export const jobTypeEnum = pgEnum('job_type', [
   'prompt_augmentation',
   'thumbnail_generation',
   'media_status_update',
+  'pdf_export',
 ]);
 
 export const jobs = pgTable(

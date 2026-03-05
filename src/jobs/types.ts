@@ -19,7 +19,8 @@ export type JobType =
   | 'document_analysis'
   | 'prompt_augmentation'
   | 'thumbnail_generation'
-  | 'media_status_update';
+  | 'media_status_update'
+  | 'pdf_export';
 
 export type TargetType = 'document' | 'media';
 
@@ -63,6 +64,20 @@ export interface AnalysisCheckpoint {
   };
   failedAtStage?: number;
   failureReason?: string;
+}
+
+export interface PdfExportPayload {
+  documentId: string;
+  html: string;
+  styles: string;
+  filename: string;
+  format?: 'a4' | 'letter';
+  orientation?: 'portrait' | 'landscape';
+}
+
+export interface PdfExportProgress extends JobProgress {
+  stageName: 'queued' | 'rendering' | 'uploading' | 'completed';
+  pdfUrl?: string;
 }
 
 /**
