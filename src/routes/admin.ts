@@ -23,7 +23,7 @@ router.get(
         req.query;
 
       // Parse and validate query parameters
-      const filters: any = {};
+      const filters: Record<string, unknown> = {};
 
       if (search && typeof search === 'string') {
         filters.search = search;
@@ -372,7 +372,7 @@ router.patch(
       const { id } = req.params;
       const { status, notes } = req.body;
 
-      await contactService.markStatus(id, status, req.user!.id, notes);
+      await contactService.markStatus(id, status, req.user?.id as string, notes);
       res.json({ success: true });
     } catch (error) {
       next(error);

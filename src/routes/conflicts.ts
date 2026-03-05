@@ -29,22 +29,27 @@ router.get(
         .where(whereClause)
         .orderBy(desc(reviewQueue.createdAt));
 
-      const transformed = conflicts.map((c: any) => ({
-        id: c.id,
-        entityId: c.primaryEntityId,
-        entityName: (c.resolution as any)?.metadata?.entityName,
-        facetType: (c.resolution as any)?.metadata?.facetType,
-        facetA: (c.resolution as any)?.facets?.facetA,
-        facetB: (c.resolution as any)?.facets?.facetB,
-        conflictType: c.conflictType,
-        reasoning: c.contextSummary,
-        isPlotHole: (c.resolution as any)?.metadata?.isPlotHole || false,
-        isWeakCausation:
-          (c.resolution as any)?.metadata?.isWeakCausation || false,
-        stateIds: c.stateIds || [],
-        status: c.status,
-        createdAt: c.createdAt,
-      }));
+      const transformed = conflicts.map((c: Record<string, unknown>) => {
+        const resolution = c.resolution as Record<string, unknown> | undefined;
+        const metadata = resolution?.metadata as Record<string, unknown> | undefined;
+        const facets = resolution?.facets as Record<string, unknown> | undefined;
+
+        return {
+          id: c.id,
+          entityId: c.primaryEntityId,
+          entityName: metadata?.entityName,
+          facetType: metadata?.facetType,
+          facetA: facets?.facetA,
+          facetB: facets?.facetB,
+          conflictType: c.conflictType,
+          reasoning: c.contextSummary,
+          isPlotHole: metadata?.isPlotHole || false,
+          isWeakCausation: metadata?.isWeakCausation || false,
+          stateIds: c.stateIds || [],
+          status: c.status,
+          createdAt: c.createdAt,
+        };
+      });
 
       res.json({ conflicts: transformed });
     } catch (error) {

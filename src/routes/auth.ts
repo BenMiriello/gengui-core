@@ -143,7 +143,7 @@ router.get(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const usage = await usageService.getUserUsage(req.user!.id);
+      const usage = await usageService.getUserUsage(req.user?.id as string);
       res.json(usage);
     } catch (error) {
       return next(error);
@@ -156,7 +156,7 @@ router.patch(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const userId = (req as any).user.id;
+      const userId = req.user?.id as string;
       const { username, password } = req.body;
 
       if (!username || !password) {
@@ -187,7 +187,7 @@ router.post(
   emailVerificationRateLimiter,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const userId = (req as any).user.id;
+      const userId = req.user?.id as string;
       const { email, password } = req.body;
 
       if (!email || !password) {
@@ -260,7 +260,7 @@ router.post(
   emailVerificationRateLimiter,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const result = await authService.resendVerificationEmail(req.user!.id);
+      const result = await authService.resendVerificationEmail(req.user?.id as string);
       res.json(result);
     } catch (error) {
       next(error);
