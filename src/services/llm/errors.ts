@@ -3,7 +3,8 @@
  */
 
 export function handleApiError(error: unknown, operation: string): Error {
-  const message = error?.message || '';
+  const message =
+    (error as { message?: string })?.message || '';
 
   if (message.includes('quota')) {
     return new Error('API quota exceeded. Please try again later.');
@@ -19,7 +20,7 @@ export function handleApiError(error: unknown, operation: string): Error {
     );
   }
   if (message.includes('blocked') || message.includes('inappropriate')) {
-    return error;
+    return error as Error;
   }
 
   return new Error(
@@ -28,7 +29,8 @@ export function handleApiError(error: unknown, operation: string): Error {
 }
 
 export function isRetryableError(error: unknown): boolean {
-  const message = error?.message || '';
+  const message =
+    (error as { message?: string })?.message || '';
 
   return (
     message.includes('rate limit') ||
