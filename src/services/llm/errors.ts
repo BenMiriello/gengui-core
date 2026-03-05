@@ -2,7 +2,7 @@
  * Error handling utilities for LLM client.
  */
 
-export function handleApiError(error: any, operation: string): Error {
+export function handleApiError(error: unknown, operation: string): Error {
   const message = error?.message || '';
 
   if (message.includes('quota')) {
@@ -27,7 +27,7 @@ export function handleApiError(error: any, operation: string): Error {
   );
 }
 
-export function isRetryableError(error: any): boolean {
+export function isRetryableError(error: unknown): boolean {
   const message = error?.message || '';
 
   return (

@@ -81,14 +81,14 @@ router.post(
         : 'image-standard';
 
       const { operationId } = await usageService.checkAndReserveQuota({
-        userId: req.user!.id,
+        userId: req.user?.id as string,
         operationType,
       });
 
       let success = false;
       try {
         const result = await generationsService.create(
-          req.user!.id,
+          req.user?.id as string,
           validatedData,
         );
         success = true;
@@ -106,7 +106,7 @@ router.post(
         if (operationId) {
           await usageService.finalizeReservation({
             operationId,
-            userId: req.user!.id,
+            userId: req.user?.id as string,
             success,
           });
         }
@@ -161,7 +161,10 @@ router.get('/provider-capabilities', requireAuth, async (_req, res, next) => {
 router.get('/', requireAuth, async (req, res, next) => {
   try {
     const limit = parseInt(req.query.limit as string, 10) || 50;
-    const results = await generationsService.list(req.user!.id, limit);
+    const results = await generationsService.list(
+      req.user?.id as string,
+      limit,
+    );
 
     res.json({ generations: results, count: results.length });
   } catch (error) {
@@ -173,7 +176,7 @@ router.get('/:id', requireAuth, async (req, res, next) => {
   try {
     const generation = await generationsService.getById(
       req.params.id,
-      req.user!.id,
+      req.user?.id as string,
     );
 
     res.json(generation);
@@ -184,7 +187,10 @@ router.get('/:id', requireAuth, async (req, res, next) => {
 
 router.post('/:id/cancel', requireAuth, async (req, res, next) => {
   try {
-    const result = await generationsService.cancel(req.params.id, req.user!.id);
+    const result = await generationsService.cancel(
+      req.params.id,
+      req.user?.id as string,
+    );
     res.json(result);
   } catch (error) {
     // Job already completed - return 409 Conflict

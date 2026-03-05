@@ -15,7 +15,7 @@ router.post('/tags', devAuth, async (req, res, next) => {
       return;
     }
 
-    const tag = await tagService.create(req.user!.id, name);
+    const tag = await tagService.create(req.user?.id as string, name);
 
     res.status(201).json(tag);
   } catch (error) {
@@ -25,7 +25,7 @@ router.post('/tags', devAuth, async (req, res, next) => {
 
 router.get('/tags', devAuth, async (req, res, next) => {
   try {
-    const tags = await tagService.list(req.user!.id);
+    const tags = await tagService.list(req.user?.id as string);
 
     res.json({ tags, count: tags.length });
   } catch (error) {
@@ -47,7 +47,7 @@ router.post('/media/:id/tags', devAuth, async (req, res, next) => {
     const result = await tagService.addToMedia(
       req.params.id,
       tagId,
-      req.user!.id,
+      req.user?.id as string,
     );
 
     res.status(201).json(result);
@@ -61,7 +61,7 @@ router.delete('/media/:id/tags/:tagId', devAuth, async (req, res, next) => {
     const result = await tagService.removeFromMedia(
       req.params.id,
       req.params.tagId,
-      req.user!.id,
+      req.user?.id as string,
     );
 
     res.json({ message: 'Tag removed from media', ...result });
