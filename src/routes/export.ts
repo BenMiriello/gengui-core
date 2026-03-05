@@ -174,7 +174,11 @@ router.post(
         return;
       }
 
-      if (job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled') {
+      if (
+        job.status === 'completed' ||
+        job.status === 'failed' ||
+        job.status === 'cancelled'
+      ) {
         res.json({ success: true, message: 'Job already finished' });
         return;
       }
