@@ -41,10 +41,13 @@ class PdfExportWorker extends JobWorker<PdfExportPayload, PdfExportProgress> {
 
       context = await puppeteerPool.acquire();
 
-      const pdfBuffer = await generatePdf(context, html, styles, {
-        format,
-        orientation,
-      });
+      const pdfBuffer = await generatePdf(
+        context,
+        html,
+        styles,
+        { format, orientation },
+        () => job.status === 'cancelled',
+      );
 
       await this.updateProgress(job.id, { stageName: 'uploading' });
 

@@ -2,9 +2,15 @@ import type { Browser, BrowserContext } from 'puppeteer';
 import puppeteer from 'puppeteer';
 import { logger } from '../utils/logger';
 
+/**
+ * Puppeteer browser pool.
+ *
+ * Browsers are pooled and reused. Contexts are created fresh per render
+ * (not pooled) for complete isolation. Browsers restart after 100 renders
+ * to prevent memory leaks.
+ */
 class PuppeteerPool {
   private browsers: Browser[] = [];
-  private availableContexts: BrowserContext[] = [];
   private readonly poolSize: number;
   private readonly maxRendersPerBrowser = 100;
   private renderCounts: Map<Browser, number> = new Map();
@@ -17,12 +23,6 @@ class PuppeteerPool {
   async acquire(): Promise<BrowserContext> {
     if (this.isShuttingDown) {
       throw new Error('Puppeteer pool is shutting down');
-    }
-
-    if (this.availableContexts.length > 0) {
-      const context = this.availableContexts.pop()!;
-      logger.debug('Reusing existing browser context');
-      return context;
     }
 
     let browser = this.browsers.find((b) => {
@@ -41,17 +41,21 @@ class PuppeteerPool {
     }
 
     const renderCount = this.renderCounts.get(browser) || 0;
-    this.renderCounts.set(browser, renderCount + 1);
 
     if (renderCount >= this.maxRendersPerBrowser) {
       await this.restartBrowser(browser);
+      browser =
+        this.browsers[this.browsers.indexOf(browser)] || this.browsers[0];
     }
+
+    const newCount = this.renderCounts.get(browser) || 0;
+    this.renderCounts.set(browser, newCount + 1);
 
     const context = await browser.createBrowserContext();
     logger.debug(
       {
         poolSize: this.browsers.length,
-        availableContexts: this.availableContexts.length,
+        renderCount: newCount + 1,
       },
       'Browser context acquired',
     );
@@ -71,15 +75,6 @@ class PuppeteerPool {
   async shutdown(): Promise<void> {
     this.isShuttingDown = true;
     logger.info('Shutting down Puppeteer pool');
-
-    for (const context of this.availableContexts) {
-      try {
-        await context.close();
-      } catch (error) {
-        logger.error({ error }, 'Failed to close context during shutdown');
-      }
-    }
-    this.availableContexts = [];
 
     for (const browser of this.browsers) {
       try {

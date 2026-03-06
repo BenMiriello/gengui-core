@@ -11,7 +11,20 @@ import { logger } from '../utils/logger';
 
 const router = Router();
 
-const MAX_HTML_SIZE = 10 * 1024 * 1024;
+const MAX_HTML_SIZE = 2 * 1024 * 1024;
+const MAX_PAGES = 500;
+
+function estimatePageCount(html: string): number {
+  const blockElements = (
+    html.match(/<(p|h1|h2|h3|h4|h5|h6|li|blockquote|pre)[>\s]/g) || []
+  ).length;
+  const textLength = html.replace(/<[^>]*>/g, '').length;
+
+  const pagesByBlocks = Math.ceil(blockElements / 50);
+  const pagesByChars = Math.ceil(textLength / 2500);
+
+  return Math.max(pagesByBlocks, pagesByChars);
+}
 
 router.post(
   '/documents/:id/export/pdf',
@@ -36,8 +49,19 @@ router.post(
       if (html.length > MAX_HTML_SIZE) {
         res.status(400).json({
           error: {
-            message: 'HTML content exceeds maximum size (10MB)',
+            message: 'HTML content exceeds maximum size (2MB)',
             code: 'CONTENT_TOO_LARGE',
+          },
+        });
+        return;
+      }
+
+      const estimatedPages = estimatePageCount(html);
+      if (estimatedPages > MAX_PAGES) {
+        res.status(400).json({
+          error: {
+            message: `Document too large (estimated ${estimatedPages} pages, max ${MAX_PAGES}). Consider splitting into smaller documents.`,
+            code: 'DOCUMENT_TOO_LARGE',
           },
         });
         return;
