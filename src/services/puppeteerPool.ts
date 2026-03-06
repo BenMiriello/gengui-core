@@ -15,6 +15,7 @@ class PuppeteerPool {
   private readonly maxRendersPerBrowser = 100;
   private renderCounts: Map<Browser, number> = new Map();
   private isShuttingDown = false;
+  private needsHealthCheck = true;
 
   constructor(poolSize: number = 3) {
     this.poolSize = poolSize;
@@ -23,6 +24,11 @@ class PuppeteerPool {
   async acquire(): Promise<BrowserContext> {
     if (this.isShuttingDown) {
       throw new Error('Puppeteer pool is shutting down');
+    }
+
+    if (this.needsHealthCheck) {
+      await this.healthCheck();
+      this.needsHealthCheck = false;
     }
 
     let browser = this.browsers.find((b) => {
@@ -52,6 +58,16 @@ class PuppeteerPool {
     this.renderCounts.set(browser, newCount + 1);
 
     const context = await browser.createBrowserContext();
+
+    try {
+      const page = await context.newPage();
+      await page.close();
+    } catch (error) {
+      logger.error({ error }, 'Context validation failed, restarting browser');
+      await this.restartBrowser(browser);
+      return this.acquire();
+    }
+
     logger.debug(
       {
         poolSize: this.browsers.length,
@@ -103,6 +119,23 @@ class PuppeteerPool {
 
     logger.info('Launched new Puppeteer browser');
     return browser;
+  }
+
+  private async healthCheck() {
+    logger.info('Running Puppeteer pool health check');
+
+    for (const browser of this.browsers) {
+      try {
+        await browser.close();
+      } catch (error) {
+        logger.warn({ error }, 'Failed to close browser during health check');
+      }
+    }
+
+    this.browsers = [];
+    this.renderCounts.clear();
+
+    logger.info('Puppeteer pool health check complete');
   }
 
   private async restartBrowser(oldBrowser: Browser): Promise<void> {

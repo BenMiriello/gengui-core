@@ -74,9 +74,13 @@ export async function generatePdf(
       throw new Error('PDF generation cancelled');
     }
 
+    const baseTimeout = 45000;
+    const sizeBonus = Math.min(15000, Math.floor(html.length / 100000) * 5000);
+    const timeout = baseTimeout + sizeBonus;
+
     await page.setContent(wrappedHtml, {
       waitUntil: 'load',
-      timeout: 30000,
+      timeout,
     });
 
     if (checkCancelled?.()) {

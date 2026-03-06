@@ -11,6 +11,38 @@ import type {
 } from '../types';
 import { JobWorker } from '../worker';
 
+function mapErrorToUserMessage(error: Error): string {
+  const errorName = error.name || '';
+  const errorMessage = error.message || '';
+
+  if (
+    errorName === 'TimeoutError' &&
+    errorMessage.includes('Navigation timeout')
+  ) {
+    return 'Document is taking too long to process. This may be due to complex formatting or large size. Please try again.';
+  }
+
+  if (
+    errorMessage.includes('memory') ||
+    errorMessage.includes('out of memory')
+  ) {
+    return 'Unable to export: Document too large.';
+  }
+
+  if (
+    errorMessage.includes('browser') ||
+    errorMessage.includes('disconnected')
+  ) {
+    return 'Export failed due to a system issue. Please try again.';
+  }
+
+  if (errorMessage.includes('cancelled')) {
+    return 'Export was cancelled.';
+  }
+
+  return 'Export failed. Please try again or contact support if this continues.';
+}
+
 class PdfExportWorker extends JobWorker<PdfExportPayload, PdfExportProgress> {
   protected jobType: JobType = 'pdf_export';
 
@@ -66,8 +98,20 @@ class PdfExportWorker extends JobWorker<PdfExportPayload, PdfExportProgress> {
         'PDF export completed',
       );
     } catch (error) {
-      logger.error({ error, jobId: job.id, filename }, 'PDF export failed');
-      throw error;
+      logger.error(
+        {
+          error,
+          jobId: job.id,
+          filename,
+          errorType: (error as Error).name,
+          errorMessage: (error as Error).message,
+          stack: (error as Error).stack,
+        },
+        'PDF export failed',
+      );
+
+      const userMessage = mapErrorToUserMessage(error as Error);
+      throw new Error(userMessage);
     } finally {
       if (context) {
         await puppeteerPool.release(context);
