@@ -19,7 +19,8 @@ router.post('/', requireAuth, upload.single('file'), async (req, res, next) => {
       return;
     }
 
-    const result = await mediaService.upload(req.user?.id as string, req.file);
+    if (!req.user) throw new Error('User not authenticated');
+    const result = await mediaService.upload(req.user.id, req.file);
 
     res.status(201).json({
       id: result.id,
@@ -41,7 +42,8 @@ router.get('/', requireAuth, async (req, res, next) => {
       ? excludeRolesParam.split(',')
       : undefined;
 
-    const results = await mediaService.list(req.user?.id as string, limit, {
+    if (!req.user) throw new Error('User not authenticated');
+    const results = await mediaService.list(req.user.id, limit, {
       excludeRoles,
     });
 
@@ -53,10 +55,8 @@ router.get('/', requireAuth, async (req, res, next) => {
 
 router.get('/:id', requireAuth, async (req, res, next) => {
   try {
-    const mediaItem = await mediaService.getById(
-      req.params.id,
-      req.user?.id as string,
-    );
+    if (!req.user) throw new Error('User not authenticated');
+    const mediaItem = await mediaService.getById(req.params.id, req.user.id);
 
     res.json(mediaItem);
   } catch (error) {
@@ -70,9 +70,10 @@ router.get('/:id/url', requireAuth, async (req, res, next) => {
       parseInt(req.query.expiresIn as string, 10) ||
       PRESIGNED_S3_URL_EXPIRATION;
     const type = (req.query.type as string) === 'thumb' ? 'thumb' : 'full';
+    if (!req.user) throw new Error('User not authenticated');
     const url = await mediaService.getSignedUrl(
       req.params.id,
-      req.user?.id as string,
+      req.user.id,
       expiresIn,
       type,
     );
@@ -85,7 +86,8 @@ router.get('/:id/url', requireAuth, async (req, res, next) => {
 
 router.get('/:id/documents', requireAuth, async (req, res, next) => {
   try {
-    const userId = (req as any).user.id;
+    if (!req.user) throw new Error('User not authenticated');
+    const userId = req.user.id;
     const { id } = req.params;
 
     const fields = req.query.fields
@@ -105,7 +107,8 @@ router.get('/:id/documents', requireAuth, async (req, res, next) => {
 
 router.get('/:id/node', requireAuth, async (req, res, next) => {
   try {
-    const userId = (req as any).user.id;
+    if (!req.user) throw new Error('User not authenticated');
+    const userId = req.user.id;
     const { id } = req.params;
 
     const node = await mediaService.getNodeByMediaId(id, userId);

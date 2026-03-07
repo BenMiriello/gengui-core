@@ -20,7 +20,8 @@ export type JobType =
   | 'prompt_augmentation'
   | 'thumbnail_generation'
   | 'media_status_update'
-  | 'pdf_export';
+  | 'pdf_export'
+  | 'docx_export';
 
 export type TargetType = 'document' | 'media';
 
@@ -68,8 +69,8 @@ export interface AnalysisCheckpoint {
 
 export interface PdfExportPayload {
   documentId: string;
-  html: string;
-  styles: string;
+  html?: string;
+  styles?: string;
   filename: string;
   format?: 'a4' | 'letter';
   orientation?: 'portrait' | 'landscape';
@@ -78,6 +79,21 @@ export interface PdfExportPayload {
 export interface PdfExportProgress extends JobProgress {
   stageName: 'queued' | 'rendering' | 'uploading' | 'completed';
   pdfUrl?: string;
+}
+
+export interface DocxExportPayload {
+  documentId: string;
+  html?: string;
+  styles?: string;
+  cssVariables?: Record<string, string>;
+  filename: string;
+  format?: 'a4' | 'letter';
+  orientation?: 'portrait' | 'landscape';
+}
+
+export interface DocxExportProgress extends JobProgress {
+  stageName: 'queued' | 'generating' | 'uploading' | 'completed';
+  docxUrl?: string;
 }
 
 /**

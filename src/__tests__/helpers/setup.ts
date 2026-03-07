@@ -122,6 +122,7 @@ async function applyMigrations(db: ReturnType<typeof drizzle>): Promise<void> {
             '42701', // duplicate_column
             '42703', // undefined_column (ADD CONSTRAINT on missing col)
             '42704', // undefined_object (DROP CONSTRAINT on missing constraint)
+            '42501', // insufficient_privilege (CREATE EXTENSION requires superuser, ignore if already exists)
           ];
           if (!idempotentCodes.includes(pgCode)) {
             throw error;
@@ -178,6 +179,7 @@ export async function truncateAll() {
     'password_reset_tokens',
     'email_verification_tokens',
     'sessions',
+    'user_subscriptions',
     'users',
   ];
 

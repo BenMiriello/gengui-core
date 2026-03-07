@@ -1,9 +1,10 @@
 import { eq } from 'drizzle-orm';
 import type { NextFunction, Request, Response } from 'express';
 import { Router } from 'express';
+import { z } from 'zod';
 import { db } from '../config/database';
 import { jobService } from '../jobs/service';
-import type { PdfExportProgress } from '../jobs/types';
+import type { DocxExportProgress, PdfExportProgress } from '../jobs/types';
 import { requireAuth } from '../middleware/auth';
 import { jobs } from '../models/schema';
 import { documentsService } from '../services/documents';
@@ -11,61 +12,60 @@ import { logger } from '../utils/logger';
 
 const router = Router();
 
-const MAX_HTML_SIZE = 2 * 1024 * 1024;
-const MAX_PAGES = 500;
+const MAX_HTML_SIZE = 10 * 1024 * 1024;
+const MAX_STYLES_SIZE = 1 * 1024 * 1024;
 
-function estimatePageCount(html: string): number {
-  const blockElements = (
-    html.match(/<(p|h1|h2|h3|h4|h5|h6|li|blockquote|pre)[>\s]/g) || []
-  ).length;
-  const textLength = html.replace(/<[^>]*>/g, '').length;
+const ExportFormatSchema = z.enum(['pdf', 'docx'] as const);
 
-  const pagesByBlocks = Math.ceil(blockElements / 50);
-  const pagesByChars = Math.ceil(textLength / 2500);
-
-  return Math.max(pagesByBlocks, pagesByChars);
-}
+const ExportRequestSchema = z.object({
+  html: z.string().max(MAX_HTML_SIZE, 'HTML too large (max 10MB)').optional(),
+  styles: z
+    .string()
+    .max(MAX_STYLES_SIZE, 'Styles too large (max 1MB)')
+    .optional(),
+  cssVariables: z.record(z.string(), z.string()).optional(),
+  filename: z.string().min(1).max(255),
+  format: z.enum(['a4', 'letter']).default('a4'),
+  orientation: z.enum(['portrait', 'landscape']).default('portrait'),
+});
 
 router.post(
-  '/documents/:id/export/pdf',
+  '/documents/:id/export/:format',
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      // biome-ignore lint/suspicious/noExplicitAny: Express Request type augmentation
-      const userId = (req as any).user.id;
-      const { id } = req.params;
-      const { html, styles, filename } = req.body;
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
+      const { id, format: formatParam } = req.params;
 
-      if (!html || !styles || !filename) {
+      // Validate format
+      const formatResult = ExportFormatSchema.safeParse(formatParam);
+      if (!formatResult.success) {
         res.status(400).json({
           error: {
-            message: 'html, styles, and filename are required',
+            message: `Invalid format. Must be one of: ${ExportFormatSchema.options.join(', ')}`,
+            code: 'INVALID_FORMAT',
+          },
+        });
+        return;
+      }
+
+      const format = formatResult.data;
+
+      // Validate request body
+      const bodyResult = ExportRequestSchema.safeParse(req.body);
+      if (!bodyResult.success) {
+        const firstError = bodyResult.error.issues[0];
+        res.status(400).json({
+          error: {
+            message: firstError?.message || 'Invalid request body',
             code: 'INVALID_INPUT',
           },
         });
         return;
       }
 
-      if (html.length > MAX_HTML_SIZE) {
-        res.status(400).json({
-          error: {
-            message: 'HTML content exceeds maximum size (2MB)',
-            code: 'CONTENT_TOO_LARGE',
-          },
-        });
-        return;
-      }
-
-      const estimatedPages = estimatePageCount(html);
-      if (estimatedPages > MAX_PAGES) {
-        res.status(400).json({
-          error: {
-            message: `Document too large (estimated ${estimatedPages} pages, max ${MAX_PAGES}). Consider splitting into smaller documents.`,
-            code: 'DOCUMENT_TOO_LARGE',
-          },
-        });
-        return;
-      }
+      const { html, styles, cssVariables, filename } = bodyResult.data;
 
       const document = await documentsService.get(id, userId);
 
@@ -80,19 +80,25 @@ router.post(
         .replace(/[^a-zA-Z0-9-_]/g, '_')
         .substring(0, 100);
 
+      // Create job based on format
+      const jobType = format === 'pdf' ? 'pdf_export' : 'docx_export';
+
+      const payload = {
+        documentId: id,
+        html,
+        styles,
+        filename: sanitizedFilename,
+        format: bodyResult.data.format,
+        orientation: bodyResult.data.orientation,
+        ...(format === 'docx' && cssVariables ? { cssVariables } : {}),
+      };
+
       const job = await jobService.create({
-        type: 'pdf_export',
+        type: jobType,
         targetType: 'document',
         targetId: id,
         userId,
-        payload: {
-          documentId: id,
-          html,
-          styles,
-          filename: sanitizedFilename,
-          format: req.body.format || 'a4',
-          orientation: req.body.orientation || 'portrait',
-        },
+        payload,
       });
 
       if (!job) {
@@ -106,8 +112,8 @@ router.post(
       }
 
       logger.info(
-        { jobId: job.id, documentId: id, userId },
-        'PDF export job created',
+        { jobId: job.id, documentId: id, userId, format },
+        `${format.toUpperCase()} export job created`,
       );
 
       res.json({ jobId: job.id, status: 'queued' });
@@ -122,8 +128,8 @@ router.get(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      // biome-ignore lint/suspicious/noExplicitAny: Express Request type augmentation
-      const userId = (req as any).user.id;
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
       const { jobId } = req.params;
 
       const [job] = await db
@@ -147,10 +153,16 @@ router.get(
       }
 
       if (job.status === 'completed') {
-        const progress = job.progress as PdfExportProgress;
+        const progress = job.progress as PdfExportProgress | DocxExportProgress;
+        const downloadUrl =
+          (progress as PdfExportProgress)?.pdfUrl ||
+          (progress as DocxExportProgress)?.docxUrl;
+
         res.json({
           status: 'completed',
-          pdfUrl: progress?.pdfUrl,
+          downloadUrl,
+          pdfUrl: (progress as PdfExportProgress)?.pdfUrl,
+          docxUrl: (progress as DocxExportProgress)?.docxUrl,
         });
       } else if (job.status === 'failed') {
         res.json({
@@ -174,8 +186,8 @@ router.post(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      // biome-ignore lint/suspicious/noExplicitAny: Express Request type augmentation
-      const userId = (req as any).user.id;
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
       const { jobId } = req.params;
 
       const [job] = await db

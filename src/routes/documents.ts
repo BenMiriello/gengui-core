@@ -44,7 +44,8 @@ router.get(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const userId = (req as any).user.id;
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
       const documents = await documentsService.list(userId);
       res.json({ documents });
     } catch (error) {
@@ -58,7 +59,8 @@ router.get(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const userId = (req as any).user.id;
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
       const { id } = req.params;
       const document = await documentsService.get(id, userId);
       res.json({ document });
@@ -73,7 +75,8 @@ router.post(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const userId = (req as any).user.id;
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
       const { title, content } = req.body;
 
       if (content === undefined) {
@@ -100,7 +103,8 @@ router.post(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const userId = (req as any).user.id;
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
       const { title } = req.body;
       const document = await documentsService.copy(
         req.params.id,
@@ -119,7 +123,8 @@ router.patch(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const userId = (req as any).user.id;
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
       const { id } = req.params;
       const {
         content,
@@ -160,7 +165,8 @@ router.get(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const userId = (req as any).user.id;
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
       const { id } = req.params;
       const limit = parseInt(req.query.limit as string, 10) || 50;
 
@@ -178,7 +184,8 @@ router.get(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const userId = (req as any).user.id;
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
       const { id, versionNumber } = req.params;
 
       await documentsService.get(id, userId);
@@ -206,7 +213,8 @@ router.patch(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const userId = (req as any).user.id;
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
       const { id } = req.params;
       const { narrativeModeEnabled, mediaModeEnabled } = req.body;
 
@@ -226,7 +234,8 @@ router.delete(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const userId = (req as any).user.id;
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
       const { id } = req.params;
       await documentsService.delete(id, userId);
       res.json({ success: true });
@@ -241,7 +250,8 @@ router.get(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const userId = (req as any).user.id;
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
       const { id } = req.params;
       await documentsService.get(id, userId);
       const media = await mediaService.getDocumentMedia(id);
@@ -257,7 +267,8 @@ router.get(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const userId = (req as any).user.id;
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
       const { id } = req.params;
       await documentsService.get(id, userId);
 
@@ -274,7 +285,8 @@ router.get(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const userId = (req as any).user.id;
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
       const { id } = req.params;
       await documentsService.get(id, userId);
 
@@ -294,7 +306,8 @@ router.get(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const userId = (req as any).user.id;
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
       const { id } = req.params;
 
       const document = await documentsService.get(id, userId);
@@ -384,7 +397,8 @@ router.get(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const userId = (req as any).user.id;
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
       const { id } = req.params;
 
       const document = await documentsService.get(id, userId);
@@ -405,7 +419,8 @@ router.post(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const userId = (req as any).user.id;
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
       const { id } = req.params;
       const reanalyze = req.query.reanalyze === 'true';
 
@@ -478,7 +493,8 @@ router.post(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const userId = (req as any).user.id;
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
       const { id } = req.params;
 
       await documentsService.get(id, userId);
@@ -532,7 +548,8 @@ router.post(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const userId = (req as any).user.id;
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
       const { id } = req.params;
 
       await documentsService.get(id, userId);
@@ -595,7 +612,8 @@ router.post(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const userId = (req as any).user.id;
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
       const { id } = req.params;
 
       await documentsService.get(id, userId);
@@ -651,7 +669,8 @@ router.get(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const userId = (req as any).user.id;
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
       const { id } = req.params;
 
       // Fetch active story nodes from FalkorDB
@@ -708,7 +727,8 @@ router.patch(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const userId = (req as any).user.id;
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
       const { id } = req.params;
 
       // Verify user owns document
@@ -732,7 +752,8 @@ router.delete(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const userId = (req as any).user.id;
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
       const { id } = req.params;
 
       logger.info({ documentId: id, userId }, 'DELETE story-nodes called');
@@ -837,7 +858,8 @@ router.get(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const userId = (req as any).user.id;
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
       const { id } = req.params;
       const k = parseInt(req.query.k as string, 10) || 10;
       const cutoff = parseFloat(req.query.cutoff as string) || 0.3;
@@ -863,7 +885,8 @@ router.get(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const userId = (req as any).user.id;
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
       const { id } = req.params;
 
       await documentsService.get(id, userId);
@@ -909,7 +932,8 @@ router.get(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const userId = (req as any).user.id;
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
       const { id } = req.params;
 
       await documentsService.get(id, userId);
@@ -933,7 +957,8 @@ router.post(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const userId = (req as any).user.id;
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
       const { id } = req.params;
       const { name, isPrimary } = req.body;
 
@@ -1035,7 +1060,8 @@ router.post(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const userId = (req as any).user.id;
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
       const { id } = req.params;
 
       await documentsService.get(id, userId);

@@ -1,35 +1,37 @@
-import type { BrowserContext } from 'puppeteer';
 import { documentsService } from '../../services/documents';
-import { generatePdf } from '../../services/export/pdf';
+import { generateDocx } from '../../services/export/docx';
 import { DEFAULT_EXPORT_STYLES } from '../../services/export/utils/defaultStyles';
 import { documentToHtml } from '../../services/export/utils/documentToHtml';
 import { mapExportError } from '../../services/export/utils/errorMapper';
-import { puppeteerPool } from '../../services/puppeteerPool';
 import { s3 } from '../../services/s3';
 import { logger } from '../../utils/logger';
 import type {
+  DocxExportPayload,
+  DocxExportProgress,
   Job,
   JobType,
-  PdfExportPayload,
-  PdfExportProgress,
 } from '../types';
 import { JobWorker } from '../worker';
 
-class PdfExportWorker extends JobWorker<PdfExportPayload, PdfExportProgress> {
-  protected jobType: JobType = 'pdf_export';
+class DocxExportWorker extends JobWorker<
+  DocxExportPayload,
+  DocxExportProgress
+> {
+  protected jobType: JobType = 'docx_export';
 
   constructor() {
-    super('pdf-export-worker');
+    super('docx-export-worker');
   }
 
   protected async processJob(
     job: Job,
-    payload: PdfExportPayload,
+    payload: DocxExportPayload,
   ): Promise<void> {
     const {
       documentId,
       html: providedHtml,
       styles,
+      cssVariables,
       filename,
       format,
       orientation,
@@ -38,17 +40,16 @@ class PdfExportWorker extends JobWorker<PdfExportPayload, PdfExportProgress> {
     if (!filename) {
       logger.error(
         { jobId: job.id, payload },
-        'PDF export job missing required fields',
+        'DOCX export job missing required fields',
       );
       return;
     }
 
     logger.info(
       { jobId: job.id, filename, documentId },
-      'Processing PDF export',
+      'Processing DOCX export',
     );
 
-    let context: BrowserContext | null = null;
     let html: string;
 
     try {
@@ -59,7 +60,7 @@ class PdfExportWorker extends JobWorker<PdfExportPayload, PdfExportProgress> {
         html = documentToHtml(document.contentJson);
       } else if (providedHtml) {
         logger.warn(
-          { jobId: job.id },
+          { jobId: job.id, htmlLength: providedHtml.length },
           'Using provided HTML (contentJson not available)',
         );
         html = providedHtml;
@@ -69,38 +70,45 @@ class PdfExportWorker extends JobWorker<PdfExportPayload, PdfExportProgress> {
         );
       }
 
+      logger.info(
+        {
+          jobId: job.id,
+          htmlLength: html.length,
+          htmlPreview: html.substring(0, 500),
+        },
+        'HTML prepared for DOCX generation',
+      );
+
       const exportStyles = styles || DEFAULT_EXPORT_STYLES;
 
-      await this.updateProgress(job.id, { stageName: 'rendering' });
+      await this.updateProgress(job.id, { stageName: 'generating' });
 
-      context = await puppeteerPool.acquire();
-      const page = await context.newPage();
-
-      const result = await generatePdf(
-        page,
+      const result = await generateDocx(
         html,
         exportStyles,
-        { format: format || 'a4', orientation: orientation || 'portrait' },
+        {
+          format: format || 'a4',
+          orientation: orientation || 'portrait',
+          cssVariables,
+        },
         () => job.status === 'cancelled',
       );
 
-      await page.close();
-
       await this.updateProgress(job.id, { stageName: 'uploading' });
 
-      const s3Key = `exports/${job.userId}/${job.id}/${filename}.pdf`;
+      const s3Key = `exports/${job.userId}/${job.id}/${filename}.docx`;
       await s3.uploadBuffer(result.buffer, s3Key, result.mimeType);
 
-      const pdfUrl = await s3.generateDownloadUrl(s3Key, 3600);
+      const docxUrl = await s3.generateDownloadUrl(s3Key, 3600);
 
       await this.updateProgress(job.id, {
         stageName: 'completed',
-        pdfUrl,
+        docxUrl,
       });
 
       logger.info(
         { jobId: job.id, filename, s3Key, size: result.buffer.length },
-        'PDF export completed',
+        'DOCX export completed',
       );
     } catch (error) {
       logger.error(
@@ -112,17 +120,13 @@ class PdfExportWorker extends JobWorker<PdfExportPayload, PdfExportProgress> {
           errorMessage: (error as Error).message,
           stack: (error as Error).stack,
         },
-        'PDF export failed',
+        'DOCX export failed',
       );
 
-      const userMessage = mapExportError(error as Error, 'pdf');
+      const userMessage = mapExportError(error as Error, 'docx');
       throw new Error(userMessage);
-    } finally {
-      if (context) {
-        await puppeteerPool.release(context);
-      }
     }
   }
 }
 
-export const pdfExportWorker = new PdfExportWorker();
+export const docxExportWorker = new DocxExportWorker();

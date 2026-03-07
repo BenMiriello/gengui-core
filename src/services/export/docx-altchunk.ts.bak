@@ -1,0 +1,94 @@
+// @ts-ignore - html-docx-js doesn't have proper type definitions
+import * as htmlDocxJs from 'html-docx-js';
+import { sanitizeHtml, wrapDocument } from './utils/htmlProcessor';
+import { resolveCssVariables } from './utils/styleExtractor';
+import type {
+	ExportOptions,
+	ExportResult,
+	CancellationCallback,
+} from './types';
+
+interface DocxGenerationOptions extends ExportOptions {
+  cssVariables?: Record<string, string>;
+}
+
+export async function generateDocx(
+  html: string,
+  styles: string,
+  options: DocxGenerationOptions,
+  onCancel?: CancellationCallback,
+): Promise<ExportResult> {
+  // Check for cancellation early
+  if (onCancel?.()) {
+    throw new Error('Export cancelled');
+  }
+
+  // Sanitize and prepare content
+  const cleanHtml = sanitizeHtml(html);
+
+  // Resolve CSS variables (DOCX doesn't support var())
+  const resolvedStyles = options.cssVariables
+    ? resolveCssVariables(styles, options.cssVariables)
+    : styles;
+
+  const fullHtml = wrapDocument(cleanHtml, resolvedStyles);
+
+  // Convert page size to twips (1 inch = 1440 twips)
+  const pageSizes = {
+    a4: { width: 11906, height: 16838 }, // 8.27 x 11.69 inches
+    letter: { width: 12240, height: 15840 }, // 8.5 x 11 inches
+  };
+
+  const pageSize = pageSizes[options.format || 'a4'];
+  const margins = {
+    top: 1440, // 1 inch
+    right: 1440,
+    bottom: 1440,
+    left: 1440,
+    header: 720,
+    footer: 720,
+  };
+
+  // Check cancellation before heavy processing
+  if (onCancel?.()) {
+    throw new Error('Export cancelled');
+  }
+
+	// Generate DOCX using html-docx-js
+	// @ts-ignore - html-docx-js has non-standard export structure
+	const docxBlob = await htmlDocxJs.asBlob(fullHtml, {
+		orientation: options.orientation || 'portrait',
+		margins,
+		width: pageSize.width,
+		height: pageSize.height,
+		title: 'Document',
+		subject: 'Exported Document',
+		creator: 'GenGui',
+		keywords: ['export', 'document'],
+		description: 'Document exported from GenGui',
+		lastModifiedBy: 'GenGui',
+		revision: 1,
+		createdAt: new Date(),
+		modifiedAt: new Date(),
+		font: {
+			name: 'Arial',
+			size: 11,
+		},
+		table: {
+			row: {
+				cantSplit: true,
+			},
+		},
+	});
+
+  // Convert Blob to Buffer for consistent API
+  const arrayBuffer = await docxBlob.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+
+  return {
+    buffer,
+    mimeType:
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    extension: 'docx',
+  };
+}

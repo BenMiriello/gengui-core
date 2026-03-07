@@ -15,6 +15,7 @@ interface LLMResponse {
     promptTokenCount?: number;
     candidatesTokenCount?: number;
   };
+  // biome-ignore lint/suspicious/noExplicitAny: Generic LLM response structure varies by provider
   [key: string]: any;
 }
 

@@ -77,7 +77,12 @@ describe('cpu.worker', () => {
         types: ['character', 'character', 'character'],
         threshold: 0.8,
       });
-      expect(result.length).toBe(2);
+      // With embeddings [1,0,0], [0.9,0.1,0], [0.99,0.01,0] and threshold 0.8:
+      // - Pair (0,1): similarity ~0.90 > 0.8
+      // - Pair (0,2): similarity ~0.99 > 0.8
+      // - Pair (1,2): similarity ~0.89 > 0.8
+      // All 3 pairs exceed threshold
+      expect(result.length).toBe(3);
       expect(result[0].similarity).toBeGreaterThan(result[1].similarity);
     });
   });

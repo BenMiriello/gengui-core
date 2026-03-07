@@ -19,6 +19,7 @@ export { JobWorker } from './worker';
 
 // Workers
 export { documentAnalysisWorker } from './workers/document-analysis';
+export { docxExportWorker } from './workers/docx-export';
 export { mediaStatusWorker } from './workers/media-status';
 export { pdfExportWorker } from './workers/pdf-export';
 export { promptAugmentationWorker } from './workers/prompt-augmentation';
@@ -37,6 +38,7 @@ export async function startJobWorkers(): Promise<void> {
   );
   const { mediaStatusWorker } = await import('./workers/media-status.js');
   const { pdfExportWorker } = await import('./workers/pdf-export.js');
+  const { docxExportWorker } = await import('./workers/docx-export.js');
   const { thumbnailWorker } = await import('./workers/thumbnail.js');
 
   await Promise.all([
@@ -44,6 +46,7 @@ export async function startJobWorkers(): Promise<void> {
     promptAugmentationWorker.start(),
     mediaStatusWorker.start(),
     pdfExportWorker.start(),
+    docxExportWorker.start(),
     thumbnailWorker.start(),
   ]);
 }
@@ -61,6 +64,7 @@ export async function stopJobWorkers(): Promise<void> {
   );
   const { mediaStatusWorker } = await import('./workers/media-status.js');
   const { pdfExportWorker } = await import('./workers/pdf-export.js');
+  const { docxExportWorker } = await import('./workers/docx-export.js');
   const { thumbnailWorker } = await import('./workers/thumbnail.js');
 
   await Promise.all([
@@ -68,6 +72,7 @@ export async function stopJobWorkers(): Promise<void> {
     promptAugmentationWorker.stop(),
     mediaStatusWorker.stop(),
     pdfExportWorker.stop(),
+    docxExportWorker.stop(),
     thumbnailWorker.stop(),
   ]);
 }
