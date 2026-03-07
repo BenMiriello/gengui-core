@@ -7,6 +7,108 @@ export const PRICING_CONSTANTS = {
 export type UserTier = 'free' | 'pro' | 'max' | 'admin';
 export type GrantType = 'standard' | 'test_grant' | 'trial_approved' | 'paid';
 
+export const API_COSTS = {
+  llm: {
+    'gemini-2.5-flash': {
+      provider: 'google',
+      inputCostPer1M: 0.3,
+      outputCostPer1M: 2.5,
+      source: 'https://ai.google.dev/pricing',
+      verifiedDate: '2026-03-06',
+    },
+    'gemini-2.5-flash-lite': {
+      provider: 'google',
+      inputCostPer1M: 0.1,
+      outputCostPer1M: 0.4,
+      source: 'https://ai.google.dev/pricing',
+      verifiedDate: '2026-03-06',
+    },
+    'gemini-2.5-pro': {
+      provider: 'google',
+      inputCostPer1M: 1.25,
+      outputCostPer1M: 10.0,
+      source: 'https://ai.google.dev/pricing',
+      verifiedDate: '2026-03-06',
+    },
+    'gemini-2.0-flash': {
+      provider: 'google',
+      inputCostPer1M: 0.1,
+      outputCostPer1M: 0.4,
+      source: 'https://ai.google.dev/pricing',
+      verifiedDate: '2026-03-06',
+      notes: 'Same pricing as 2.0-flash-exp, different from 2.5-flash',
+    },
+  },
+  image: {
+    'imagen-4': {
+      provider: 'google',
+      costPerImage: 0.04,
+      source: 'https://ai.google.dev/pricing',
+      verifiedDate: '2026-03-06',
+    },
+    'gemini-2.5-flash-image': {
+      provider: 'google',
+      costPerImage: 0.039,
+      source: 'https://ai.google.dev/pricing',
+      verifiedDate: '2026-03-06',
+      notes: 'Cheaper than Imagen 4',
+    },
+    'runpod-z-image-turbo': {
+      provider: 'runpod',
+      costPerImage: 0.005,
+      source: 'https://www.runpod.io/pricing',
+      verifiedDate: '2026-03-06',
+    },
+  },
+} as const;
+
+export function calculateLLMCost(params: {
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+}): { apiCostUsd: number; usageUnits: number } {
+  const pricing = API_COSTS.llm[params.model as keyof typeof API_COSTS.llm];
+  if (!pricing) {
+    throw new Error(`Unknown LLM model: ${params.model}`);
+  }
+
+  const inputCost = (params.inputTokens / 1_000_000) * pricing.inputCostPer1M;
+  const outputCost =
+    (params.outputTokens / 1_000_000) * pricing.outputCostPer1M;
+  const apiCostUsd = inputCost + outputCost;
+
+  const usageUnits = Math.ceil(
+    apiCostUsd *
+      PRICING_CONSTANTS.MARKUP_MULTIPLIER *
+      PRICING_CONSTANTS.UNITS_PER_DOLLAR,
+  );
+
+  return { apiCostUsd, usageUnits };
+}
+
+export function calculateImageCost(params: {
+  provider: 'runpod' | 'gemini' | 'gemini-pro-image';
+  count?: number;
+}): { apiCostUsd: number; usageUnits: number } {
+  const modelKey =
+    params.provider === 'runpod'
+      ? 'runpod-z-image-turbo'
+      : params.provider === 'gemini-pro-image'
+        ? 'gemini-2.5-flash-image'
+        : 'imagen-4';
+
+  const pricing = API_COSTS.image[modelKey as keyof typeof API_COSTS.image];
+  const apiCostUsd = pricing.costPerImage * (params.count || 1);
+
+  const usageUnits = Math.ceil(
+    apiCostUsd *
+      PRICING_CONSTANTS.MARKUP_MULTIPLIER *
+      PRICING_CONSTANTS.UNITS_PER_DOLLAR,
+  );
+
+  return { apiCostUsd, usageUnits };
+}
+
 export interface TierConfig {
   tier: UserTier;
   usageQuota: number;
@@ -83,6 +185,15 @@ export interface OperationCost {
   description: string;
 }
 
+function deriveImageCost(provider: keyof typeof API_COSTS.image): number {
+  const apiCost = API_COSTS.image[provider].costPerImage;
+  return (
+    apiCost *
+    PRICING_CONSTANTS.MARKUP_MULTIPLIER *
+    PRICING_CONSTANTS.UNITS_PER_DOLLAR
+  );
+}
+
 export const OPERATION_COSTS: Record<OperationType, OperationCost> = {
   'llm-query-1k-tokens': {
     operationType: 'llm-query-1k-tokens',
@@ -91,13 +202,13 @@ export const OPERATION_COSTS: Record<OperationType, OperationCost> = {
   },
   'image-standard': {
     operationType: 'image-standard',
-    apiCostPer1kUnits: 4000,
-    description: 'Standard image generation',
+    apiCostPer1kUnits: deriveImageCost('runpod-z-image-turbo'),
+    description: 'Standard image generation (RunPod)',
   },
   'image-character-consistency': {
     operationType: 'image-character-consistency',
-    apiCostPer1kUnits: 6000,
-    description: 'Character-consistent image generation',
+    apiCostPer1kUnits: deriveImageCost('gemini-2.5-flash-image'),
+    description: 'Character-consistent image (Gemini Pro)',
   },
 };
 

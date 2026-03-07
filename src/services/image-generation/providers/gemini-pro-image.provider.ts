@@ -1,8 +1,10 @@
 import { eq } from 'drizzle-orm';
 import { db } from '../../../config/database.js';
+import { calculateImageCost } from '../../../config/pricing.js';
 import { jobService } from '../../../jobs/index.js';
 import { media } from '../../../models/schema.js';
 import { logger } from '../../../utils/logger.js';
+import { imageUsageTracking } from '../../imageUsageTracking/index.js';
 import { s3 } from '../../s3.js';
 import type { ImageGenerationProvider } from '../provider.interface.js';
 import type { DimensionWhitelist, GenerationInput } from '../types.js';
@@ -40,6 +42,10 @@ class GeminiProImageProvider implements ImageGenerationProvider {
     return !!process.env.GEMINI_API_KEY;
   }
 
+  getCostEstimate() {
+    return calculateImageCost({ provider: 'gemini-pro-image' });
+  }
+
   async submitJob(input: GenerationInput): Promise<void> {
     if (!this.isEnabled()) {
       throw new Error('Gemini Pro Image provider is not enabled');
@@ -70,6 +76,16 @@ class GeminiProImageProvider implements ImageGenerationProvider {
         userId: input.userId,
         payload: { mediaId: input.mediaId, status: 'processing' },
       });
+
+      const { apiCostUsd } = this.getCostEstimate();
+      imageUsageTracking
+        .recordImageUsage({
+          userId: input.userId,
+          mediaId: input.mediaId,
+          provider: 'gemini-pro-image',
+          costUsd: apiCostUsd,
+        })
+        .catch((err) => logger.error({ err }, 'Image usage tracking failed'));
 
       // Map dimensions to nearest supported
       const [width, height] = this.mapToNearestDimensions(

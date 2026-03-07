@@ -27,4 +27,9 @@ export interface ImageGenerationProvider {
    * Check if this provider supports reference images for character consistency
    */
   supportsReferenceImages(): boolean;
+
+  /**
+   * Get cost estimate for this provider (per image)
+   */
+  getCostEstimate(): { apiCostUsd: number; usageUnits: number };
 }

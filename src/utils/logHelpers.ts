@@ -12,7 +12,7 @@
 
 import type { Logger } from 'pino';
 import { isVerboseLoggingEnabled } from '../config/logging';
-import { estimateCost } from './costEstimation';
+import { calculateLLMCost } from '../config/pricing.js';
 
 interface LLMCallMetadata {
   operation: string;
@@ -49,6 +49,12 @@ export function logLLMCall(logger: Logger, metadata: LLMCallMetadata): void {
   const isVerbose = isVerboseLoggingEnabled();
 
   // INFO: Token counts and cost (always)
+  const { apiCostUsd } = calculateLLMCost({
+    model,
+    inputTokens: promptTokens,
+    outputTokens: responseTokens,
+  });
+
   logger.info(
     {
       operation,
@@ -57,7 +63,7 @@ export function logLLMCall(logger: Logger, metadata: LLMCallMetadata): void {
       outputTokens: responseTokens,
       totalTokens: promptTokens + responseTokens,
       durationMs,
-      costEstimate: estimateCost(promptTokens, responseTokens, model),
+      costEstimate: apiCostUsd,
     },
     'LLM call completed',
   );

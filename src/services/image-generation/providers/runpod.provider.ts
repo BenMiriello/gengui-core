@@ -1,5 +1,7 @@
 import { env } from '../../../config/env.js';
+import { calculateImageCost } from '../../../config/pricing.js';
 import { logger } from '../../../utils/logger.js';
+import { imageUsageTracking } from '../../imageUsageTracking/index.js';
 import { redis } from '../../redis.js';
 import { runpodClient } from '../../runpod/client.js';
 import { RUNPOD_CONSTANTS } from '../../runpod/constants.js';
@@ -13,6 +15,10 @@ class RunPodProvider implements ImageGenerationProvider {
     return (
       env.IMAGE_INFERENCE_PROVIDER === 'runpod' && runpodClient.isEnabled()
     );
+  }
+
+  getCostEstimate() {
+    return calculateImageCost({ provider: 'runpod' });
   }
 
   async submitJob(input: GenerationInput): Promise<void> {
@@ -45,6 +51,16 @@ class RunPodProvider implements ImageGenerationProvider {
       Date.now().toString(),
       RUNPOD_CONSTANTS.REDIS_JOB_TTL_SECONDS,
     );
+
+    const { apiCostUsd } = this.getCostEstimate();
+    imageUsageTracking
+      .recordImageUsage({
+        userId: input.userId,
+        mediaId: input.mediaId,
+        provider: 'runpod',
+        costUsd: apiCostUsd,
+      })
+      .catch((err) => logger.error({ err }, 'Image usage tracking failed'));
 
     logger.info(
       { mediaId: input.mediaId, runpodJobId, prompt: input.prompt },

@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import bcrypt from 'bcrypt';
 import { sql } from 'drizzle-orm';
 import type { Express } from 'express';
+import { getTierConfig, type UserTier } from '../../config/pricing.js';
 import { getTestDb } from './setup';
 
 const BCRYPT_ROUNDS = 12;
@@ -71,13 +72,24 @@ export async function createTestUser(
 export async function createVerifiedUser(
   overrides: UserInsert = {},
 ): Promise<{ user: TestUser; password: string }> {
-  return createTestUser({ ...overrides, emailVerified: true });
+  const { user, password } = await createTestUser({
+    ...overrides,
+    emailVerified: true,
+  });
+  await createTestSubscription(user.id, { tier: 'free' });
+  return { user, password };
 }
 
 export async function createAdminUser(
   overrides: UserInsert = {},
 ): Promise<{ user: TestUser; password: string }> {
-  return createTestUser({ ...overrides, role: 'admin', emailVerified: true });
+  const { user, password } = await createTestUser({
+    ...overrides,
+    role: 'admin',
+    emailVerified: true,
+  });
+  await createTestSubscription(user.id, { tier: 'admin' });
+  return { user, password };
 }
 
 export async function createSession(
@@ -599,4 +611,73 @@ export async function getGenerationById(generationId: string) {
 
 export function resetGenerationCounter() {
   generationCounter = 0;
+}
+
+// ========== Subscription Factories ==========
+
+interface SubscriptionInsert {
+  tier?: 'free' | 'pro' | 'max' | 'admin';
+  grantType?: 'standard' | 'test_grant' | 'trial_approved' | 'paid';
+  usageQuota?: number;
+  usageConsumed?: number;
+  periodStart?: Date;
+  periodEnd?: Date;
+}
+
+interface TestSubscription {
+  id: string;
+  userId: string;
+  tier: string;
+  grantType: string;
+  usageQuota: number;
+  usageConsumed: number;
+  periodStart: Date;
+  periodEnd: Date;
+  createdAt: Date;
+}
+
+export async function createTestSubscription(
+  userId: string,
+  overrides: SubscriptionInsert = {},
+): Promise<TestSubscription> {
+  const db = await getTestDb();
+
+  const tier = overrides.tier ?? 'free';
+  const now = new Date();
+  const periodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+  const result = await db.execute(sql`
+    INSERT INTO user_subscriptions (
+      user_id,
+      tier,
+      grant_type,
+      usage_quota,
+      usage_consumed,
+      period_start,
+      period_end
+    ) VALUES (
+      ${userId},
+      ${tier},
+      ${overrides.grantType ?? 'test_grant'},
+      ${overrides.usageQuota ?? getTierConfig(tier as UserTier).usageQuota},
+      ${overrides.usageConsumed ?? 0},
+      ${(overrides.periodStart ?? now).toISOString()},
+      ${(overrides.periodEnd ?? periodEnd).toISOString()}
+    )
+    RETURNING id, user_id, tier, grant_type, usage_quota, usage_consumed, period_start, period_end, created_at
+  `);
+
+  const row = result[0] as unknown;
+
+  return {
+    id: row.id,
+    userId: row.user_id,
+    tier: row.tier,
+    grantType: row.grant_type,
+    usageQuota: row.usage_quota,
+    usageConsumed: row.usage_consumed,
+    periodStart: row.period_start,
+    periodEnd: row.period_end,
+    createdAt: row.created_at,
+  };
 }

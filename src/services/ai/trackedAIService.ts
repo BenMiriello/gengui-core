@@ -4,7 +4,7 @@
  */
 
 import type { Logger } from 'pino';
-import { estimateCost } from '../../utils/costEstimation';
+import { calculateLLMCost } from '../../config/pricing.js';
 import { logger as defaultLogger } from '../../utils/logger';
 import { logLLMCall } from '../../utils/logHelpers';
 import { usageTrackingService } from '../usageTracking';
@@ -53,7 +53,11 @@ export class TrackedAIService {
 
       const inputTokens = result.usageMetadata?.promptTokenCount || 0;
       const outputTokens = result.usageMetadata?.candidatesTokenCount || 0;
-      const costUsd = estimateCost(inputTokens, outputTokens, model);
+      const { apiCostUsd } = calculateLLMCost({
+        model,
+        inputTokens,
+        outputTokens,
+      });
 
       logLLMCall(logger, {
         operation,
@@ -72,7 +76,7 @@ export class TrackedAIService {
           model,
           inputTokens,
           outputTokens,
-          costUsd,
+          costUsd: apiCostUsd,
           durationMs,
           stage,
         })

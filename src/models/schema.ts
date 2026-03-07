@@ -800,6 +800,48 @@ export const llmUsageDaily = pgTable(
   ],
 );
 
+export const imageUsage = pgTable('image_usage', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  mediaId: uuid('media_id').references(() => media.id, {
+    onDelete: 'set null',
+  }),
+  provider: varchar('provider', { length: 50 }).notNull(),
+  costUsd: decimal('cost_usd', { precision: 12, scale: 6 }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+
+export const imageUsageDaily = pgTable(
+  'image_usage_daily',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+    date: date('date').notNull(),
+    totalOperations: integer('total_operations').notNull(),
+    totalCostUsd: decimal('total_cost_usd', {
+      precision: 12,
+      scale: 6,
+    }).notNull(),
+    providerBreakdown: jsonb('provider_breakdown').notNull().default({}),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex('image_usage_daily_user_date_unique').on(
+      table.userId,
+      table.date,
+    ),
+  ],
+);
+
 export const userSubscriptions = pgTable(
   'user_subscriptions',
   {
@@ -961,6 +1003,7 @@ export const jobTypeEnum = pgEnum('job_type', [
   'thumbnail_generation',
   'media_status_update',
   'pdf_export',
+  'docx_export',
 ]);
 
 export const jobs = pgTable(

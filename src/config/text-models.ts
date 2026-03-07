@@ -25,8 +25,6 @@ export interface TextModelConfig {
   targetUtilization?: number;
   /** Optional override for output capacity targeting. If not set, uses system-wide default. */
   outputUtilization?: number;
-  costPer1MInputTokens?: number;
-  costPer1MOutputTokens?: number;
 }
 
 export const TEXT_MODELS: Record<string, TextModelConfig> = {
@@ -35,32 +33,24 @@ export const TEXT_MODELS: Record<string, TextModelConfig> = {
     maxTokens: 1048576,
     maxOutputTokens: 65536,
     charsPerToken: 3.3,
-    costPer1MInputTokens: 0.1, // Verified 2025-02-25 from ai.google.dev/pricing
-    costPer1MOutputTokens: 0.4, // Matches gemini-2.0-flash-exp pricing
   },
   'gemini-2.5-pro': {
     provider: 'gemini',
     maxTokens: 1048576,
     maxOutputTokens: 65536,
     charsPerToken: 3.3,
-    costPer1MInputTokens: 1.25,
-    costPer1MOutputTokens: 10.0,
   },
   'gemini-2.0-flash': {
     provider: 'gemini',
     maxTokens: 1048576,
     maxOutputTokens: 65536,
     charsPerToken: 3.3,
-    costPer1MInputTokens: 0.1,
-    costPer1MOutputTokens: 0.4,
   },
   'gemini-2.5-flash-lite': {
     provider: 'gemini',
     maxTokens: 1048576,
     maxOutputTokens: 65536,
     charsPerToken: 3.3,
-    costPer1MInputTokens: 0.1, // 6x cheaper than Flash (estimated)
-    costPer1MOutputTokens: 0.4, // 50% faster, same quality for extraction
   },
 } as const;
 
