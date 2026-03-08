@@ -1,3 +1,4 @@
+import AdmZip from 'adm-zip';
 import { Document, HeadingLevel, Packer, Paragraph, TextRun } from 'docx';
 import type { ChildNode, Element } from 'domhandler';
 import { isTag, isText } from 'domhandler';
@@ -19,6 +20,12 @@ function htmlToDocxParagraphs(html: string): Paragraph[] {
   const dom = parseDocument(html);
   const tagCounts: Record<string, number> = {};
 
+  let textNodeCount = 0;
+  let textTotalLength = 0;
+  let totalRunsCreated = 0;
+  let emptyRunsParagraphs = 0;
+  const sampleTexts: string[] = []; // First 3 text samples
+
   function processNode(
     node: ChildNode,
     parentFormatting: {
@@ -29,18 +36,25 @@ function htmlToDocxParagraphs(html: string): Paragraph[] {
   ): TextRun[] {
     if (isText(node)) {
       const text = node.data;
+      textNodeCount++;
+      textTotalLength += text.length;
       if (!text.trim()) return [];
 
-      return [
-        new TextRun({
-          text: text,
-          bold: parentFormatting.bold,
-          italics: parentFormatting.italic,
-          underline: parentFormatting.underline
-            ? { type: 'single' }
-            : undefined,
-        }),
-      ];
+      // Sample first 3 non-empty texts
+      if (sampleTexts.length < 3) {
+        sampleTexts.push(text.substring(0, 100));
+      }
+
+      const run = new TextRun({
+        text: text,
+        bold: parentFormatting.bold,
+        italics: parentFormatting.italic,
+        underline: parentFormatting.underline
+          ? { type: 'single' }
+          : undefined,
+      });
+      totalRunsCreated++;
+      return [run];
     }
 
     if (!isTag(node)) return [];
@@ -77,8 +91,45 @@ function htmlToDocxParagraphs(html: string): Paragraph[] {
       for (const child of children) {
         runs.push(...processNode(child, newFormatting));
       }
+
+      if (runs.length === 0) {
+        emptyRunsParagraphs++;
+      }
+
+      // Detailed logging for first paragraph
+      if (paragraphs.length === 0) {
+        const firstRun = runs[0] as any;
+        logger.info(
+          {
+            runsCount: runs.length,
+            firstRunType: firstRun?.constructor?.name,
+            firstRunRoot: firstRun?.root
+              ? JSON.stringify(firstRun.root).substring(0, 500)
+              : 'no root',
+            firstRunOptions: firstRun?.options
+              ? JSON.stringify(firstRun.options).substring(0, 500)
+              : 'no options',
+          },
+          'DOCX: First <p> tag processing',
+        );
+      }
+
       if (runs.length > 0) {
-        paragraphs.push(new Paragraph({ children: runs }));
+        const para = new Paragraph({ children: runs });
+        // Verify paragraph has the runs
+        if (paragraphs.length === 0) {
+          const paraAny = para as any;
+          logger.info(
+            {
+              paraRootLength: paraAny.root?.length,
+              paraRoot: paraAny.root
+                ? JSON.stringify(paraAny.root).substring(0, 800)
+                : 'no root',
+            },
+            'DOCX: First Paragraph after construction',
+          );
+        }
+        paragraphs.push(para);
       }
       return [];
     }
@@ -197,11 +248,17 @@ function htmlToDocxParagraphs(html: string): Paragraph[] {
     const children = (p as any).root || [];
     return children.some((child: any) => child?.text?.length > 0);
   });
+
   logger.info(
     {
       total: paragraphs.length,
       nonEmpty: nonEmptyParagraphs.length,
       withText: paragraphsWithText.length,
+      textNodeCount,
+      textTotalLength,
+      totalRunsCreated,
+      emptyRunsParagraphs,
+      sampleTexts,
       tagCounts,
     },
     'DOCX: Paragraph analysis',
@@ -262,10 +319,16 @@ export async function generateDocxNative(
     ],
   });
 
+  // Inspect the document structure
+  const docAny = doc as any;
+  const sections = docAny.document?.body?.sections || [];
   logger.info(
     {
-      sectionCount: (doc as any).Sections?.length || 'unknown',
-      firstSectionChildCount: paragraphs.length,
+      docKeys: Object.keys(docAny),
+      documentKeys: docAny.document ? Object.keys(docAny.document) : [],
+      sectionsCount: sections.length,
+      firstSectionChildren: sections[0]?.children?.length || 'no children prop',
+      paragraphsPassedIn: paragraphs.length,
     },
     'DOCX: Document created',
   );
@@ -273,7 +336,55 @@ export async function generateDocxNative(
   // Generate DOCX buffer
   const buffer = await Packer.toBuffer(doc);
 
-  logger.info({ bufferSize: buffer.byteLength }, 'DOCX: Buffer generated');
+  // DOCX is a zip file - extract document.xml to check content
+  const bufferStart = Buffer.from(buffer).toString('hex', 0, 4);
+  const isZip = bufferStart === '504b0304'; // PK\x03\x04 = ZIP signature
+
+  // Extract document.xml from the ZIP to inspect actual content
+  let documentXmlLength = 0;
+  let paragraphCountInXml = 0;
+  let hasBody = false;
+  let hasSectPr = false;
+  let firstParagraphXml = '';
+  let lastParagraphXml = '';
+  try {
+    const zip = new AdmZip(Buffer.from(buffer));
+    const docXmlEntry = zip.getEntry('word/document.xml');
+    if (docXmlEntry) {
+      const docXml = docXmlEntry.getData().toString('utf8');
+      documentXmlLength = docXml.length;
+      // Count <w:p> tags (paragraphs in Word XML)
+      paragraphCountInXml = (docXml.match(/<w:p[>\s]/g) || []).length;
+      hasBody = docXml.includes('<w:body>');
+      hasSectPr = docXml.includes('<w:sectPr');
+      // Extract first paragraph
+      const firstPMatch = docXml.match(/<w:p[>\s][^]*?<\/w:p>/);
+      if (firstPMatch) {
+        firstParagraphXml = firstPMatch[0].substring(0, 500);
+      }
+      // Extract last paragraph (search from end)
+      const lastPMatch = docXml.match(/<w:p[>\s][^]*<\/w:p>(?![\s\S]*<w:p)/);
+      if (lastPMatch) {
+        lastParagraphXml = lastPMatch[0].substring(0, 500);
+      }
+    }
+  } catch (e) {
+    logger.warn({ error: (e as Error).message }, 'DOCX: Failed to extract document.xml');
+  }
+
+  logger.info(
+    {
+      bufferSize: buffer.byteLength,
+      isValidZip: isZip,
+      documentXmlLength,
+      paragraphCountInXml,
+      hasBody,
+      hasSectPr,
+      firstParagraphXml,
+      lastParagraphXml,
+    },
+    'DOCX: Buffer generated',
+  );
 
   return {
     buffer: Buffer.from(buffer),
