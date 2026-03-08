@@ -1,21 +1,17 @@
-import { eq } from 'drizzle-orm';
 import type { NextFunction, Request, Response } from 'express';
 import { Router } from 'express';
 import { z } from 'zod';
-import { db } from '../config/database';
-import { jobService } from '../jobs/service';
-import type { DocxExportProgress, PdfExportProgress } from '../jobs/types';
 import { requireAuth } from '../middleware/auth';
-import { jobs } from '../models/schema';
 import { documentsService } from '../services/documents';
+import { generateDocx } from '../services/export/docx';
+import { generatePdf } from '../services/export/pdf';
+import { puppeteerPool } from '../services/puppeteerPool';
 import { logger } from '../utils/logger';
 
 const router = Router();
 
 const MAX_HTML_SIZE = 10 * 1024 * 1024;
 const MAX_STYLES_SIZE = 1 * 1024 * 1024;
-
-const ExportFormatSchema = z.enum(['pdf', 'docx'] as const);
 
 const ExportRequestSchema = z.object({
   html: z.string().max(MAX_HTML_SIZE, 'HTML too large (max 10MB)').optional(),
@@ -30,29 +26,14 @@ const ExportRequestSchema = z.object({
 });
 
 router.post(
-  '/documents/:id/export/:format',
+  '/documents/:id/export/pdf/download',
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       if (!req.user) throw new Error('User not authenticated');
       const userId = req.user.id;
-      const { id, format: formatParam } = req.params;
+      const { id } = req.params;
 
-      // Validate format
-      const formatResult = ExportFormatSchema.safeParse(formatParam);
-      if (!formatResult.success) {
-        res.status(400).json({
-          error: {
-            message: `Invalid format. Must be one of: ${ExportFormatSchema.options.join(', ')}`,
-            code: 'INVALID_FORMAT',
-          },
-        });
-        return;
-      }
-
-      const format = formatResult.data;
-
-      // Validate request body
       const bodyResult = ExportRequestSchema.safeParse(req.body);
       if (!bodyResult.success) {
         const firstError = bodyResult.error.issues[0];
@@ -65,13 +46,19 @@ router.post(
         return;
       }
 
-      const { html, styles, cssVariables, filename } = bodyResult.data;
+      const { html, styles, filename, format, orientation } = bodyResult.data;
 
       const document = await documentsService.get(id, userId);
-
       if (!document) {
         res.status(404).json({
           error: { message: 'Document not found', code: 'NOT_FOUND' },
+        });
+        return;
+      }
+
+      if (!html) {
+        res.status(400).json({
+          error: { message: 'HTML content required', code: 'INVALID_INPUT' },
         });
         return;
       }
@@ -80,100 +67,33 @@ router.post(
         .replace(/[^a-zA-Z0-9-_]/g, '_')
         .substring(0, 100);
 
-      // Create job based on format
-      const jobType = format === 'pdf' ? 'pdf_export' : 'docx_export';
-
-      const payload = {
-        documentId: id,
-        html,
-        styles,
-        filename: sanitizedFilename,
-        format: bodyResult.data.format,
-        orientation: bodyResult.data.orientation,
-        ...(format === 'docx' && cssVariables ? { cssVariables } : {}),
-      };
-
-      const job = await jobService.create({
-        type: jobType,
-        targetType: 'document',
-        targetId: id,
-        userId,
-        payload,
-      });
-
-      if (!job) {
-        res.status(500).json({
-          error: {
-            message: 'Failed to create export job',
-            code: 'JOB_CREATION_FAILED',
-          },
-        });
-        return;
-      }
-
       logger.info(
-        { jobId: job.id, documentId: id, userId, format },
-        `${format.toUpperCase()} export job created`,
+        { documentId: id, userId, filename: sanitizedFilename },
+        'Processing PDF export',
       );
 
-      res.json({ jobId: job.id, status: 'queued' });
-    } catch (error) {
-      next(error);
-    }
-  },
-);
-
-router.get(
-  '/export/jobs/:jobId',
-  requireAuth,
-  async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      if (!req.user) throw new Error('User not authenticated');
-      const userId = req.user.id;
-      const { jobId } = req.params;
-
-      const [job] = await db
-        .select()
-        .from(jobs)
-        .where(eq(jobs.id, jobId))
-        .limit(1);
-
-      if (!job) {
-        res.status(404).json({
-          error: { message: 'Job not found', code: 'NOT_FOUND' },
+      const context = await puppeteerPool.acquire();
+      try {
+        const page = await context.newPage();
+        const result = await generatePdf(page, html, styles || '', {
+          format: format || 'a4',
+          orientation: orientation || 'portrait',
         });
-        return;
-      }
+        await page.close();
 
-      if (job.userId !== userId) {
-        res.status(403).json({
-          error: { message: 'Forbidden', code: 'FORBIDDEN' },
-        });
-        return;
-      }
+        res.setHeader('Content-Type', result.mimeType);
+        res.setHeader(
+          'Content-Disposition',
+          `attachment; filename="${sanitizedFilename}.pdf"`,
+        );
+        res.send(result.buffer);
 
-      if (job.status === 'completed') {
-        const progress = job.progress as PdfExportProgress | DocxExportProgress;
-        const downloadUrl =
-          (progress as PdfExportProgress)?.pdfUrl ||
-          (progress as DocxExportProgress)?.docxUrl;
-
-        res.json({
-          status: 'completed',
-          downloadUrl,
-          pdfUrl: (progress as PdfExportProgress)?.pdfUrl,
-          docxUrl: (progress as DocxExportProgress)?.docxUrl,
-        });
-      } else if (job.status === 'failed') {
-        res.json({
-          status: 'failed',
-          error: job.errorMessage,
-        });
-      } else {
-        res.json({
-          status: 'processing',
-          progress: job.progress,
-        });
+        logger.info(
+          { documentId: id, size: result.buffer.length },
+          'PDF export completed',
+        );
+      } finally {
+        await puppeteerPool.release(context);
       }
     } catch (error) {
       next(error);
@@ -182,48 +102,70 @@ router.get(
 );
 
 router.post(
-  '/export/jobs/:jobId/cancel',
+  '/documents/:id/export/docx/download',
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       if (!req.user) throw new Error('User not authenticated');
       const userId = req.user.id;
-      const { jobId } = req.params;
+      const { id } = req.params;
 
-      const [job] = await db
-        .select()
-        .from(jobs)
-        .where(eq(jobs.id, jobId))
-        .limit(1);
+      const bodyResult = ExportRequestSchema.safeParse(req.body);
+      if (!bodyResult.success) {
+        const firstError = bodyResult.error.issues[0];
+        res.status(400).json({
+          error: {
+            message: firstError?.message || 'Invalid request body',
+            code: 'INVALID_INPUT',
+          },
+        });
+        return;
+      }
 
-      if (!job) {
+      const { html, styles, cssVariables, filename, format, orientation } =
+        bodyResult.data;
+
+      const document = await documentsService.get(id, userId);
+      if (!document) {
         res.status(404).json({
-          error: { message: 'Job not found', code: 'NOT_FOUND' },
+          error: { message: 'Document not found', code: 'NOT_FOUND' },
         });
         return;
       }
 
-      if (job.userId !== userId) {
-        res.status(403).json({
-          error: { message: 'Forbidden', code: 'FORBIDDEN' },
+      if (!html) {
+        res.status(400).json({
+          error: { message: 'HTML content required', code: 'INVALID_INPUT' },
         });
         return;
       }
 
-      if (
-        job.status === 'completed' ||
-        job.status === 'failed' ||
-        job.status === 'cancelled'
-      ) {
-        res.json({ success: true, message: 'Job already finished' });
-        return;
-      }
+      const sanitizedFilename = filename
+        .replace(/[^a-zA-Z0-9-_]/g, '_')
+        .substring(0, 100);
 
-      await jobService.updateStatus(jobId, 'cancelled');
+      logger.info(
+        { documentId: id, userId, filename: sanitizedFilename },
+        'Processing DOCX export',
+      );
 
-      logger.info({ jobId, userId }, 'Export job cancelled by user');
+      const result = await generateDocx(html, styles || '', {
+        format: format || 'a4',
+        orientation: orientation || 'portrait',
+        cssVariables,
+      });
 
-      res.json({ success: true });
+      res.setHeader('Content-Type', result.mimeType);
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${sanitizedFilename}.docx"`,
+      );
+      res.send(result.buffer);
+
+      logger.info(
+        { documentId: id, size: result.buffer.length },
+        'DOCX export completed',
+      );
     } catch (error) {
       next(error);
     }
