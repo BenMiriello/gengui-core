@@ -1,7 +1,4 @@
-import { documentsService } from '../../services/documents';
 import { generateDocx } from '../../services/export/docx';
-import { DEFAULT_EXPORT_STYLES } from '../../services/export/utils/defaultStyles';
-import { documentToHtml } from '../../services/export/utils/documentToHtml';
 import { mapExportError } from '../../services/export/utils/errorMapper';
 import { s3 } from '../../services/s3';
 import { logger } from '../../utils/logger';
@@ -50,36 +47,13 @@ class DocxExportWorker extends JobWorker<
       'Processing DOCX export',
     );
 
-    let html: string;
-
     try {
-      const document = await documentsService.getById(documentId);
-
-      if (document.contentJson) {
-        logger.info({ jobId: job.id }, 'Generating HTML from contentJson');
-        html = documentToHtml(document.contentJson);
-      } else if (providedHtml) {
-        logger.warn(
-          { jobId: job.id, htmlLength: providedHtml.length },
-          'Using provided HTML (contentJson not available)',
-        );
-        html = providedHtml;
-      } else {
-        throw new Error(
-          'No content available for export (missing contentJson and html)',
-        );
+      if (!providedHtml) {
+        throw new Error('No HTML content provided for export');
       }
 
-      logger.info(
-        {
-          jobId: job.id,
-          htmlLength: html.length,
-          htmlPreview: html.substring(0, 500),
-        },
-        'HTML prepared for DOCX generation',
-      );
-
-      const exportStyles = styles || DEFAULT_EXPORT_STYLES;
+      const html = providedHtml;
+      const exportStyles = styles || '';
 
       await this.updateProgress(job.id, { stageName: 'generating' });
 

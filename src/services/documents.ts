@@ -47,25 +47,6 @@ export class DocumentsService {
     return document;
   }
 
-  /**
-   * Internal method to get document by ID without authorization check.
-   * ONLY use in trusted contexts (workers, internal services) where auth
-   * has already been verified upstream.
-   */
-  async getById(documentId: string) {
-    const [document] = await db
-      .select()
-      .from(documents)
-      .where(and(eq(documents.id, documentId), isNull(documents.deletedAt)))
-      .limit(1);
-
-    if (!document) {
-      throw new NotFoundError('Document not found');
-    }
-
-    return document;
-  }
-
   async create(userId: string, title: string, content: string) {
     const generatedTitle = title || this.generateTitle(content);
 

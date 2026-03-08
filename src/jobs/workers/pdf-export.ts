@@ -1,8 +1,5 @@
 import type { BrowserContext } from 'puppeteer';
-import { documentsService } from '../../services/documents';
 import { generatePdf } from '../../services/export/pdf';
-import { DEFAULT_EXPORT_STYLES } from '../../services/export/utils/defaultStyles';
-import { documentToHtml } from '../../services/export/utils/documentToHtml';
 import { mapExportError } from '../../services/export/utils/errorMapper';
 import { puppeteerPool } from '../../services/puppeteerPool';
 import { s3 } from '../../services/s3';
@@ -49,27 +46,14 @@ class PdfExportWorker extends JobWorker<PdfExportPayload, PdfExportProgress> {
     );
 
     let context: BrowserContext | null = null;
-    let html: string;
 
     try {
-      const document = await documentsService.getById(documentId);
-
-      if (document.contentJson) {
-        logger.info({ jobId: job.id }, 'Generating HTML from contentJson');
-        html = documentToHtml(document.contentJson);
-      } else if (providedHtml) {
-        logger.warn(
-          { jobId: job.id },
-          'Using provided HTML (contentJson not available)',
-        );
-        html = providedHtml;
-      } else {
-        throw new Error(
-          'No content available for export (missing contentJson and html)',
-        );
+      if (!providedHtml) {
+        throw new Error('No HTML content provided for export');
       }
 
-      const exportStyles = styles || DEFAULT_EXPORT_STYLES;
+      const html = providedHtml;
+      const exportStyles = styles || '';
 
       await this.updateProgress(job.id, { stageName: 'rendering' });
 
