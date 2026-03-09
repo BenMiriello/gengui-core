@@ -49,6 +49,15 @@ export const users = pgTable('users', {
   nodeTypeStyleDefaults: jsonb('node_type_style_defaults'),
   failedLoginAttempts: integer('failed_login_attempts').default(0).notNull(),
   lockedUntil: timestamp('locked_until', { withTimezone: true }),
+  googleAccessToken: text('google_access_token'),
+  googleRefreshToken: text('google_refresh_token'),
+  googleTokenExpiry: timestamp('google_token_expiry', { withTimezone: true }),
+  googleTokenIv: varchar('google_token_iv', { length: 32 }),
+  googleTokenTag: varchar('google_token_tag', { length: 32 }),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  scheduledDeletionAt: timestamp('scheduled_deletion_at', {
+    withTimezone: true,
+  }),
   createdAt: timestamp('created_at', { withTimezone: true })
     .defaultNow()
     .notNull(),
@@ -1047,5 +1056,79 @@ export const jobsRelations = relations(jobs, ({ one }) => ({
   user: one(users, {
     fields: [jobs.userId],
     references: [users.id],
+  }),
+}));
+
+// Activities table for user-facing progress & alerts
+export const activityTypeEnum = pgEnum('activity_type', [
+  'image_generation',
+  'document_analysis',
+  'pdf_export',
+  'docx_export',
+  'txt_export',
+  'md_export',
+  'drive_import',
+  'drive_export',
+]);
+
+export const activityStatusEnum = pgEnum('activity_status', [
+  'pending',
+  'running',
+  'completed',
+  'failed',
+  'cancelled',
+]);
+
+export const activities = pgTable(
+  'activities',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    activityType: activityTypeEnum('activity_type').notNull(),
+    status: activityStatusEnum('status').notNull().default('pending'),
+    targetType: varchar('target_type', { length: 30 }).notNull(),
+    targetId: uuid('target_id').notNull(),
+    jobId: uuid('job_id').references(() => jobs.id, { onDelete: 'set null' }),
+    mediaId: uuid('media_id').references(() => media.id, {
+      onDelete: 'set null',
+    }),
+    title: varchar('title', { length: 255 }).notNull(),
+    progress: jsonb('progress'),
+    resultUrl: varchar('result_url', { length: 512 }),
+    errorMessage: text('error_message'),
+    viewedAt: timestamp('viewed_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index('idx_activities_user').on(table.userId, table.createdAt),
+    index('idx_activities_user_active')
+      .on(table.userId, table.status)
+      .where(sql`status IN ('pending', 'running')`),
+    index('idx_activities_job').on(table.jobId).where(sql`job_id IS NOT NULL`),
+    index('idx_activities_media')
+      .on(table.mediaId)
+      .where(sql`media_id IS NOT NULL`),
+  ],
+);
+
+export const activitiesRelations = relations(activities, ({ one }) => ({
+  user: one(users, {
+    fields: [activities.userId],
+    references: [users.id],
+  }),
+  job: one(jobs, {
+    fields: [activities.jobId],
+    references: [jobs.id],
+  }),
+  media: one(media, {
+    fields: [activities.mediaId],
+    references: [media.id],
   }),
 }));

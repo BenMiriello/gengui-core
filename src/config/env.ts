@@ -55,6 +55,12 @@ const envSchema = z
 
     // Cookie signing (for signed cookies like pendingOAuthProfile)
     COOKIE_SECRET: z.string().optional(),
+
+    // Google Drive token encryption key (64 hex chars = 32 bytes)
+    GOOGLE_TOKEN_ENCRYPTION_KEY: z.string().length(64).optional(),
+
+    // Google Picker API key (for file/folder selection UI)
+    GOOGLE_PICKER_API_KEY: z.string().optional(),
   })
   .refine(
     (data) => {
