@@ -12,6 +12,39 @@ interface PdfGenerationOptions extends ExportOptions {
   timeout?: number;
 }
 
+/**
+ * PDF generation timeout configuration.
+ *
+ * Base timeout covers browser setup, font loading, and small documents.
+ * Additional time scales with content size at ~5s per 100k characters.
+ *
+ * Examples:
+ * - 50k chars: 45s base + 0s = 45s
+ * - 200k chars: 45s base + 10s = 55s
+ * - 500k chars: 45s base + 15s (capped) = 60s
+ */
+const PDF_TIMEOUT = {
+  BASE_MS: 45_000,
+  CHARS_PER_UNIT: 100_000,
+  MS_PER_UNIT: 5_000,
+  MAX_ADDITIONAL_MS: 15_000,
+} as const;
+
+function calculateTimeout(
+  htmlLength: number,
+  explicitTimeout?: number,
+): number {
+  if (explicitTimeout) return explicitTimeout;
+
+  const additionalMs = Math.min(
+    PDF_TIMEOUT.MAX_ADDITIONAL_MS,
+    Math.floor(htmlLength / PDF_TIMEOUT.CHARS_PER_UNIT) *
+      PDF_TIMEOUT.MS_PER_UNIT,
+  );
+
+  return PDF_TIMEOUT.BASE_MS + additionalMs;
+}
+
 export async function generatePdf(
   page: Page,
   html: string,
@@ -19,11 +52,9 @@ export async function generatePdf(
   options: PdfGenerationOptions,
   onCancel?: CancellationCallback,
 ): Promise<ExportResult> {
-  // Sanitize and prepare content
   const cleanHtml = sanitizeHtml(html);
   const printStyles = extractPrintStyles(styles);
 
-  // Add PDF-specific styles
   const pdfStyles = `
 		${printStyles}
 
@@ -44,17 +75,12 @@ export async function generatePdf(
 
   const fullHtml = wrapDocument(cleanHtml, pdfStyles);
 
-  // Calculate timeout based on content size
-  const baseTimeout = 45000;
-  const sizeTimeout = Math.min(15000, Math.floor(html.length / 100000) * 5000);
-  const timeout = options.timeout || baseTimeout + sizeTimeout;
+  const timeout = calculateTimeout(html.length, options.timeout);
 
-  // Check for cancellation
   if (onCancel?.()) {
     throw new Error('Export cancelled');
   }
 
-  // Navigate and wait for content
   await page.setContent(fullHtml, {
     waitUntil: 'load',
     timeout,
@@ -64,7 +90,6 @@ export async function generatePdf(
     throw new Error('Export cancelled');
   }
 
-  // Wait for fonts to load
   await page.evaluateHandle('document.fonts.ready');
   await page.waitForFunction('document.readyState === "complete"', {
     timeout: 5000,
@@ -74,7 +99,6 @@ export async function generatePdf(
     throw new Error('Export cancelled');
   }
 
-  // Generate PDF
   const pdfBuffer = await page.pdf({
     format: options.format || 'a4',
     landscape: options.orientation === 'landscape',

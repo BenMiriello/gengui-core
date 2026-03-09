@@ -1,3 +1,4 @@
+import timeout from 'connect-timeout';
 import type { NextFunction, Request, Response } from 'express';
 import { Router } from 'express';
 import { z } from 'zod';
@@ -9,6 +10,8 @@ import { puppeteerPool } from '../services/puppeteerPool';
 import { logger } from '../utils/logger';
 
 const router = Router();
+
+router.use(timeout('90s'));
 
 const MAX_HTML_SIZE = 10 * 1024 * 1024;
 const MAX_STYLES_SIZE = 1 * 1024 * 1024;
@@ -122,8 +125,7 @@ router.post(
         return;
       }
 
-      const { html, styles, cssVariables, filename, format, orientation } =
-        bodyResult.data;
+      const { html, filename } = bodyResult.data;
 
       const document = await documentsService.get(id, userId);
       if (!document) {
@@ -149,11 +151,7 @@ router.post(
         'Processing DOCX export',
       );
 
-      const result = await generateDocx(html, styles || '', {
-        format: format || 'a4',
-        orientation: orientation || 'portrait',
-        cssVariables,
-      });
+      const result = await generateDocx(html);
 
       res.setHeader('Content-Type', result.mimeType);
       res.setHeader(
