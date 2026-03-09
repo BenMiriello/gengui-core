@@ -43,4 +43,5 @@ export interface CreateMentionInput {
 export interface MentionWithAbsolutePosition extends Mention {
   absoluteStart: number;
   absoluteEnd: number;
+  positionConfidence?: number;
 }

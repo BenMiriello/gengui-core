@@ -9,6 +9,7 @@ import { db } from '../../config/database';
 import { mentions } from '../../models/schema';
 import type { Segment } from '../segments';
 import { segmentService } from '../segments';
+import { fuzzyFindText, fuzzyFindTextInSegment } from './fuzzyMatch';
 import type {
   CreateMentionInput,
   Mention,
@@ -215,6 +216,7 @@ export const mentionService = {
 
   /**
    * Get all mentions for a document with absolute positions.
+   * Uses fuzzy matching fallback when segment IDs are stale.
    */
   async getByDocumentIdWithAbsolutePositions(
     documentId: string,
@@ -222,7 +224,10 @@ export const mentionService = {
     const { documents } = await import('../../models/schema.js');
 
     const [doc] = await db
-      .select({ segmentSequence: documents.segmentSequence })
+      .select({
+        segmentSequence: documents.segmentSequence,
+        content: documents.content,
+      })
       .from(documents)
       .where(eq(documents.id, documentId))
       .limit(1);
@@ -230,29 +235,48 @@ export const mentionService = {
     if (!doc) return [];
 
     const segments = doc.segmentSequence as Segment[];
+    const content = doc.content || '';
     const mentionRows = await this.getByDocumentId(documentId);
 
-    return mentionRows
-      .map((mention) => {
-        const absolute = segmentService.toAbsolutePosition(
-          segments,
-          mention.segmentId,
-          mention.relativeStart,
-          mention.relativeEnd,
-        );
-        if (!absolute) return null;
+    const results: MentionWithAbsolutePosition[] = [];
 
-        return {
-          ...mention,
-          absoluteStart: absolute.absoluteStart,
-          absoluteEnd: absolute.absoluteEnd,
+    for (const mention of mentionRows) {
+      let absolute = segmentService.toAbsolutePosition(
+        segments,
+        mention.segmentId,
+        mention.relativeStart,
+        mention.relativeEnd,
+      );
+      let positionConfidence = 1.0;
+
+      if (!absolute) {
+        const resolved = this.resolveMentionPosition(
+          mention,
+          content,
+          segments,
+        );
+        if (!resolved) continue;
+        absolute = {
+          absoluteStart: resolved.absoluteStart,
+          absoluteEnd: resolved.absoluteEnd,
         };
-      })
-      .filter((m): m is MentionWithAbsolutePosition => m !== null);
+        positionConfidence = resolved.confidence;
+      }
+
+      results.push({
+        ...mention,
+        absoluteStart: absolute.absoluteStart,
+        absoluteEnd: absolute.absoluteEnd,
+        positionConfidence,
+      });
+    }
+
+    return results;
   },
 
   /**
    * Get a single mention by ID with absolute positions.
+   * Uses fuzzy matching fallback when segment IDs are stale.
    */
   async getMentionById(
     id: string,
@@ -265,10 +289,12 @@ export const mentionService = {
 
     if (!row) return null;
 
-    // Get document's segments to convert to absolute positions
     const { documents } = await import('../../models/schema.js');
     const [doc] = await db
-      .select({ segmentSequence: documents.segmentSequence })
+      .select({
+        segmentSequence: documents.segmentSequence,
+        content: documents.content,
+      })
       .from(documents)
       .where(eq(documents.id, row.documentId))
       .limit(1);
@@ -276,19 +302,32 @@ export const mentionService = {
     if (!doc) return null;
 
     const segments = doc.segmentSequence as Segment[];
-    const absolute = segmentService.toAbsolutePosition(
+    const content = doc.content || '';
+    const mention = rowToMention(row);
+
+    let absolute = segmentService.toAbsolutePosition(
       segments,
       row.segmentId,
       row.relativeStart,
       row.relativeEnd,
     );
+    let confidence = 1.0;
 
-    if (!absolute) return null;
+    if (!absolute) {
+      const resolved = this.resolveMentionPosition(mention, content, segments);
+      if (!resolved) return null;
+      absolute = {
+        absoluteStart: resolved.absoluteStart,
+        absoluteEnd: resolved.absoluteEnd,
+      };
+      confidence = resolved.confidence;
+    }
 
     return {
-      ...rowToMention(row),
+      ...mention,
       absoluteStart: absolute.absoluteStart,
       absoluteEnd: absolute.absoluteEnd,
+      positionConfidence: confidence,
     };
   },
 
@@ -479,6 +518,63 @@ export const mentionService = {
       result.set(row.nodeId, row.count);
     }
     return result;
+  },
+
+  /**
+   * Resolve a mention's absolute position using fuzzy matching.
+   * Falls back from segment-local search to full document search.
+   */
+  resolveMentionPosition(
+    mention: Mention,
+    documentContent: string,
+    segments: Segment[],
+  ): { absoluteStart: number; absoluteEnd: number; confidence: number } | null {
+    const segment = segments.find((s) => s.id === mention.segmentId);
+
+    if (segment) {
+      const absoluteStart = segment.start + mention.relativeStart;
+      const absoluteEnd = segment.start + mention.relativeEnd;
+      const currentText = documentContent.slice(absoluteStart, absoluteEnd);
+
+      if (computeTextHash(currentText) === mention.textHash) {
+        return { absoluteStart, absoluteEnd, confidence: 1.0 };
+      }
+
+      const result = fuzzyFindTextInSegment(
+        documentContent,
+        {
+          sourceText: mention.originalText,
+          originalStart: absoluteStart,
+          originalEnd: absoluteEnd,
+        },
+        segments,
+        segment.id,
+      );
+
+      if (result && result.confidence >= 0.5) {
+        return {
+          absoluteStart: result.start,
+          absoluteEnd: result.end,
+          confidence: result.confidence,
+        };
+      }
+    }
+
+    const fullResult = fuzzyFindText(documentContent, {
+      sourceText: mention.originalText,
+      originalStart: 0,
+      originalEnd: mention.originalText.length,
+    });
+
+    if (fullResult && fullResult.confidence >= 0.5) {
+      return {
+        absoluteStart: fullResult.start,
+        absoluteEnd: fullResult.end,
+        confidence: fullResult.confidence,
+      };
+    }
+
+    return null;
   },
 
   /**
