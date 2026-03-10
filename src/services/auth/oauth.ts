@@ -145,6 +145,71 @@ export class OAuthService {
     );
   }
 
+  /**
+   * Link OAuth account to a specific user by ID, regardless of email match.
+   * Used when a logged-in user explicitly links their account via the /link route.
+   */
+  async linkOAuthByUserId(
+    userId: string,
+    profile: OAuthProfile,
+  ): Promise<{ id: string; email: string; username: string }> {
+    // Check if this providerId is already linked to a different user
+    const [existingOAuth] = await db
+      .select()
+      .from(users)
+      .where(eq(users.oauthProviderId, profile.providerId))
+      .limit(1);
+
+    if (existingOAuth && existingOAuth.id !== userId) {
+      throw new ConflictError(
+        'This Google account is already linked to another user',
+      );
+    }
+
+    // Get the target user
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    if (!user) {
+      throw new UnauthorizedError('User not found');
+    }
+
+    if (user.oauthProvider) {
+      throw new ConflictError(
+        `Account already linked to ${user.oauthProvider}`,
+      );
+    }
+
+    // Link the OAuth account
+    await db
+      .update(users)
+      .set({
+        oauthProvider: profile.provider,
+        oauthProviderId: profile.providerId,
+      })
+      .where(eq(users.id, userId));
+
+    logger.info(
+      {
+        userId,
+        provider: profile.provider,
+        googleEmail: profile.email,
+        userEmail: user.email,
+        event: 'oauth_linked_by_user_id',
+      },
+      'OAuth linked to user by explicit user ID (emails may differ)',
+    );
+
+    return {
+      id: user.id,
+      email: user.email,
+      username: user.username,
+    };
+  }
+
   async linkWithPasswordConfirmation(
     email: string,
     password: string,

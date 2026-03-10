@@ -1,7 +1,8 @@
 import crypto from 'node:crypto';
 import bcrypt from 'bcrypt';
-import { and, eq, lt, or } from 'drizzle-orm';
+import { and, eq, isNotNull, lt, or } from 'drizzle-orm';
 import { db } from '../config/database';
+import { ACCOUNT_DELETION, LOGIN_SECURITY } from '../config/security';
 import {
   emailVerificationTokens,
   passwordResetTokens,
@@ -22,6 +23,8 @@ const BCRYPT_ROUNDS = 12;
 const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
 const EMAIL_VERIFICATION_DURATION_MS = 24 * 60 * 60 * 1000;
 const PASSWORD_RESET_DURATION_MS = 60 * 60 * 1000;
+
+const DUMMY_HASH = bcrypt.hashSync('dummy_password_for_timing', BCRYPT_ROUNDS);
 
 export class AuthService {
   async signup(email: string, username: string, password: string) {
@@ -100,61 +103,40 @@ export class AuthService {
       )
       .limit(1);
 
-    if (!user || !user.passwordHash) {
-      logger.warn(
-        {
-          event: 'auth_login_failed',
-          attemptedIdentifier: emailOrUsername,
-          reason: 'user_not_found',
-        },
-        'Login attempt failed: user not found',
-      );
-      throw new UnauthorizedError('Invalid credentials');
-    }
+    const passwordHash = user?.passwordHash || DUMMY_HASH;
+    const validPassword = await bcrypt.compare(password, passwordHash);
 
-    const now = new Date();
-
-    if (user.lockedUntil && user.lockedUntil > now) {
-      const minutesRemaining = Math.ceil(
-        (user.lockedUntil.getTime() - now.getTime()) / (1000 * 60),
-      );
-      throw new UnauthorizedError(
-        `Account locked. Try again in ${minutesRemaining} minute${minutesRemaining !== 1 ? 's' : ''}.`,
-      );
-    }
-
-    if (user.failedLoginAttempts === 5) {
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-    } else if (user.failedLoginAttempts === 6) {
-      await new Promise((resolve) => setTimeout(resolve, 5000));
-    }
-
-    const validPassword = await bcrypt.compare(password, user.passwordHash);
-
-    if (!validPassword) {
-      const newAttempts = user.failedLoginAttempts + 1;
-      const attemptsRemaining = Math.max(0, 8 - newAttempts);
-
-      if (newAttempts >= 7) {
-        const lockedUntil = new Date(now.getTime() + 15 * 60 * 1000);
-        await db
-          .update(users)
-          .set({ failedLoginAttempts: newAttempts, lockedUntil })
-          .where(eq(users.id, user.id));
-
-        logger.warn(
-          {
-            event: 'auth_account_locked',
-            userId: user.id,
-            attempts: newAttempts,
-            lockedUntil: lockedUntil.toISOString(),
-          },
-          'Account locked due to failed login attempts',
+    if (!user || !user.passwordHash || !validPassword) {
+      if (user) {
+        const newAttempts = user.failedLoginAttempts + 1;
+        const attemptsRemaining = Math.max(
+          0,
+          LOGIN_SECURITY.ATTEMPTS_BEFORE_LOCKOUT + 1 - newAttempts,
         );
-        throw new UnauthorizedError(
-          'Too many failed attempts. Account locked for 15 minutes.',
-        );
-      } else {
+
+        if (newAttempts >= LOGIN_SECURITY.ATTEMPTS_BEFORE_LOCKOUT) {
+          const lockedUntil = new Date(
+            Date.now() + LOGIN_SECURITY.LOCKOUT_DURATION_MS,
+          );
+          await db
+            .update(users)
+            .set({ failedLoginAttempts: newAttempts, lockedUntil })
+            .where(eq(users.id, user.id));
+
+          logger.warn(
+            {
+              event: 'auth_account_locked',
+              userId: user.id,
+              attempts: newAttempts,
+              lockedUntil: lockedUntil.toISOString(),
+            },
+            'Account locked due to failed login attempts',
+          );
+          throw new UnauthorizedError(
+            'Too many failed attempts. Account locked for 15 minutes. You can reset your password to unlock immediately.',
+          );
+        }
+
         await db
           .update(users)
           .set({ failedLoginAttempts: newAttempts })
@@ -171,24 +153,66 @@ export class AuthService {
           'Login attempt failed: invalid password',
         );
 
-        if (newAttempts >= 5) {
-          let message = `Invalid credentials. ${attemptsRemaining} attempt${attemptsRemaining !== 1 ? 's' : ''} remaining.`;
-          if (newAttempts === 5) {
-            message += ' Next attempt delayed 2 seconds.';
-          } else if (newAttempts === 6) {
-            message += ' Next attempt delayed 5 seconds.';
-          }
-          throw new UnauthorizedError(message);
-        } else {
-          throw new UnauthorizedError('Invalid credentials');
+        if (newAttempts >= LOGIN_SECURITY.ATTEMPTS_BEFORE_WARNING) {
+          throw new UnauthorizedError(
+            `Invalid credentials. ${attemptsRemaining} attempt${attemptsRemaining !== 1 ? 's' : ''} remaining before lockout.`,
+          );
         }
+      } else {
+        logger.warn(
+          {
+            event: 'auth_login_failed',
+            attemptedIdentifier: emailOrUsername,
+            reason: 'user_not_found',
+          },
+          'Login attempt failed: user not found',
+        );
       }
+      throw new UnauthorizedError('Invalid credentials');
     }
 
-    await db
-      .update(users)
-      .set({ failedLoginAttempts: 0, lockedUntil: null })
-      .where(eq(users.id, user.id));
+    const now = new Date();
+
+    if (user.lockedUntil && user.lockedUntil > now) {
+      const minutesRemaining = Math.ceil(
+        (user.lockedUntil.getTime() - now.getTime()) / (1000 * 60),
+      );
+      throw new UnauthorizedError(
+        `Account locked. Try again in ${minutesRemaining} minute${minutesRemaining !== 1 ? 's' : ''}, or reset your password.`,
+      );
+    }
+
+    if (user.deletedAt && user.scheduledDeletionAt) {
+      if (user.scheduledDeletionAt <= now) {
+        logger.warn(
+          { event: 'auth_login_deleted_account', userId: user.id },
+          'Login attempt on permanently deleted account',
+        );
+        throw new UnauthorizedError(
+          'This account has been deleted. Contact support if you believe this is an error.',
+        );
+      }
+
+      await db
+        .update(users)
+        .set({
+          deletedAt: null,
+          scheduledDeletionAt: null,
+          failedLoginAttempts: 0,
+          lockedUntil: null,
+        })
+        .where(eq(users.id, user.id));
+
+      logger.info(
+        { event: 'auth_account_reactivated', userId: user.id },
+        'Account reactivated via login during grace period',
+      );
+    } else {
+      await db
+        .update(users)
+        .set({ failedLoginAttempts: 0, lockedUntil: null })
+        .where(eq(users.id, user.id));
+    }
 
     logger.info(
       {
@@ -278,6 +302,7 @@ export class AuthService {
       hiddenPresetIds: user.hiddenPresetIds ?? [],
       oauthProvider: user.oauthProvider ?? null,
       hasPassword: !!user.passwordHash,
+      scheduledDeletionAt: user.scheduledDeletionAt?.toISOString() ?? null,
     };
   }
 
@@ -848,6 +873,192 @@ export class AuthService {
     await db.update(users).set({ passwordHash }).where(eq(users.id, userId));
 
     logger.info({ userId }, 'Password set for OAuth user');
+  }
+
+  async initiateAccountDeletion(
+    userId: string,
+    credentials: { password?: string; confirmationEmail?: string },
+  ) {
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    if (!user) {
+      throw new UnauthorizedError('User not found');
+    }
+
+    if (user.passwordHash) {
+      if (!credentials.password) {
+        throw new UnauthorizedError('Password is required');
+      }
+      const passwordHash = user.passwordHash || DUMMY_HASH;
+      const validPassword = await bcrypt.compare(
+        credentials.password,
+        passwordHash,
+      );
+      if (!validPassword) {
+        throw new UnauthorizedError('Incorrect password');
+      }
+    } else {
+      if (!credentials.confirmationEmail) {
+        throw new UnauthorizedError('Email confirmation is required');
+      }
+      if (
+        credentials.confirmationEmail.toLowerCase() !== user.email.toLowerCase()
+      ) {
+        throw new UnauthorizedError('Email does not match');
+      }
+    }
+
+    const now = new Date();
+    const scheduledDeletionAt = new Date(
+      now.getTime() + ACCOUNT_DELETION.GRACE_PERIOD_MS,
+    );
+
+    await db
+      .update(users)
+      .set({
+        deletedAt: now,
+        scheduledDeletionAt,
+      })
+      .where(eq(users.id, userId));
+
+    await db.delete(sessions).where(eq(sessions.userId, userId));
+
+    await emailService.sendAccountDeletionInitiated(
+      user.email,
+      scheduledDeletionAt,
+    );
+
+    logger.info(
+      {
+        event: 'auth_account_deletion_initiated',
+        userId,
+        scheduledDeletionAt: scheduledDeletionAt.toISOString(),
+      },
+      'Account deletion initiated',
+    );
+
+    return { scheduledDeletionAt };
+  }
+
+  async cancelAccountDeletion(userId: string) {
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    if (!user) {
+      throw new UnauthorizedError('User not found');
+    }
+
+    if (!user.deletedAt) {
+      throw new ConflictError('Account is not pending deletion');
+    }
+
+    await db
+      .update(users)
+      .set({
+        deletedAt: null,
+        scheduledDeletionAt: null,
+      })
+      .where(eq(users.id, userId));
+
+    logger.info(
+      { event: 'auth_account_deletion_cancelled', userId },
+      'Account deletion cancelled',
+    );
+  }
+
+  async isUserDeleted(userId: string) {
+    const [user] = await db
+      .select({
+        deletedAt: users.deletedAt,
+        scheduledDeletionAt: users.scheduledDeletionAt,
+      })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    if (!user) {
+      return { deleted: false };
+    }
+
+    return {
+      deleted: !!user.deletedAt,
+      scheduledDeletionAt: user.scheduledDeletionAt ?? undefined,
+    };
+  }
+
+  async getUsersPendingDeletion() {
+    return db
+      .select({
+        id: users.id,
+        email: users.email,
+        scheduledDeletionAt: users.scheduledDeletionAt,
+      })
+      .from(users)
+      .where(
+        and(isNotNull(users.deletedAt), isNotNull(users.scheduledDeletionAt)),
+      );
+  }
+
+  async permanentlyDeleteUser(userId: string) {
+    await db.delete(users).where(eq(users.id, userId));
+    logger.info(
+      { event: 'auth_user_permanently_deleted', userId },
+      'User permanently deleted',
+    );
+  }
+
+  async unlinkOAuth(userId: string, password: string) {
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    if (!user) {
+      throw new UnauthorizedError('User not found');
+    }
+
+    if (!user.passwordHash) {
+      throw new ConflictError(
+        'Cannot unlink OAuth without a password set. Set a password first.',
+      );
+    }
+
+    if (!user.oauthProvider) {
+      throw new ConflictError('No OAuth provider linked to this account');
+    }
+
+    const validPassword = await bcrypt.compare(password, user.passwordHash);
+    if (!validPassword) {
+      throw new UnauthorizedError('Password is incorrect');
+    }
+
+    await db
+      .update(users)
+      .set({
+        oauthProvider: null,
+        oauthProviderId: null,
+        googleAccessToken: null,
+        googleRefreshToken: null,
+        googleTokenExpiry: null,
+        googleTokenIv: null,
+        googleTokenTag: null,
+      })
+      .where(eq(users.id, userId));
+
+    await this.deleteAllUserSessions(userId);
+
+    logger.info(
+      { event: 'auth_oauth_unlinked', userId, provider: user.oauthProvider },
+      'OAuth provider unlinked from account',
+    );
   }
 }
 
