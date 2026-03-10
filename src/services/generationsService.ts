@@ -5,6 +5,7 @@ import { documentMedia, documents, media } from '../models/schema';
 import { notDeleted } from '../utils/db';
 import { NotFoundError } from '../utils/errors';
 import { logger } from '../utils/logger';
+import { activityService } from './activity.service';
 import { getImageProvider } from './image-generation/factory';
 import { redis } from './redis';
 import { runpodClient } from './runpod/client';
@@ -154,6 +155,20 @@ export class GenerationsService {
         contextAfter,
         requestedPrompt: request.prompt,
       });
+    }
+
+    // Create activity for progress tracking
+    try {
+      await activityService.createFromMedia({
+        mediaId: newMedia.id,
+        userId,
+        title: 'Generating image',
+      });
+    } catch (activityError) {
+      logger.error(
+        { error: activityError, mediaId: newMedia.id },
+        'Failed to create activity for image generation',
+      );
     }
 
     try {
