@@ -39,6 +39,14 @@ class DocumentAnalysisWorker extends JobWorker<
     super('document-analysis-worker');
   }
 
+  protected getActivityTitle(_job: Job, _payload: AnalysisPayload): string {
+    return 'Analyzing document';
+  }
+
+  protected getResultUrl(job: Job): string {
+    return `/documents/${job.targetId}`;
+  }
+
   protected async processJob(
     job: Job,
     payload: AnalysisPayload,
@@ -96,6 +104,13 @@ class DocumentAnalysisWorker extends JobWorker<
         documentTitle: document.title,
         isInitialExtraction: !reanalyze,
         broadcastProgress: true,
+        onProgress: (progress) => {
+          this.updateProgress(job.id, {
+            stage: progress.stage,
+            totalStages: progress.totalStages,
+            stageName: progress.stageName,
+          });
+        },
       });
 
       // Save analysis snapshot for staleness detection

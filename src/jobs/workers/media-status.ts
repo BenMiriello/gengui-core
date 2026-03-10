@@ -6,6 +6,7 @@
 import { eq } from 'drizzle-orm';
 import { db } from '../../config/database';
 import { documentMedia, media, nodeMedia } from '../../models/schema';
+import { activityService } from '../../services/activity.service';
 import { graphService } from '../../services/graph/graph.service';
 import { sseService } from '../../services/sse';
 import { logger } from '../../utils/logger';
@@ -57,6 +58,9 @@ class MediaStatusWorker extends JobWorker<MediaStatusPayload, JobProgress> {
         .set({ status: 'processing', updatedAt: new Date() })
         .where(eq(media.id, mediaId));
 
+      // Update activity to running
+      await this.updateActivityStatus(mediaId, 'running');
+
       logger.info({ mediaId }, 'Updated media status to processing');
     } else if (status === 'completed') {
       if (!s3Key) {
@@ -82,6 +86,11 @@ class MediaStatusWorker extends JobWorker<MediaStatusPayload, JobProgress> {
         .update(media)
         .set({ status: 'completed', s3Key, updatedAt: new Date() })
         .where(eq(media.id, mediaId));
+
+      // Update activity to completed
+      await this.updateActivityStatus(mediaId, 'completed', {
+        resultUrl: `/media/${mediaId}`,
+      });
 
       logger.info({ mediaId, s3Key }, 'Updated media status to completed');
 
@@ -110,10 +119,33 @@ class MediaStatusWorker extends JobWorker<MediaStatusPayload, JobProgress> {
         })
         .where(eq(media.id, mediaId));
 
+      // Update activity to failed
+      await this.updateActivityStatus(mediaId, 'failed', {
+        errorMessage: error || 'Unknown error',
+      });
+
       logger.error({ mediaId, error }, 'Updated media status to failed');
     }
 
     await this.broadcastMediaUpdate(mediaId);
+  }
+
+  private async updateActivityStatus(
+    mediaId: string,
+    status: 'running' | 'completed' | 'failed',
+    extras?: { resultUrl?: string; errorMessage?: string },
+  ): Promise<void> {
+    try {
+      const activity = await activityService.getByMediaId(mediaId);
+      if (activity) {
+        await activityService.updateStatus(activity.id, status, extras);
+      }
+    } catch (error) {
+      logger.error(
+        { error, mediaId, status },
+        'Failed to update activity status',
+      );
+    }
   }
 
   private async queueThumbnailJob(

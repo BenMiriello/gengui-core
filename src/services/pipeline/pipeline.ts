@@ -116,6 +116,15 @@ async function checkForInterruption(documentId: string): Promise<void> {
   }
 }
 
+export interface PipelineProgressInfo {
+  stage: AnalysisStage;
+  totalStages: number;
+  stageName: string;
+  stageDescription?: string;
+  statusHint: string;
+  entityCount?: number;
+}
+
 export interface PipelineOptions {
   documentId: string;
   userId: string;
@@ -126,6 +135,7 @@ export interface PipelineOptions {
   documentTitle?: string;
   isInitialExtraction: boolean;
   broadcastProgress?: boolean;
+  onProgress?: (progress: PipelineProgressInfo) => void;
 }
 
 export interface PipelineResult {
@@ -390,6 +400,7 @@ export const multiStagePipeline = {
       documentTitle,
       isInitialExtraction,
       broadcastProgress = true,
+      onProgress,
     } = options;
 
     // Generate correlation ID for this analysis run
@@ -417,19 +428,36 @@ export const multiStagePipeline = {
       entityCount?: number,
       statusHint?: string,
     ) => {
-      if (!broadcastProgress) return;
       const stageInfo = getStageInfo(stage);
-      sseService.broadcastToDocument(documentId, 'analysis-progress', {
-        documentId,
-        stage,
-        totalStages: TOTAL_STAGES,
-        stageName: stageInfo?.name || `Stage ${stage}`,
-        stageDescription: stageInfo?.description,
-        statusHint:
-          statusHint || stageInfo?.genericLabel || getStageLabel(stage),
-        entityCount,
-        timestamp: new Date().toISOString(),
-      });
+      const stageName = stageInfo?.name || `Stage ${stage}`;
+      const stageDescription = stageInfo?.description;
+      const hint =
+        statusHint || stageInfo?.genericLabel || getStageLabel(stage);
+
+      if (broadcastProgress) {
+        sseService.broadcastToDocument(documentId, 'analysis-progress', {
+          documentId,
+          stage,
+          totalStages: TOTAL_STAGES,
+          stageName,
+          stageDescription,
+          statusHint: hint,
+          entityCount,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // Also call progress callback for activity system updates
+      if (onProgress) {
+        onProgress({
+          stage,
+          totalStages: TOTAL_STAGES,
+          stageName,
+          stageDescription,
+          statusHint: hint,
+          entityCount,
+        });
+      }
     };
 
     let checkpoint = await loadCheckpoint(documentId);
@@ -1662,7 +1690,7 @@ export const multiStagePipeline = {
             );
           } else {
             // Calculate batches using budget calculator (same pattern as Stage 5)
-            const modelConfig = getTextModelConfig('gemini-2.5-flash-lite');
+            const modelConfig = getTextModelConfig('gemini-2.5-flash');
             const { crossSegmentRelationshipConfig } = await import(
               '../contextBudget/index.js'
             );
@@ -3397,7 +3425,7 @@ async function detectContradictionsWithContext(
 > {
   let prompt = buildContextPrompt(entityName, facetType, facets, context);
 
-  const modelConfig = getTextModelConfig('gemini-2.0-flash-lite');
+  const modelConfig = getTextModelConfig('gemini-2.5-flash');
   const charsPerToken = modelConfig.charsPerToken ?? 3.3;
   let promptTokens = countTokens(prompt, charsPerToken);
   const maxInputTokens = modelConfig.maxTokens || 1_000_000;
@@ -3730,14 +3758,14 @@ async function generateEntityDescriptions(
   }
 
   const llmGenerate = async (prompt: string): Promise<string> => {
-    const modelConfig = getTextModelConfig('gemini-2.5-flash-lite');
+    const modelConfig = getTextModelConfig('gemini-2.5-flash');
     const maxOutputTokens = modelConfig.maxOutputTokens;
     if (!maxOutputTokens) {
       throw new Error(`Model missing maxOutputTokens configuration`);
     }
 
     const result = await client.models.generateContent({
-      model: 'gemini-2.5-flash-lite',
+      model: 'gemini-2.5-flash',
       contents: prompt,
       config: {
         maxOutputTokens,

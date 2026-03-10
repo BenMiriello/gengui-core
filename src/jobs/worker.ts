@@ -11,6 +11,8 @@ import { eq, sql } from 'drizzle-orm';
 import Redis from 'ioredis';
 import { db } from '../config/database';
 import { jobs } from '../models/schema';
+import { activityService } from '../services/activity.service';
+import type { Activity, ActivityProgress } from '../services/activity.types';
 import { sseService } from '../services/sse';
 import { logger } from '../utils/logger';
 import { jobService } from './service';
@@ -39,9 +41,20 @@ export abstract class JobWorker<
   protected readonly workerId: string;
   protected readonly serviceName: string;
 
+  // Track current activity for the job being processed
+  private currentActivity: Activity | null = null;
+
   constructor(serviceName: string) {
     this.serviceName = serviceName;
     this.workerId = `${serviceName}-${process.pid}`;
+  }
+
+  /**
+   * Override in subclass to provide activity title for this job.
+   * Return null to skip activity tracking for this job type.
+   */
+  protected getActivityTitle(_job: Job, _payload: TPayload): string | null {
+    return null;
   }
 
   async start(): Promise<void> {
@@ -156,6 +169,9 @@ export abstract class JobWorker<
       const job = await this.claimNextJob();
       if (!job) break;
 
+      // Create activity if this job type supports it
+      await this.createActivityForJob(job);
+
       try {
         await this.processJob(job, job.payload as TPayload);
         await this.completeJob(job.id);
@@ -167,7 +183,57 @@ export abstract class JobWorker<
         } else {
           await this.failJob(job.id, error);
         }
+      } finally {
+        this.currentActivity = null;
       }
+    }
+  }
+
+  /**
+   * Create activity for job if applicable.
+   */
+  private async createActivityForJob(job: Job): Promise<void> {
+    const payload = job.payload as TPayload;
+    const title = this.getActivityTitle(job, payload);
+
+    if (!title) {
+      logger.debug(
+        { jobId: job.id },
+        'No activity title, skipping activity creation',
+      );
+      this.currentActivity = null;
+      return;
+    }
+
+    const activityType = activityService.getActivityTypeFromJobType(job.type);
+    if (!activityType) {
+      logger.debug(
+        { jobId: job.id, jobType: job.type },
+        'No activity type mapping, skipping activity creation',
+      );
+      this.currentActivity = null;
+      return;
+    }
+
+    try {
+      this.currentActivity = await activityService.createFromJob({
+        jobId: job.id,
+        userId: job.userId,
+        activityType,
+        targetType: job.targetType,
+        targetId: job.targetId,
+        title,
+      });
+      logger.info(
+        { jobId: job.id, activityId: this.currentActivity.id, activityType },
+        'Activity created for job',
+      );
+    } catch (error) {
+      logger.error(
+        { error, jobId: job.id },
+        'Failed to create activity for job',
+      );
+      this.currentActivity = null;
     }
   }
 
@@ -178,6 +244,7 @@ export abstract class JobWorker<
   private async claimNextJob(): Promise<Job | null> {
     try {
       // Use raw SQL for FOR UPDATE SKIP LOCKED pattern
+      // Returns snake_case columns, must map to camelCase
       const result = await db.execute(sql`
         UPDATE jobs
         SET status = 'processing',
@@ -197,17 +264,38 @@ export abstract class JobWorker<
         RETURNING *
       `);
 
-      const rows = result as unknown as Job[];
-      const job = rows[0];
+      const rows = result as unknown as Array<Record<string, unknown>>;
+      const row = rows[0];
 
-      if (job) {
-        logger.info(
-          { jobId: job.id, targetId: job.targetId, service: this.serviceName },
-          'Job claimed',
-        );
-      }
+      if (!row) return null;
 
-      return job ?? null;
+      // Map snake_case DB columns to camelCase Job type
+      const job: Job = {
+        id: row.id as string,
+        type: row.type as Job['type'],
+        status: row.status as Job['status'],
+        userId: row.user_id as string,
+        targetType: row.target_type as string,
+        targetId: row.target_id as string,
+        payload: row.payload as Record<string, unknown>,
+        progress: row.progress as Record<string, unknown> | null,
+        progressUpdatedAt: row.progress_updated_at as Date | null,
+        checkpoint: row.checkpoint as Record<string, unknown> | null,
+        createdAt: row.created_at as Date,
+        startedAt: row.started_at as Date | null,
+        completedAt: row.completed_at as Date | null,
+        errorMessage: row.error_message as string | null,
+        retryCount: row.retry_count as number,
+        maxRetries: row.max_retries as number,
+        workerId: row.worker_id as string | null,
+      };
+
+      logger.info(
+        { jobId: job.id, targetId: job.targetId, service: this.serviceName },
+        'Job claimed',
+      );
+
+      return job;
     } catch (error) {
       logger.error({ error, service: this.serviceName }, 'Failed to claim job');
       return null;
@@ -279,6 +367,19 @@ export abstract class JobWorker<
         progress,
         timestamp: new Date().toISOString(),
       });
+
+      // Update activity progress if we have one
+      if (this.currentActivity) {
+        const activityProgress: ActivityProgress = {
+          stage: progress.stage,
+          totalStages: progress.totalStages,
+          stageName: progress.stageName,
+        };
+        await activityService.updateProgress(
+          this.currentActivity.id,
+          activityProgress,
+        );
+      }
     }
   }
 
@@ -316,6 +417,15 @@ export abstract class JobWorker<
    * Mark job as completed.
    */
   protected async completeJob(jobId: string): Promise<void> {
+    logger.info(
+      {
+        jobId,
+        hasActivity: !!this.currentActivity,
+        activityId: this.currentActivity?.id,
+      },
+      'completeJob called',
+    );
+
     const job = await jobService.updateStatus(jobId, 'completed');
 
     if (job) {
@@ -328,11 +438,52 @@ export abstract class JobWorker<
         timestamp: new Date().toISOString(),
       });
 
+      // Update activity status
+      if (this.currentActivity) {
+        const resultUrl = this.getResultUrl(job);
+        logger.info(
+          { jobId, activityId: this.currentActivity.id, resultUrl },
+          'Updating activity status to completed',
+        );
+        try {
+          await activityService.updateStatus(
+            this.currentActivity.id,
+            'completed',
+            {
+              resultUrl,
+            },
+          );
+          logger.info(
+            { jobId, activityId: this.currentActivity.id },
+            'Activity status update succeeded',
+          );
+        } catch (error) {
+          logger.error(
+            { error, jobId, activityId: this.currentActivity.id },
+            'Failed to update activity status to completed',
+          );
+        }
+      } else {
+        logger.warn(
+          { jobId },
+          'No currentActivity to update on job completion',
+        );
+      }
+
       logger.info(
         { jobId, targetId: job.targetId, service: this.serviceName },
         'Job completed',
       );
+    } else {
+      logger.warn({ jobId }, 'Job not found when completing');
     }
+  }
+
+  /**
+   * Override in subclass to provide result URL for completed jobs.
+   */
+  protected getResultUrl(_job: Job): string | undefined {
+    return undefined;
   }
 
   /**
@@ -348,6 +499,8 @@ export abstract class JobWorker<
         targetId: job.targetId,
         timestamp: new Date().toISOString(),
       });
+
+      // Activity stays in 'running' state when paused (user can resume)
 
       logger.info(
         { jobId, targetId: job.targetId, service: this.serviceName },
@@ -374,6 +527,21 @@ export abstract class JobWorker<
 
       sseService.clearDocumentBuffer(job.targetId);
 
+      // Update activity status
+      if (this.currentActivity) {
+        try {
+          await activityService.updateStatus(
+            this.currentActivity.id,
+            'cancelled',
+          );
+        } catch (error) {
+          logger.error(
+            { error, jobId, activityId: this.currentActivity.id },
+            'Failed to update activity status to cancelled',
+          );
+        }
+      }
+
       logger.info(
         { jobId, targetId: job.targetId, service: this.serviceName },
         'Job cancelled',
@@ -398,6 +566,28 @@ export abstract class JobWorker<
       });
 
       sseService.clearDocumentBuffer(job.targetId);
+
+      // Update activity status
+      if (this.currentActivity) {
+        try {
+          await activityService.updateStatus(
+            this.currentActivity.id,
+            'failed',
+            {
+              errorMessage,
+            },
+          );
+        } catch (activityError) {
+          logger.error(
+            {
+              error: activityError,
+              jobId,
+              activityId: this.currentActivity.id,
+            },
+            'Failed to update activity status to failed',
+          );
+        }
+      }
 
       logger.error(
         {

@@ -27,7 +27,7 @@ export const detectContradictionsPrompt: PromptDefinition<DetectContradictionsIn
   {
     id: 'stage10-detect-contradictions',
     version: 1,
-    model: 'gemini-2.5-flash-lite',
+    model: 'gemini-2.5-flash',
     description:
       'Stage 10: Identify contradictions in facets of the same type for an entity',
 

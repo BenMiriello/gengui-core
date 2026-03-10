@@ -26,6 +26,11 @@ declare global {
         warn: (obj: object | string, msg?: string, ...args: unknown[]) => void;
         debug: (obj: object | string, msg?: string, ...args: unknown[]) => void;
       };
+      linkContext?: {
+        userId: string;
+        ts: number;
+        action: 'link';
+      };
     }
   }
 }

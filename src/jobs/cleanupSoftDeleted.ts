@@ -1,8 +1,10 @@
-import { lt } from 'drizzle-orm';
+import { and, gt, isNotNull, lt, lte } from 'drizzle-orm';
 import cron, { type ScheduledTask } from 'node-cron';
 import { db } from '../config/database';
-import { nodeMedia } from '../models/schema';
+import { nodeMedia, users } from '../models/schema';
+import { authService } from '../services/auth';
 import { customStylePromptsService } from '../services/customStylePrompts';
+import { emailService } from '../services/emailService';
 import { graphService } from '../services/graph/graph.service';
 import { logger } from '../utils/logger';
 
@@ -12,6 +14,13 @@ const RETENTION_DAYS = 31;
 function getDaysAgo(days: number): Date {
   const date = new Date();
   date.setDate(date.getDate() - days);
+  return date;
+}
+
+function getTomorrow(): Date {
+  const date = new Date();
+  date.setDate(date.getDate() + 1);
+  date.setHours(23, 59, 59, 999);
   return date;
 }
 
@@ -39,6 +48,66 @@ export function startCleanupJob(): ScheduledTask {
       if (graphCleanup.nodes > 0) results.nodes = graphCleanup.nodes;
       if (graphCleanup.connections > 0)
         results.connections = graphCleanup.connections;
+
+      // Permanently delete users past their scheduled deletion date
+      const now = new Date();
+      const usersToDelete = await db
+        .select({ id: users.id, email: users.email })
+        .from(users)
+        .where(
+          and(
+            isNotNull(users.scheduledDeletionAt),
+            lte(users.scheduledDeletionAt, now),
+          ),
+        );
+
+      for (const user of usersToDelete) {
+        try {
+          await authService.permanentlyDeleteUser(user.id);
+          results.deletedUsers = (results.deletedUsers || 0) + 1;
+        } catch (error) {
+          logger.error(
+            { error, userId: user.id },
+            'Failed to permanently delete user',
+          );
+        }
+      }
+
+      // Send deletion reminders to users being deleted tomorrow
+      const tomorrow = getTomorrow();
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const usersToRemind = await db
+        .select({
+          id: users.id,
+          email: users.email,
+          scheduledDeletionAt: users.scheduledDeletionAt,
+        })
+        .from(users)
+        .where(
+          and(
+            isNotNull(users.scheduledDeletionAt),
+            gt(users.scheduledDeletionAt, today),
+            lte(users.scheduledDeletionAt, tomorrow),
+          ),
+        );
+
+      for (const user of usersToRemind) {
+        if (user.scheduledDeletionAt) {
+          try {
+            await emailService.sendAccountDeletionReminder(
+              user.email,
+              user.scheduledDeletionAt,
+            );
+            results.deletionReminders = (results.deletionReminders || 0) + 1;
+          } catch (error) {
+            logger.error(
+              { error, userId: user.id },
+              'Failed to send deletion reminder',
+            );
+          }
+        }
+      }
 
       if (Object.keys(results).length > 0) {
         logger.info({ results }, 'Soft delete cleanup job completed');

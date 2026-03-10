@@ -38,7 +38,7 @@ interface ResolveEntityInput {
 export const resolveEntityPrompt: PromptDefinition<ResolveEntityInput> = {
   id: 'stage3-resolve-entity',
   version: 1,
-  model: 'gemini-2.5-flash-lite',
+  model: 'gemini-2.5-flash',
   description:
     'Stage 3: Decide if an extracted entity matches existing entities',
 
@@ -153,7 +153,7 @@ interface BatchResolveInput {
 export const batchResolveEntitiesPrompt: PromptDefinition<BatchResolveInput> = {
   id: 'stage3-batch-resolve-entities',
   version: 1,
-  model: 'gemini-2.5-flash-lite',
+  model: 'gemini-2.5-flash',
   description: 'Stage 3: Batch resolve multiple extracted entities',
 
   build: ({ extractedEntities, allCandidates, documentContext }) => {

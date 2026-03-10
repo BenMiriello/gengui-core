@@ -28,7 +28,7 @@ export const extractRelationshipsPrompt: PromptDefinition<ExtractRelationshipsIn
   {
     id: 'stage4-extract-relationships',
     version: 1,
-    model: 'gemini-2.5-flash-lite',
+    model: 'gemini-2.5-flash',
     description:
       'Stage 4: Extract relationships between resolved entities in a segment',
 
@@ -135,7 +135,7 @@ export const extractCrossSegmentRelationshipsPrompt: PromptDefinition<ExtractCro
   {
     id: 'stage4b-extract-cross-segment-relationships',
     version: 1,
-    model: 'gemini-2.5-flash-lite',
+    model: 'gemini-2.5-flash',
     description:
       'Stage 4b: Extract relationships between entities in different segments',
 

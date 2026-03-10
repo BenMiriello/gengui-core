@@ -6,6 +6,7 @@
 import { and, eq } from 'drizzle-orm';
 import { db } from '../../config/database';
 import { documents, media } from '../../models/schema';
+import { activityService } from '../../services/activity.service';
 import { getGeminiClient } from '../../services/gemini';
 import type { ReferenceImage } from '../../services/image-generation/types';
 import { buildContext } from '../../services/prompt-augmentation/contextBuilder';
@@ -20,6 +21,16 @@ import { sseService } from '../../services/sse';
 import { logger } from '../../utils/logger';
 import type { Job, JobProgress, JobType } from '../types';
 import { JobWorker } from '../worker';
+
+const AUGMENTED_STAGES = {
+  GATHERING_CONTEXT: {
+    stage: 1,
+    totalStages: 4,
+    stageName: 'Gathering context',
+  },
+  ENHANCING_PROMPT: { stage: 2, totalStages: 4, stageName: 'Enhancing prompt' },
+  GENERATING_IMAGE: { stage: 3, totalStages: 4, stageName: 'Generating image' },
+} as const;
 
 interface AugmentationPayload {
   mediaId: string;
@@ -69,6 +80,12 @@ class PromptAugmentationWorker extends JobWorker<
     );
 
     try {
+      // Stage 1: Gathering context
+      await this.updateActivityProgress(
+        mediaId,
+        AUGMENTED_STAGES.GATHERING_CONTEXT,
+      );
+
       const [document] = await db
         .select()
         .from(documents)
@@ -140,6 +157,12 @@ class PromptAugmentationWorker extends JobWorker<
 
       const geminiPrompt = buildGeminiPrompt(context, settings);
 
+      // Stage 2: Enhancing prompt
+      await this.updateActivityProgress(
+        mediaId,
+        AUGMENTED_STAGES.ENHANCING_PROMPT,
+      );
+
       logger.info(
         { mediaId, documentId },
         'Calling Gemini API for prompt augmentation',
@@ -167,6 +190,12 @@ class PromptAugmentationWorker extends JobWorker<
           updatedAt: new Date(),
         })
         .where(eq(media.id, mediaId));
+
+      // Stage 3: Generating image
+      await this.updateActivityProgress(
+        mediaId,
+        AUGMENTED_STAGES.GENERATING_IMAGE,
+      );
 
       const { getImageProvider, getReferenceImageProvider } = await import(
         '../../services/image-generation/factory.js'
@@ -296,6 +325,16 @@ class PromptAugmentationWorker extends JobWorker<
     }
 
     return null;
+  }
+
+  private async updateActivityProgress(
+    mediaId: string,
+    progress: { stage: number; totalStages: number; stageName: string },
+  ): Promise<void> {
+    const activity = await activityService.getByMediaId(mediaId);
+    if (activity) {
+      await activityService.updateProgress(activity.id, progress);
+    }
   }
 
   private async failAugmentation(

@@ -132,7 +132,7 @@ Use this to understand what has happened earlier in the narrative.
 export const extractEntitiesPrompt: PromptDefinition<ExtractEntitiesInput> = {
   id: 'stage2-extract-entities-batch',
   version: 3,
-  model: process.env.ENTITY_EXTRACTION_MODEL || 'gemini-2.5-flash-lite',
+  model: process.env.ENTITY_EXTRACTION_MODEL || 'gemini-2.5-flash',
   description:
     'Stage 2: Extract entities with LLM-first merge detection (batch support)',
 
