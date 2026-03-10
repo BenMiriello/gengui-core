@@ -32,7 +32,9 @@ async function runMigrations(): Promise<void> {
     database: DB_NAME,
     max: 1,
     ssl: isProd ? 'require' : false,
-    onnotice: () => {},
+    connect_timeout: 30,
+    idle_timeout: 60,
+    onnotice: (notice) => console.log(`[PG NOTICE] ${notice.message}`),
   });
 
   try {
