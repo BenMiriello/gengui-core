@@ -7,6 +7,7 @@ import { segmentService } from '../segments';
 import { GoogleDriveClient } from './client';
 import { DriveConnectionExpiredError, mapDriveErrorToMessage } from './errors';
 import { clearTokens, getValidAccessToken } from './tokens';
+import type { DriveFile } from './types';
 
 const SUPPORTED_MIME_TYPES = [
   'application/vnd.google-apps.document',
@@ -40,7 +41,7 @@ export async function importFromDrive(
 
   const client = new GoogleDriveClient(accessToken);
 
-  let metadata;
+  let metadata: DriveFile;
   try {
     metadata = await client.getFileMetadata(fileId);
   } catch (error) {

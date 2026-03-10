@@ -4,6 +4,7 @@ import {
   desc,
   eq,
   getTableColumns,
+  inArray,
   isNull,
   notInArray,
   or,
@@ -346,6 +347,119 @@ export class MediaService {
       .orderBy(desc(documentMedia.createdAt));
 
     return results;
+  }
+
+  async softDeleteDocumentMedia(
+    documentId: string,
+    userId: string,
+  ): Promise<number> {
+    const now = new Date();
+
+    // Get all media IDs for this document that belong to the user
+    const mediaItems = await db
+      .select({ mediaId: documentMedia.mediaId })
+      .from(documentMedia)
+      .innerJoin(media, eq(documentMedia.mediaId, media.id))
+      .where(
+        and(
+          eq(documentMedia.documentId, documentId),
+          eq(media.userId, userId),
+          notDeleted(documentMedia.deletedAt),
+          notDeleted(media.deletedAt),
+        ),
+      );
+
+    if (mediaItems.length === 0) {
+      return 0;
+    }
+
+    const mediaIds = mediaItems.map((m) => m.mediaId);
+
+    // Soft delete the media items
+    await db
+      .update(media)
+      .set({ deletedAt: now })
+      .where(
+        and(
+          eq(media.userId, userId),
+          notDeleted(media.deletedAt),
+          // Only delete media that's linked to this document
+          inArray(media.id, mediaIds),
+        ),
+      );
+
+    // Soft delete the document-media links
+    await db
+      .update(documentMedia)
+      .set({ deletedAt: now })
+      .where(
+        and(
+          eq(documentMedia.documentId, documentId),
+          notDeleted(documentMedia.deletedAt),
+        ),
+      );
+
+    // Clear cache for each media item
+    for (const id of mediaIds) {
+      await cache.delMediaUrl(id);
+      await cache.delMetadata(id);
+    }
+
+    logger.info(
+      { documentId, count: mediaIds.length },
+      'Soft deleted document media',
+    );
+    return mediaIds.length;
+  }
+
+  async restoreDocumentMedia(
+    documentId: string,
+    userId: string,
+  ): Promise<number> {
+    // Find soft-deleted document-media links for this document
+    // We query all links (including deleted) and filter in JS
+    const allLinks = await db
+      .select({
+        mediaId: documentMedia.mediaId,
+        deletedAt: documentMedia.deletedAt,
+      })
+      .from(documentMedia)
+      .innerJoin(media, eq(documentMedia.mediaId, media.id))
+      .where(
+        and(eq(documentMedia.documentId, documentId), eq(media.userId, userId)),
+      );
+
+    // Get links that are deleted (deletedAt is not null)
+    const restorable = allLinks.filter((link) => link.deletedAt !== null);
+
+    if (restorable.length === 0) {
+      return 0;
+    }
+
+    const mediaIds = restorable.map((m) => m.mediaId);
+
+    // Restore the document-media links
+    await db
+      .update(documentMedia)
+      .set({ deletedAt: null })
+      .where(
+        and(
+          eq(documentMedia.documentId, documentId),
+          inArray(documentMedia.mediaId, mediaIds),
+        ),
+      );
+
+    // Restore the media items themselves
+    await db
+      .update(media)
+      .set({ deletedAt: null })
+      .where(and(eq(media.userId, userId), inArray(media.id, mediaIds)));
+
+    logger.info(
+      { documentId, count: mediaIds.length },
+      'Restored document media',
+    );
+    return mediaIds.length;
   }
 
   private computeHash(buffer: Buffer): string {
