@@ -1,4 +1,3 @@
-import type { DriveFile } from './types';
 import { logger } from '../../utils/logger';
 import { activityService } from '../activity.service';
 import type { ActivityProgress } from '../activity.types';
@@ -9,6 +8,7 @@ import { puppeteerPool } from '../puppeteerPool';
 import { GoogleDriveClient } from './client';
 import { DriveConnectionExpiredError, mapDriveErrorToMessage } from './errors';
 import { clearTokens, getValidAccessToken } from './tokens';
+import type { DriveFile } from './types';
 
 interface DriveExportOptions {
   userId: string;
@@ -69,6 +69,7 @@ export async function exportToDrive(
     targetType: 'document',
     targetId: documentId,
     title: `Exporting to Drive: ${filename}.${format}`,
+    viewedAt: new Date(),
   });
 
   try {

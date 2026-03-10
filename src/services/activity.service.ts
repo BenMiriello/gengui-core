@@ -18,6 +18,7 @@ import { sseService } from './sse';
 class ActivityService {
   /**
    * Create activity without a job (for drive import/export, etc.)
+   * Pass viewedAt to mark as pre-viewed (for user-initiated actions with immediate feedback)
    */
   async create(params: {
     userId: string;
@@ -25,8 +26,10 @@ class ActivityService {
     targetType: 'document' | 'media';
     targetId: string;
     title: string;
+    viewedAt?: Date;
   }): Promise<Activity> {
-    const { userId, activityType, targetType, targetId, title } = params;
+    const { userId, activityType, targetType, targetId, title, viewedAt } =
+      params;
 
     const [activity] = await db
       .insert(activities)
@@ -37,6 +40,7 @@ class ActivityService {
         targetType,
         targetId,
         title,
+        viewedAt,
       })
       .returning();
 
@@ -52,9 +56,18 @@ class ActivityService {
 
   /**
    * Create activity from a job (for analysis, exports, etc.)
+   * Pass viewedAt to mark as pre-viewed (for exports where user sees immediate feedback)
    */
   async createFromJob(params: CreateActivityFromJobParams): Promise<Activity> {
-    const { jobId, userId, activityType, targetType, targetId, title } = params;
+    const {
+      jobId,
+      userId,
+      activityType,
+      targetType,
+      targetId,
+      title,
+      viewedAt,
+    } = params;
 
     const [activity] = await db
       .insert(activities)
@@ -66,6 +79,7 @@ class ActivityService {
         targetId,
         jobId,
         title,
+        viewedAt,
       })
       .returning();
 

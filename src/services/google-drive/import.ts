@@ -67,6 +67,7 @@ export async function importFromDrive(
     targetType: 'document',
     targetId: '00000000-0000-0000-0000-000000000000',
     title: `Importing: ${metadata.name}`,
+    viewedAt: new Date(),
   });
 
   try {
