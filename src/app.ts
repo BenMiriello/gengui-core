@@ -6,6 +6,7 @@ import { env } from './config/env';
 import { passport } from './config/passport';
 import { errorHandler } from './middleware/errorHandler';
 import { requestLogger } from './middleware/requestLogger';
+import { activitiesRouter } from './routes/activities';
 import adminRoutes from './routes/admin';
 import authRoutes from './routes/auth';
 import conflictsRoutes from './routes/conflicts';
@@ -14,6 +15,7 @@ import customStylePromptsRoutes from './routes/customStylePrompts';
 import documentsRoutes from './routes/documents';
 import { exportRouter } from './routes/export';
 import generationsRoutes from './routes/generations';
+import googleDriveRoutes from './routes/google-drive';
 import mediaRoutes from './routes/media';
 import nodesRoutes from './routes/nodes';
 import tagRoutes from './routes/tags';
@@ -98,6 +100,9 @@ export function createApp() {
   app.use('/api', adminRoutes);
   app.use('/api', nodesRoutes);
   app.use('/api', exportRouter);
+  app.use('/api', googleDriveRoutes);
+  app.use('/api', activitiesRouter);
+  app.use('', activitiesRouter); // SSE endpoint at /sse/activity
 
   app.use(errorHandler);
 

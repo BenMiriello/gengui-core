@@ -36,6 +36,10 @@ export async function startJobWorkers(): Promise<void> {
   );
   const { mediaStatusWorker } = await import('./workers/media-status.js');
   const { thumbnailWorker } = await import('./workers/thumbnail.js');
+  const { activityService } = await import('../services/activity.service.js');
+
+  // Sync any orphaned activities from previous runs
+  await activityService.syncOrphanedActivities();
 
   await Promise.all([
     documentAnalysisWorker.start(),

@@ -34,6 +34,7 @@ export interface CreateActivityFromJobParams {
   targetType: string;
   targetId: string;
   title: string;
+  viewedAt?: Date;
 }
 
 export interface CreateActivityFromMediaParams {
@@ -48,7 +49,7 @@ export interface UpdateActivityStatusParams {
 }
 
 export interface ActivitySSEEvent {
-  eventType: 'activity-created' | 'activity-updated' | 'activity-deleted';
+  eventType: 'activity-created' | 'activity-updated';
   activity: Activity;
 }
 

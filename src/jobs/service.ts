@@ -3,7 +3,7 @@
  * Single source of truth for job state.
  */
 
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, sql } from 'drizzle-orm';
 import { db } from '../config/database';
 import { jobs } from '../models/schema';
 import { redis } from '../services/redis';
@@ -227,6 +227,34 @@ export const jobService = {
       })
       .where(eq(jobs.id, jobId))
       .returning();
+
+    return job ?? null;
+  },
+
+  /**
+   * Get the most recent failed job for a target (within TTL window).
+   * Used to show failure state after job completes.
+   */
+  async getRecentFailedForTarget(
+    type: JobType,
+    targetId: string,
+    ttlHours = 24,
+  ): Promise<Job | null> {
+    const cutoff = new Date(Date.now() - ttlHours * 60 * 60 * 1000);
+
+    const [job] = await db
+      .select()
+      .from(jobs)
+      .where(
+        and(
+          eq(jobs.type, type),
+          eq(jobs.targetId, targetId),
+          eq(jobs.status, 'failed'),
+          gt(jobs.completedAt, cutoff),
+        ),
+      )
+      .orderBy(desc(jobs.completedAt))
+      .limit(1);
 
     return job ?? null;
   },

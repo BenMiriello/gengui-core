@@ -3,6 +3,7 @@ import type { ScheduledTask } from 'node-cron';
 import { createApp } from './app';
 import { closeDatabase } from './config/database';
 import { env } from './config/env';
+import { startCleanupActivitiesJob } from './jobs/cleanupActivities';
 import { startCleanupReservationsJob } from './jobs/cleanupReservations';
 import { startCleanupJob } from './jobs/cleanupSoftDeleted';
 import { startJobWorkers, stopJobWorkers } from './jobs/index';
@@ -30,6 +31,7 @@ const app = createApp();
 let reconciliationTask: ScheduledTask;
 let cleanupTask: ScheduledTask;
 let cleanupReservationsTask: { stop: () => void };
+let cleanupActivitiesTask: ScheduledTask;
 
 const server = app.listen(env.PORT, '0.0.0.0', async () => {
   logger.info(`Server running on port ${env.PORT} in ${env.NODE_ENV} mode`);
@@ -40,6 +42,7 @@ const server = app.listen(env.PORT, '0.0.0.0', async () => {
     reconciliationTask = startReconciliationJob();
     cleanupTask = startCleanupJob();
     cleanupReservationsTask = startCleanupReservationsJob();
+    cleanupActivitiesTask = startCleanupActivitiesJob();
 
     await graphService.initializeIndexes();
   } catch (error) {
@@ -67,6 +70,7 @@ const shutdown = async (signal: string) => {
     if (reconciliationTask) reconciliationTask.stop();
     if (cleanupTask) cleanupTask.stop();
     if (cleanupReservationsTask) cleanupReservationsTask.stop();
+    if (cleanupActivitiesTask) cleanupActivitiesTask.stop();
 
     await cpuPool.shutdown();
 
