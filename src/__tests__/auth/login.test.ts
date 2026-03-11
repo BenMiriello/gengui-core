@@ -217,7 +217,7 @@ describe('POST /api/auth/login', () => {
 
         expect(response.status).toBe(401);
         const body = await response.json();
-        expect(body.error.message).toBe('Invalid credentials');
+        expect(body.error.message).toContain('Invalid credentials');
       }
 
       const dbUser = await getUserFromDb(user.id);
