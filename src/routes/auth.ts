@@ -1,3 +1,4 @@
+import { createHmac } from 'node:crypto';
 import {
   type NextFunction,
   type Request,
@@ -20,6 +21,32 @@ import { usageService } from '../services/usage';
 import { logger } from '../utils/logger';
 
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const LINK_STATE_MAX_AGE_MS = 10 * 60 * 1000; // 10 minutes
+
+interface LinkState {
+  userId: string;
+  ts: number;
+  action: 'link';
+}
+
+function signState(payload: string, secret: string): string {
+  const signature = createHmac('sha256', secret)
+    .update(payload)
+    .digest('base64url');
+  return `${payload}.${signature}`;
+}
+
+function verifyState(signed: string, secret: string): string | null {
+  const lastDot = signed.lastIndexOf('.');
+  if (lastDot === -1) return null;
+  const payload = signed.substring(0, lastDot);
+  const signature = signed.substring(lastDot + 1);
+  const expected = createHmac('sha256', secret)
+    .update(payload)
+    .digest('base64url');
+  if (signature !== expected) return null;
+  return payload;
+}
 
 const router = Router();
 
@@ -388,14 +415,181 @@ router.get(
   }),
 );
 
+router.get('/auth/google/link', requireAuth, (req: Request, res: Response) => {
+  const userId = req.user?.id as string;
+  const state: LinkState = {
+    userId,
+    ts: Date.now(),
+    action: 'link',
+  };
+  const payload = Buffer.from(JSON.stringify(state)).toString('base64url');
+  const signedState = signState(payload, env.COOKIE_SECRET as string);
+
+  const params = new URLSearchParams({
+    client_id: env.GOOGLE_CLIENT_ID as string,
+    redirect_uri: env.GOOGLE_CALLBACK_URL as string,
+    response_type: 'code',
+    scope: 'profile email',
+    state: signedState,
+    access_type: 'online',
+    prompt: 'select_account',
+  });
+
+  res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
+});
+
 router.get(
   '/auth/google/callback',
+  (req: Request, res: Response, next: NextFunction) => {
+    const stateParam = req.query.state as string | undefined;
+
+    // Check if this is a link action with signed state
+    if (stateParam?.includes('.')) {
+      const payload = verifyState(stateParam, env.COOKIE_SECRET as string);
+
+      if (!payload) {
+        logger.warn(
+          { event: 'oauth_link_invalid_state' },
+          'Invalid OAuth link state signature',
+        );
+        return res.redirect(`${env.FRONTEND_URL}/account?error=invalid_state`);
+      }
+
+      let linkState: LinkState;
+      try {
+        linkState = JSON.parse(Buffer.from(payload, 'base64url').toString());
+      } catch {
+        logger.warn(
+          { event: 'oauth_link_malformed_state' },
+          'Malformed OAuth link state',
+        );
+        return res.redirect(`${env.FRONTEND_URL}/account?error=invalid_state`);
+      }
+
+      if (linkState.action !== 'link') {
+        return next();
+      }
+
+      // Check expiry
+      if (Date.now() - linkState.ts > LINK_STATE_MAX_AGE_MS) {
+        logger.warn(
+          { event: 'oauth_link_expired', userId: linkState.userId },
+          'OAuth link state expired',
+        );
+        return res.redirect(`${env.FRONTEND_URL}/account?error=state_expired`);
+      }
+
+      // Store link context for after passport authentication
+      req.linkContext = linkState;
+    }
+
+    next();
+  },
   passport.authenticate('google', {
     session: false,
     failureRedirect: '/login?error=oauth_failed',
   }),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      // Handle link action: link to the specified user regardless of email
+      if (req.linkContext) {
+        const { userId } = req.linkContext;
+        const profile = (req.authInfo as Record<string, unknown>)
+          ?.pendingProfile as OAuthProfile | undefined;
+
+        if (!profile) {
+          // If passport already matched by email, use req.user profile info
+          if (req.user) {
+            // User already exists with matching email - check if it's the same user
+            if (req.user.id === userId) {
+              // Same user, already linked or will be linked
+              const ipAddress =
+                req.ip ||
+                (req.headers['x-forwarded-for'] as string) ||
+                undefined;
+              const userAgent = req.headers['user-agent'];
+              const session = await authService.createSession(
+                req.user.id,
+                ipAddress,
+                userAgent,
+              );
+
+              res.cookie('sessionToken', session.token, {
+                httpOnly: true,
+                secure: env.NODE_ENV === 'production',
+                sameSite: env.NODE_ENV === 'production' ? 'none' : 'lax',
+                maxAge: ONE_WEEK_MS,
+              });
+
+              return res.redirect(`${env.FRONTEND_URL}/account`);
+            }
+            // Different user - the Google account is linked to someone else
+            logger.warn(
+              {
+                event: 'oauth_link_different_user',
+                requestedUserId: userId,
+                existingUserId: req.user.id,
+              },
+              'Attempted to link Google account already linked to different user',
+            );
+            return res.redirect(
+              `${env.FRONTEND_URL}/account?error=already_linked`,
+            );
+          }
+          logger.error(
+            { event: 'oauth_link_no_profile' },
+            'No profile available for link',
+          );
+          return res.redirect(`${env.FRONTEND_URL}/account?error=oauth_failed`);
+        }
+
+        try {
+          await oauthService.linkOAuthByUserId(userId, profile);
+
+          const ipAddress =
+            req.ip || (req.headers['x-forwarded-for'] as string) || undefined;
+          const userAgent = req.headers['user-agent'];
+          const session = await authService.createSession(
+            userId,
+            ipAddress,
+            userAgent,
+          );
+
+          res.cookie('sessionToken', session.token, {
+            httpOnly: true,
+            secure: env.NODE_ENV === 'production',
+            sameSite: env.NODE_ENV === 'production' ? 'none' : 'lax',
+            maxAge: ONE_WEEK_MS,
+          });
+
+          logger.info(
+            { event: 'oauth_link_success', userId },
+            'OAuth account linked successfully',
+          );
+          return res.redirect(`${env.FRONTEND_URL}/account`);
+        } catch (error) {
+          if (error instanceof Error) {
+            if (error.message.includes('already linked to another user')) {
+              return res.redirect(
+                `${env.FRONTEND_URL}/account?error=already_linked`,
+              );
+            }
+            if (error.message.includes('Account already linked')) {
+              return res.redirect(
+                `${env.FRONTEND_URL}/account?error=already_has_oauth`,
+              );
+            }
+            if (error.message.includes('User not found')) {
+              return res.redirect(
+                `${env.FRONTEND_URL}/account?error=user_not_found`,
+              );
+            }
+          }
+          throw error;
+        }
+      }
+
+      // Standard OAuth flow (not a link action)
       if (!req.user) {
         const pendingProfile = (req.authInfo as Record<string, unknown>)
           ?.pendingProfile;
@@ -506,6 +700,80 @@ router.post(
 
       await authService.setPasswordForOAuthUser(userId, password);
 
+      return res.json({ success: true });
+    } catch (error) {
+      return next(error);
+    }
+  },
+);
+
+router.delete(
+  '/auth/account',
+  requireAuth,
+  authRateLimiter,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user?.id as string;
+      const { password, confirmationEmail } = req.body;
+
+      if (!password && !confirmationEmail) {
+        return res.status(400).json({
+          error: {
+            message: 'Password or email confirmation is required',
+            code: 'INVALID_INPUT',
+          },
+        });
+      }
+
+      const result = await authService.initiateAccountDeletion(userId, {
+        password,
+        confirmationEmail,
+      });
+
+      res.clearCookie('sessionToken');
+      return res.json({
+        success: true,
+        scheduledDeletionAt: result.scheduledDeletionAt.toISOString(),
+      });
+    } catch (error) {
+      return next(error);
+    }
+  },
+);
+
+router.post(
+  '/auth/account/cancel-deletion',
+  requireAuth,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user?.id as string;
+      await authService.cancelAccountDeletion(userId);
+      return res.json({ success: true });
+    } catch (error) {
+      return next(error);
+    }
+  },
+);
+
+router.delete(
+  '/auth/oauth',
+  requireAuth,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user?.id as string;
+      const { password } = req.body;
+
+      if (!password) {
+        return res.status(400).json({
+          error: {
+            message: 'Password is required',
+            code: 'INVALID_INPUT',
+          },
+        });
+      }
+
+      await authService.unlinkOAuth(userId, password);
+      res.clearCookie('sessionToken');
       return res.json({ success: true });
     } catch (error) {
       return next(error);

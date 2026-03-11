@@ -35,6 +35,7 @@ import { stalenessService } from '../services/staleness';
 import { graphStoryNodesRepository } from '../services/storyNodes';
 import { UsageQuotaExceededError, usageService } from '../services/usage';
 import { versioningService } from '../services/versioning';
+import { BadRequestError } from '../utils/errors';
 import { logger } from '../utils/logger';
 
 const router = Router();
@@ -262,6 +263,40 @@ router.get(
   },
 );
 
+router.delete(
+  '/documents/:id/media',
+  requireAuth,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
+      const { id } = req.params;
+      await documentsService.get(id, userId);
+      const count = await mediaService.softDeleteDocumentMedia(id, userId);
+      res.json({ message: 'Media soft deleted', count });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.post(
+  '/documents/:id/media/restore',
+  requireAuth,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
+      const { id } = req.params;
+      await documentsService.get(id, userId);
+      const count = await mediaService.restoreDocumentMedia(id, userId);
+      res.json({ message: 'Media restored', count });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
 router.get(
   '/documents/:id/media/stream',
   requireAuth,
@@ -329,6 +364,7 @@ router.get(
       let analysisStartedAt: Date | null = null;
       let currentStage: number | null = null;
       let jobId: string | null = null;
+      let errorMessage: string | null = null;
 
       if (activeJob) {
         jobId = activeJob.id;
@@ -373,6 +409,19 @@ router.get(
         if (progress?.stage) {
           currentStage = progress.stage;
         }
+      } else {
+        // No active job - check for recent failed job
+        const recentFailed = await jobService.getRecentFailedForTarget(
+          'document_analysis',
+          id,
+          1, // 1 hour TTL for showing failed state
+        );
+
+        if (recentFailed) {
+          analysisStatus = 'failed';
+          errorMessage = recentFailed.errorMessage;
+          jobId = recentFailed.id;
+        }
       }
 
       res.json({
@@ -385,6 +434,7 @@ router.get(
         analysisStartedAt,
         currentStage,
         jobId,
+        errorMessage,
       });
     } catch (error) {
       next(error);
@@ -425,6 +475,21 @@ router.post(
       const reanalyze = req.query.reanalyze === 'true';
 
       const document = await documentsService.get(id, userId);
+
+      // Pre-flight validation
+      const content = document.content?.trim() ?? '';
+
+      if (!content) {
+        throw new BadRequestError(
+          'Document is empty. Please add some text before analyzing.',
+        );
+      }
+
+      if (content.length < 50) {
+        throw new BadRequestError(
+          'Document is too short. Please add at least 50 characters of text.',
+        );
+      }
 
       // Check quota before creating job
       const wordCount = document.content

@@ -1,25 +1,37 @@
 import { logger } from '../../../utils/logger';
 import type { EmbeddingProvider } from '../provider.interface';
 
-let openaiClient: any = null;
-let initialized = false;
+type OpenAIClient = {
+  embeddings: {
+    create: (params: {
+      model: string;
+      input: string | string[];
+      dimensions: number;
+    }) => Promise<{
+      data: Array<{ embedding: number[]; index: number }>;
+    }>;
+  };
+};
 
-async function createClient() {
+let initPromise: Promise<OpenAIClient | null> | null = null;
+
+async function createClient(): Promise<OpenAIClient | null> {
   const { default: OpenAI } = await import('openai');
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return null;
-  return new OpenAI({ apiKey });
+  return new OpenAI({ apiKey }) as OpenAIClient;
 }
 
-async function getClient() {
-  if (!initialized) {
-    initialized = true;
-    openaiClient = await createClient();
-    if (!openaiClient) {
-      logger.warn('OPENAI_API_KEY not configured');
-    }
+async function getClient(): Promise<OpenAIClient | null> {
+  if (!initPromise) {
+    initPromise = createClient().then((client) => {
+      if (!client) {
+        logger.warn('OPENAI_API_KEY not configured');
+      }
+      return client;
+    });
   }
-  return openaiClient;
+  return await initPromise;
 }
 
 const MODEL = 'text-embedding-3-small';
@@ -80,7 +92,7 @@ export const openaiEmbeddingProvider: EmbeddingProvider = {
     });
 
     return response.data
-      .sort((a: any, b: any) => a.index - b.index)
-      .map((d: any) => d.embedding);
+      .sort((a, b) => a.index - b.index)
+      .map((d) => d.embedding);
   },
 };

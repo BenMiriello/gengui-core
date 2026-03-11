@@ -19,6 +19,7 @@ export { JobWorker } from './worker';
 
 // Workers
 export { documentAnalysisWorker } from './workers/document-analysis';
+export { imageGenerationWorker } from './workers/image-generation';
 export { mediaStatusWorker } from './workers/media-status';
 export { promptAugmentationWorker } from './workers/prompt-augmentation';
 export { thumbnailWorker } from './workers/thumbnail';
@@ -30,6 +31,9 @@ export { thumbnailWorker } from './workers/thumbnail';
 export async function startJobWorkers(): Promise<void> {
   const { documentAnalysisWorker } = await import(
     './workers/document-analysis.js'
+  );
+  const { imageGenerationWorker } = await import(
+    './workers/image-generation.js'
   );
   const { promptAugmentationWorker } = await import(
     './workers/prompt-augmentation.js'
@@ -43,6 +47,7 @@ export async function startJobWorkers(): Promise<void> {
 
   await Promise.all([
     documentAnalysisWorker.start(),
+    imageGenerationWorker.start(),
     promptAugmentationWorker.start(),
     mediaStatusWorker.start(),
     thumbnailWorker.start(),
@@ -57,6 +62,9 @@ export async function stopJobWorkers(): Promise<void> {
   const { documentAnalysisWorker } = await import(
     './workers/document-analysis.js'
   );
+  const { imageGenerationWorker } = await import(
+    './workers/image-generation.js'
+  );
   const { promptAugmentationWorker } = await import(
     './workers/prompt-augmentation.js'
   );
@@ -65,6 +73,7 @@ export async function stopJobWorkers(): Promise<void> {
 
   await Promise.all([
     documentAnalysisWorker.stop(),
+    imageGenerationWorker.stop(),
     promptAugmentationWorker.stop(),
     mediaStatusWorker.stop(),
     thumbnailWorker.stop(),

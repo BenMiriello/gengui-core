@@ -19,7 +19,8 @@ export type JobType =
   | 'document_analysis'
   | 'prompt_augmentation'
   | 'thumbnail_generation'
-  | 'media_status_update';
+  | 'media_status_update'
+  | 'image_generation';
 
 export type TargetType = 'document' | 'media';
 

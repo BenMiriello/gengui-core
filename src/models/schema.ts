@@ -1013,6 +1013,7 @@ export const jobTypeEnum = pgEnum('job_type', [
   'media_status_update',
   'pdf_export',
   'docx_export',
+  'image_generation',
 ]);
 
 export const jobs = pgTable(

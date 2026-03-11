@@ -40,9 +40,14 @@ class SSEService {
     'job-status-changed': { buffer: true, ttlMs: 30_000 },
     'job-progress': { buffer: true, ttlMs: 10_000 },
     'job-paused': { buffer: true, ttlMs: 30_000 },
-    'job-completed': { buffer: false, ttlMs: 0 },
+    'job-completed': { buffer: true, ttlMs: 5 * 60 * 1000 },
     'job-cancelled': { buffer: false, ttlMs: 0 },
     'job-failed': { buffer: false, ttlMs: 0 },
+
+    // Activity events (user channel)
+    // Terminal events have longer TTL to handle reconnect scenarios
+    'activity-created': { buffer: true, ttlMs: 5 * 60 * 1000 },
+    'activity-updated': { buffer: true, ttlMs: 60_000 },
 
     // Other events
     'nodes-updated': { buffer: false, ttlMs: 0 },
@@ -249,12 +254,16 @@ class SSEService {
   }
 
   // Convenience wrappers for common channel types
-  broadcastToDocument(documentId: string, event: string, data: any) {
+  broadcastToDocument(documentId: string, event: string, data: unknown) {
     this.broadcast(`document:${documentId}`, event, data);
   }
 
-  broadcastToNode(nodeId: string, event: string, data: any) {
+  broadcastToNode(nodeId: string, event: string, data: unknown) {
     this.broadcast(`node:${nodeId}`, event, data);
+  }
+
+  broadcastToUser(userId: string, event: string, data: unknown) {
+    this.broadcast(`user:${userId}`, event, data);
   }
 
   getClientCount(): number {

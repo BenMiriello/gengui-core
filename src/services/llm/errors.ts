@@ -18,6 +18,13 @@ export function handleApiError(error: unknown, operation: string): Error {
       'Model not found. Check GEMINI_API_KEY and model configuration.',
     );
   }
+  if (
+    message.includes('503') ||
+    message.includes('UNAVAILABLE') ||
+    message.includes('high demand')
+  ) {
+    return new Error('Service temporarily busy. Retrying automatically...');
+  }
   if (message.includes('blocked') || message.includes('inappropriate')) {
     return error as Error;
   }
@@ -34,6 +41,11 @@ export function isRetryableError(error: unknown): boolean {
     message.includes('rate limit') ||
     message.includes('timeout') ||
     message.includes('ECONNRESET') ||
-    message.includes('ETIMEDOUT')
+    message.includes('ETIMEDOUT') ||
+    message.includes('503') ||
+    message.includes('UNAVAILABLE') ||
+    message.includes('high demand') ||
+    message.includes('overloaded') ||
+    message.includes('temporarily unavailable')
   );
 }

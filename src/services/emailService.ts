@@ -428,6 +428,124 @@ ${APP_NAME ? `The ${APP_NAME} Team` : 'Our Team'}
       logger.info({ userEmail }, 'Contact auto-response sent');
     }
   }
+
+  async sendAccountDeletionInitiated(
+    email: string,
+    scheduledDeletionAt: Date,
+  ): Promise<void> {
+    const formattedDate = scheduledDeletionAt.toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+
+    if (!this.enabled || !this.transporter) {
+      logger.info(
+        { email, scheduledDeletionAt: scheduledDeletionAt.toISOString() },
+        '📧 DEV MODE - Account deletion initiated (email not sent)',
+      );
+      console.log('\n🔔 Account Deletion Initiated:');
+      console.log(`   User: ${email}`);
+      console.log(`   Scheduled for: ${formattedDate}\n`);
+      return;
+    }
+
+    await this.transporter.sendMail({
+      from: process.env.SMTP_FROM || `${APP_NAME} <noreply@localhost>`,
+      to: email,
+      subject: 'Your account is scheduled for deletion',
+      html: `
+        <h1>Account deletion scheduled</h1>
+        <p>We've received your request to delete your account.</p>
+        <p>Your account and all associated data will be permanently deleted on <strong>${formattedDate}</strong>.</p>
+        <h2>Changed your mind?</h2>
+        <p>Simply log in to your account before the deletion date to cancel the request and keep your account.</p>
+        <p>If you did not request this deletion, please log in immediately to secure your account.</p>
+      `,
+      text: `
+Account deletion scheduled
+
+We've received your request to delete your account.
+
+Your account and all associated data will be permanently deleted on ${formattedDate}.
+
+Changed your mind?
+Simply log in to your account before the deletion date to cancel the request and keep your account.
+
+If you did not request this deletion, please log in immediately to secure your account.
+      `,
+    });
+
+    if (this.devMode) {
+      logger.info(
+        { email },
+        '📧 Account deletion email sent to Mailhog - Check http://localhost:8025',
+      );
+    } else {
+      logger.info({ email }, 'Account deletion email sent');
+    }
+  }
+
+  async sendAccountDeletionReminder(
+    email: string,
+    scheduledDeletionAt: Date,
+  ): Promise<void> {
+    const formattedDate = scheduledDeletionAt.toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+    const frontendUrl = process.env.FRONTEND_URL || '';
+    const loginUrl = `${frontendUrl}/login`;
+
+    if (!this.enabled || !this.transporter) {
+      logger.info(
+        { email, scheduledDeletionAt: scheduledDeletionAt.toISOString() },
+        '📧 DEV MODE - Account deletion reminder (email not sent)',
+      );
+      console.log('\n🔔 Account Deletion Reminder:');
+      console.log(`   User: ${email}`);
+      console.log(`   Will be deleted: ${formattedDate}\n`);
+      return;
+    }
+
+    await this.transporter.sendMail({
+      from: process.env.SMTP_FROM || `${APP_NAME} <noreply@localhost>`,
+      to: email,
+      subject: 'Final reminder: Your account will be deleted tomorrow',
+      html: `
+        <h1>Final reminder</h1>
+        <p>Your account is scheduled for permanent deletion on <strong>${formattedDate}</strong>.</p>
+        <p>After this date, all your data will be permanently deleted and cannot be recovered.</p>
+        <h2>Want to keep your account?</h2>
+        <p><a href="${loginUrl}">Log in now</a> to cancel the deletion request.</p>
+        <p>If you intended to delete your account, no action is needed.</p>
+      `,
+      text: `
+Final reminder
+
+Your account is scheduled for permanent deletion on ${formattedDate}.
+
+After this date, all your data will be permanently deleted and cannot be recovered.
+
+Want to keep your account?
+Log in at ${loginUrl} to cancel the deletion request.
+
+If you intended to delete your account, no action is needed.
+      `,
+    });
+
+    if (this.devMode) {
+      logger.info(
+        { email },
+        '📧 Account deletion reminder sent to Mailhog - Check http://localhost:8025',
+      );
+    } else {
+      logger.info({ email }, 'Account deletion reminder sent');
+    }
+  }
 }
 
 export const emailService = new EmailService();

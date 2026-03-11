@@ -339,7 +339,8 @@ class ActivityService {
           | 'document_analysis'
           | 'prompt_augmentation'
           | 'thumbnail_generation'
-          | 'media_status_update',
+          | 'media_status_update'
+          | 'image_generation',
         targetType: originalJob.targetType as 'document' | 'media',
         targetId: originalJob.targetId,
         userId: originalJob.userId,
@@ -492,6 +493,7 @@ class ActivityService {
       document_analysis: 'document_analysis',
       pdf_export: 'pdf_export',
       docx_export: 'docx_export',
+      image_generation: 'image_generation',
     };
 
     return mapping[jobType] ?? null;

@@ -19,13 +19,13 @@ import { logger } from '../utils/logger';
 import { activityService } from './activity.service';
 import { GeminiType, getGeminiClient } from './gemini/core';
 import { graphService, type StoredStoryNode } from './graph/graph.service';
-import { s3 } from './s3';
-import { sseService } from './sse';
 import type { StoredFacet } from './graph/graph.types';
 import {
   getImageProvider,
   getImageProviderName,
 } from './image-generation/factory';
+import { s3 } from './s3';
+import { sseService } from './sse';
 
 interface GenerateCharacterSheetParams {
   nodeId: string;
