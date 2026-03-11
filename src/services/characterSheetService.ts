@@ -16,8 +16,11 @@ import type {
 import { GENERATION_SETTINGS_SCHEMA_VERSION } from '../types/generationSettings';
 import { extractJson } from '../utils/llmUtils';
 import { logger } from '../utils/logger';
+import { activityService } from './activity.service';
 import { GeminiType, getGeminiClient } from './gemini/core';
 import { graphService, type StoredStoryNode } from './graph/graph.service';
+import { s3 } from './s3';
+import { sseService } from './sse';
 import type { StoredFacet } from './graph/graph.types';
 import {
   getImageProvider,
@@ -117,6 +120,24 @@ export const characterSheetService = {
       nodeId,
       mediaId: newMedia.id,
     });
+
+    // Create activity for progress tracking
+    try {
+      const activity = await activityService.createFromMedia({
+        mediaId: newMedia.id,
+        userId,
+        title: `Generating ${node.name} image`,
+      });
+      logger.info(
+        { activityId: activity.id, mediaId: newMedia.id, nodeId },
+        'Activity created for character sheet generation',
+      );
+    } catch (activityError) {
+      logger.error(
+        { error: activityError, mediaId: newMedia.id },
+        'Failed to create activity for character sheet generation',
+      );
+    }
 
     // Submit to image generation provider
     const provider = await getImageProvider();
@@ -444,7 +465,58 @@ export const characterSheetService = {
 
     logger.info({ nodeId, mediaId }, 'Primary media set for node');
 
+    // Broadcast to document so node graph updates
+    await this.broadcastPrimaryMediaUpdate(node.documentId, nodeId, mediaId);
+
     return { success: true };
+  },
+
+  /**
+   * Broadcast node primary media update to document SSE channel.
+   */
+  async broadcastPrimaryMediaUpdate(
+    documentId: string,
+    nodeId: string,
+    mediaId: string,
+  ): Promise<void> {
+    try {
+      const [mediaRecord] = await db
+        .select({
+          s3KeyThumb: media.s3KeyThumb,
+          s3Key: media.s3Key,
+        })
+        .from(media)
+        .where(eq(media.id, mediaId))
+        .limit(1);
+
+      if (!mediaRecord) {
+        logger.warn({ mediaId }, 'Media record not found for primary update');
+        return;
+      }
+
+      const key = mediaRecord.s3KeyThumb || mediaRecord.s3Key;
+      if (!key) {
+        logger.warn({ mediaId }, 'No S3 key for primary media');
+        return;
+      }
+
+      const primaryMediaUrl = await s3.generateDownloadUrl(key);
+
+      sseService.broadcastToDocument(documentId, 'node-primary-media-updated', {
+        nodeId,
+        primaryMediaUrl,
+      });
+
+      logger.debug(
+        { documentId, nodeId, mediaId },
+        'Broadcasted node primary media update',
+      );
+    } catch (error) {
+      logger.error(
+        { error, documentId, nodeId, mediaId },
+        'Failed to broadcast primary media update',
+      );
+    }
   },
 
   /**

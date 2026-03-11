@@ -8,6 +8,7 @@ import { db } from '../../config/database';
 import { documentMedia, media, nodeMedia } from '../../models/schema';
 import { activityService } from '../../services/activity.service';
 import { graphService } from '../../services/graph/graph.service';
+import { s3 } from '../../services/s3';
 import { sseService } from '../../services/sse';
 import { logger } from '../../utils/logger';
 import { jobService } from '../service';
@@ -236,10 +237,67 @@ class MediaStatusWorker extends JobWorker<MediaStatusPayload, JobProgress> {
         { nodeId: nodeMed.nodeId, mediaId },
         'Auto-set first completed character sheet as primary',
       );
+
+      // Broadcast to document so node graph updates
+      await this.broadcastPrimaryMediaUpdate(
+        node.documentId,
+        nodeMed.nodeId,
+        mediaId,
+      );
     } catch (error) {
       logger.error(
         { error, mediaId },
         'Failed to auto-set primary for character sheet',
+      );
+    }
+  }
+
+  /**
+   * Broadcast node primary media update to document SSE channel.
+   * Used when a node's primary media changes (auto-set or manual).
+   */
+  private async broadcastPrimaryMediaUpdate(
+    documentId: string,
+    nodeId: string,
+    mediaId: string,
+  ): Promise<void> {
+    try {
+      // Get the S3 key from media record
+      const [mediaRecord] = await db
+        .select({
+          s3KeyThumb: media.s3KeyThumb,
+          s3Key: media.s3Key,
+        })
+        .from(media)
+        .where(eq(media.id, mediaId))
+        .limit(1);
+
+      if (!mediaRecord) {
+        logger.warn({ mediaId }, 'Media record not found for primary update');
+        return;
+      }
+
+      const key = mediaRecord.s3KeyThumb || mediaRecord.s3Key;
+      if (!key) {
+        logger.warn({ mediaId }, 'No S3 key for primary media');
+        return;
+      }
+
+      const primaryMediaUrl = await s3.generateDownloadUrl(key);
+
+      sseService.broadcastToDocument(documentId, 'node-primary-media-updated', {
+        nodeId,
+        primaryMediaUrl,
+      });
+
+      logger.debug(
+        { documentId, nodeId, mediaId },
+        'Broadcasted node primary media update',
+      );
+    } catch (error) {
+      logger.error(
+        { error, documentId, nodeId, mediaId },
+        'Failed to broadcast primary media update',
       );
     }
   }
