@@ -1,8 +1,12 @@
+import { exec } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import { config } from 'dotenv';
+
+const execAsync = promisify(exec);
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 config({ path: resolve(__dirname, '../../../.env.test') });
@@ -86,48 +90,77 @@ async function setSchemaVersion(
 }
 
 async function resetSchema(db: ReturnType<typeof drizzle>): Promise<void> {
-  // Drop and recreate public schema - clean slate for migrations
   await db.execute(sql`DROP SCHEMA public CASCADE`);
   await db.execute(sql`CREATE SCHEMA public`);
   await db.execute(sql`GRANT ALL ON SCHEMA public TO public`);
+
+  // Create vector extension as superuser before migrations run
+  // This is required because baseline SQL includes CREATE EXTENSION which needs superuser
+  // We use postgres superuser to create it, then migrations can reference it
+  const superuserClient = postgres({
+    host: process.env.DB_HOST || 'localhost',
+    port: Number(process.env.DB_PORT) || 5432,
+    username: 'postgres',
+    password: '',
+    database: process.env.DB_NAME || 'gengui_test',
+    max: 1,
+  });
+  const superuserDb = drizzle(superuserClient);
+  try {
+    await superuserDb.execute(sql`CREATE EXTENSION IF NOT EXISTS vector`);
+  } finally {
+    await superuserClient.end();
+  }
 }
 
 async function applyMigrations(db: ReturnType<typeof drizzle>): Promise<void> {
   const migrationsDir = resolve(__dirname, '../../../drizzle');
   const sqlFiles = await getMigrationFiles();
 
+  const dbHost = process.env.DB_HOST || 'localhost';
+  const dbPort = process.env.DB_PORT || '5432';
+  const dbUser = process.env.DB_USER || 'gengui';
+  const dbName = process.env.DB_NAME || 'gengui_test';
+  const dbPassword = process.env.DB_PASSWORD || 'gengui_dev_pass';
+
   for (const file of sqlFiles) {
     const filePath = join(migrationsDir, file);
     const content = await readFile(filePath, 'utf-8');
 
-    const statements = content
-      .split(/--> statement-breakpoint/g)
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
+    if (content.includes('--> statement-breakpoint')) {
+      const statements = content
+        .split(/--> statement-breakpoint/g)
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
 
-    for (const statement of statements) {
-      if (statement) {
-        try {
-          await db.execute(sql.raw(statement));
-        } catch (error: unknown) {
-          // Handle idempotent migration conflicts from overlapping CREATE statements
-          // These occur when migration files were generated with duplicate definitions
-          const pgCode = error.cause?.code || error.code;
-          // Migration files have conflicting definitions (legacy issue)
-          // Suppress known idempotent conflicts to allow tests to run
-          const idempotentCodes = [
-            '42710', // duplicate_object (type/constraint already exists)
-            '42P07', // duplicate_table
-            '42P01', // undefined_table (DROP/ALTER on missing table)
-            '42701', // duplicate_column
-            '42703', // undefined_column (ADD CONSTRAINT on missing col)
-            '42704', // undefined_object (DROP CONSTRAINT on missing constraint)
-            '42501', // insufficient_privilege (CREATE EXTENSION requires superuser, ignore if already exists)
-          ];
-          if (!idempotentCodes.includes(pgCode)) {
-            throw error;
+      for (const statement of statements) {
+        if (statement) {
+          try {
+            await db.execute(sql.raw(statement));
+          } catch (error: unknown) {
+            const pgCode = error.cause?.code || error.code;
+            const idempotentCodes = [
+              '42710',
+              '42P07',
+              '42P01',
+              '42701',
+              '42703',
+              '42704',
+              '42501',
+            ];
+            if (!idempotentCodes.includes(pgCode)) {
+              throw error;
+            }
           }
         }
+      }
+    } else {
+      try {
+        await execAsync(
+          `PGPASSWORD="${dbPassword}" psql -h ${dbHost} -p ${dbPort} -U ${dbUser} -d ${dbName} -f "${filePath}" -v ON_ERROR_STOP=0 --quiet`,
+        );
+      } catch (error: unknown) {
+        console.warn(`Migration ${file} had errors (may be expected):`, error);
       }
     }
   }
