@@ -82,7 +82,7 @@ export class AdminService {
         or(
           ilike(users.email, `%${search}%`),
           ilike(users.username, `%${search}%`),
-        )!,
+        ),
       );
     }
 
@@ -604,9 +604,9 @@ export class AdminService {
     const userMap = new Map(userRows.map((u) => [u.id, u]));
 
     return rows.map((row) => {
-      const user = userMap.get(row.userId!);
+      const user = userMap.get(row.userId);
       return {
-        userId: row.userId!,
+        userId: row.userId,
         username: user?.username || 'Unknown',
         email: user?.email || 'Unknown',
         totalCost: row.totalCost,
