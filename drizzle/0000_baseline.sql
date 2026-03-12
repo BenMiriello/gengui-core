@@ -787,14 +787,6 @@ CREATE TABLE public.review_queue (
 
 
 --
--- Name: schema_migrations; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.schema_migrations (
-    version character varying(255) NOT NULL,
-    applied_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
 
 --
 -- Name: sentence_embeddings; Type: TABLE; Schema: public; Owner: -
@@ -1175,13 +1167,6 @@ ALTER TABLE ONLY public.review_queue
 
 
 --
--- Name: schema_migrations schema_migrations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.schema_migrations
-    ADD CONSTRAINT schema_migrations_pkey PRIMARY KEY (version);
-
-
 --
 -- Name: sentence_embeddings sentence_embeddings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
