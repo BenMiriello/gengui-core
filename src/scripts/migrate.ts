@@ -68,6 +68,7 @@ async function runMigrations(): Promise<void> {
       const version = file.replace('.sql', '');
 
       if (appliedSet.has(version)) {
+        console.log(`  [SKIP] ${version} (already applied)`);
         skippedCount++;
         continue;
       }
