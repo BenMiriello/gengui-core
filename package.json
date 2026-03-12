@@ -6,7 +6,7 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "dev": "bun --watch src/index.ts",
+    "dev": "nodemon --exec bun src/index.ts",
     "start": "bun run src/index.ts",
     "typecheck": "tsc --noEmit",
     "lint": "biome check src",
@@ -43,11 +43,12 @@
     "@types/node": "^24.10.2",
     "@types/nodemailer": "^7.0.4",
     "@types/passport": "^1.0.17",
-    "@types/pdf-parse": "^1.1.4",
     "@types/passport-google-oauth20": "^2.0.17",
+    "@types/pdf-parse": "^1.1.4",
     "@types/pg": "^8.15.6",
     "blocked-at": "^1.2.0",
     "drizzle-kit": "^0.31.8",
+    "nodemon": "^3.1.14",
     "rotating-file-stream": "^3.2.9",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
