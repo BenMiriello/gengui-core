@@ -153,12 +153,12 @@ export const sentenceService = {
       )})
     `);
 
-    return (rows as { content_hash: string; embedding_text: string }[]).map(
-      (row) => ({
-        contentHash: row.content_hash,
-        embedding: JSON.parse(row.embedding_text),
-      }),
-    );
+    return (
+      rows as unknown as { content_hash: string; embedding_text: string }[]
+    ).map((row) => ({
+      contentHash: row.content_hash,
+      embedding: JSON.parse(row.embedding_text),
+    }));
   },
 
   /**
@@ -398,7 +398,7 @@ function rowToStoredSentenceFromRaw(row: {
   return {
     id: row.id,
     documentId: row.document_id,
-    segmentId: row.segment_id,
+    segmentId: row.segment_id ?? '',
     sentenceStart: row.sentence_start,
     sentenceEnd: row.sentence_end,
     contentHash: row.content_hash,

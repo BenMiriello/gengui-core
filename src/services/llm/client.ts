@@ -98,7 +98,7 @@ export class LLMClient {
       try {
         const config: {
           maxOutputTokens?: number;
-          thinkingConfig?: unknown;
+          thinkingConfig?: { thinkingBudget: number };
           httpOptions?: { timeout: number };
           responseMimeType?: string;
           responseJsonSchema?: unknown;
@@ -135,7 +135,7 @@ export class LLMClient {
 
         return result;
       } catch (error: unknown) {
-        lastError = error;
+        lastError = error instanceof Error ? error : new Error(String(error));
         const durationMs = Date.now() - startTime;
 
         if (attempt < maxRetries - 1 && isRetryableError(error)) {

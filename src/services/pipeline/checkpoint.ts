@@ -109,7 +109,7 @@ export async function loadCheckpoint(
 
     // Migrate stage numbers: Stage 4 removed, so stages 5-10 become 4-9
     let lastStageCompleted = checkpoint.lastStageCompleted;
-    if (lastStageCompleted !== null && lastStageCompleted >= 4) {
+    if (typeof lastStageCompleted === 'number' && lastStageCompleted >= 4) {
       lastStageCompleted = lastStageCompleted - 1;
       logger.debug(
         {
@@ -122,7 +122,7 @@ export async function loadCheckpoint(
     }
 
     let failedAtStage = checkpoint.failedAtStage;
-    if (failedAtStage !== undefined && failedAtStage >= 4) {
+    if (typeof failedAtStage === 'number' && failedAtStage >= 4) {
       failedAtStage = failedAtStage - 1;
     }
 

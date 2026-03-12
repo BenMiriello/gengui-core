@@ -122,7 +122,7 @@ export async function updateNodes(
 
       return parsed;
     } catch (error: unknown) {
-      lastError = error;
+      lastError = error instanceof Error ? error : new Error(String(error));
       logger.warn(
         {
           attempt: attempt + 1,
@@ -148,15 +148,21 @@ export async function updateNodes(
  * Parse and validate Gemini API response.
  */
 function parseResponse<T>(result: unknown, operation: string): T {
-  if (!result?.candidates?.length) {
-    const blockReason = result?.promptFeedback?.blockReason;
+  const typedResult = result as {
+    candidates?: Array<{ finishReason?: string }>;
+    promptFeedback?: { blockReason?: string };
+    text?: string;
+  };
+
+  if (!typedResult?.candidates?.length) {
+    const blockReason = typedResult?.promptFeedback?.blockReason;
     if (blockReason) {
       throw new Error(`Content blocked: ${blockReason}`);
     }
     throw new Error('Empty response from API');
   }
 
-  const text = result.text;
+  const text = typedResult.text;
   if (!text?.trim()) {
     throw new Error('Empty response text');
   }
@@ -164,7 +170,7 @@ function parseResponse<T>(result: unknown, operation: string): T {
   // Check for potential truncation indicators
   const trimmed = text.trim();
   const looksComplete = trimmed.endsWith('}') || trimmed.endsWith(']');
-  const finishReason = result.candidates?.[0]?.finishReason;
+  const finishReason = typedResult.candidates?.[0]?.finishReason;
 
   try {
     return JSON.parse(text) as T;
@@ -524,7 +530,7 @@ export async function extractEntitiesFromBatch(
 
       return parsed;
     } catch (error: unknown) {
-      lastError = error;
+      lastError = error instanceof Error ? error : new Error(String(error));
       logger.warn(
         {
           segmentIndices,

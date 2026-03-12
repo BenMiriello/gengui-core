@@ -45,7 +45,7 @@ class RunPodClient {
       const runpodSdk = runpodSdkModule.default || runpodSdkModule;
 
       const runpod = runpodSdk(apiKey);
-      this.endpoint = runpod.endpoint(endpointId);
+      this.endpoint = runpod.endpoint(endpointId) as unknown as RunPodEndpoint;
 
       logger.info({ endpointId }, 'RunPod client initialized successfully');
     } catch (error) {

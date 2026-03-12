@@ -193,16 +193,15 @@ export class MediaService {
     let selection: ColumnsType | Partial<ColumnsType> = allColumns;
 
     if (requestedFields && requestedFields.length > 0) {
-      const pickedFields: Partial<ColumnsType> = {};
+      const pickedFields = {} as Record<string, unknown>;
       requestedFields.forEach((field) => {
         if (Object.hasOwn(allColumns, field)) {
-          pickedFields[field as keyof ColumnsType] =
-            allColumns[field as keyof ColumnsType];
+          pickedFields[field] = allColumns[field as keyof ColumnsType];
         }
       });
 
       if (Object.keys(pickedFields).length > 0) {
-        selection = pickedFields;
+        selection = pickedFields as ColumnsType;
       }
     }
 

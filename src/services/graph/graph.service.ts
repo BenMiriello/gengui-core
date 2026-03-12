@@ -1230,7 +1230,7 @@ class GraphService {
     );
     const usedColors = new Set(
       existingThreads
-        .map((t: { color?: string }) => t.color)
+        .map((t: { color?: string | null }) => t.color)
         .filter((c): c is string => typeof c === 'string'),
     );
 
@@ -1432,7 +1432,16 @@ class GraphService {
     }
 
     const pcaStart = Date.now();
-    const pca = new PCA(embeddings);
+    const pca = new (
+      PCA as unknown as new (
+        data: number[][],
+      ) => {
+        predict: (
+          data: number[][],
+          options: { nComponents: number },
+        ) => { data: number[][] };
+      }
+    )(embeddings);
     const projected = pca.predict(embeddings, { nComponents: 2 });
     const pcaTime = Date.now() - pcaStart;
     logger.info(
@@ -1440,7 +1449,7 @@ class GraphService {
       '[projection] PCA complete',
     );
 
-    const projectedArray = projected.to2DArray();
+    const projectedArray = projected.data;
 
     let minX = Infinity;
     let maxX = -Infinity;

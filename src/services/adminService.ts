@@ -603,16 +603,20 @@ export class AdminService {
 
     const userMap = new Map(userRows.map((u) => [u.id, u]));
 
-    return rows.map((row) => {
-      const user = userMap.get(row.userId);
-      return {
-        userId: row.userId,
-        username: user?.username || 'Unknown',
-        email: user?.email || 'Unknown',
-        totalCost: row.totalCost,
-        totalOperations: row.totalOperations,
-      };
-    });
+    return rows
+      .filter(
+        (row): row is typeof row & { userId: string } => row.userId !== null,
+      )
+      .map((row) => {
+        const user = userMap.get(row.userId);
+        return {
+          userId: row.userId,
+          username: user?.username || 'Unknown',
+          email: user?.email || 'Unknown',
+          totalCost: row.totalCost,
+          totalOperations: row.totalOperations,
+        };
+      });
   }
 
   /**

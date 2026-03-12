@@ -307,19 +307,40 @@ npm run docker:logs      # Stream container logs
 
 **Migrations:** See "Database Migrations" section - use manual SQL files, not npm scripts.
 
-## Database Migrations
+## Migrations
 
-**Manual SQL migrations only** - never use `db:push` or `db:generate`.
+**All migrations MUST follow the standardized system documented in:**
+[`documentation/tdd/2026-03-11_migration_system_standardization.md`](../documentation/tdd/2026-03-11_migration_system_standardization.md)
 
-**Workflow:**
-1. Edit `src/models/schema.ts` (keep schema in sync with migrations)
-2. Create `drizzle/00XX_descriptive_name.sql` with the next sequence number
-3. Write SQL directly (see existing migrations for patterns)
-4. Apply: `psql -h localhost -U gengui -d gengui_media -f drizzle/00XX_descriptive_name.sql`
+### Quick Reference
 
-**Why manual:** Deterministic, reproducible, no interactive prompts, same SQL runs in dev/staging/prod.
+**Format:** `NNNN_descriptive_action.sql` (e.g., `0042_add_email_to_users.sql`)
 
-**Files:** `drizzle/*.sql` (migrations). The `drizzle/meta/` folder is legacy - ignore it.
+**Rules:**
+- Sequential numbering (no gaps, no duplicates)
+- Never edit applied migrations (create new one to fix)
+- Never use `drizzle-kit` commands (`db:push`, `db:generate`, `db:migrate`)
+- Manual SQL only
+
+**Creating new migration:**
+```bash
+# Find next number and create file
+NEXT=$(printf "%04d" $((10#$(ls -1 drizzle/*.sql | tail -1 | cut -d'/' -f3 | cut -d'_' -f1) + 1)))
+touch drizzle/${NEXT}_descriptive_action.sql
+
+# Add migration template and write SQL
+# See TDD for template and examples
+
+# Test locally
+psql -h localhost -U gengui -d gengui_media -f drizzle/${NEXT}_descriptive_action.sql
+```
+
+**Applying migrations:**
+```bash
+bun src/scripts/migrate.ts  # Applies all unapplied migrations
+```
+
+See full TDD for: migration template, workflow, rollback procedures, and baseline reset instructions.
 
 ## Stopping Services
 
