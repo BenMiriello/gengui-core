@@ -10,3 +10,4 @@ coverage
 .idea
 tmp
 backup.sql
+drizzle.backup/
