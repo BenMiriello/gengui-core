@@ -22,15 +22,17 @@ const DOUBLE_NEWLINE_PATTERN = /\n\s*\n/g;
 export function detectBoundaries(text: string): SegmentBoundary[] {
   const boundaries: SegmentBoundary[] = [];
 
-  let match: RegExpExecArray | null;
+  let match: RegExpExecArray | null = null;
 
   // Double newlines (paragraph breaks)
   const doubleNewlineRegex = new RegExp(DOUBLE_NEWLINE_PATTERN.source, 'g');
-  while ((match = doubleNewlineRegex.exec(text)) !== null) {
+  match = doubleNewlineRegex.exec(text);
+  while (match !== null) {
     boundaries.push({
       position: match.index + match[0].length,
       type: 'double_newline',
     });
+    match = doubleNewlineRegex.exec(text);
   }
 
   // Scene markers (***, ---, # Chapter)

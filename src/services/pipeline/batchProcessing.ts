@@ -11,7 +11,7 @@ import type { AnalysisStage } from './stages';
  */
 export async function processBatchesInParallel<
   TBatchInput,
-  TExtractResult extends { relationships: any[] },
+  TExtractResult extends { relationships: unknown[] },
 >(
   batches: BatchBudgetResult<TBatchInput>[],
   extractFn: (items: TBatchInput[]) => Promise<TExtractResult>,

@@ -17,5 +17,9 @@ export function getEmbeddingProvider(): EmbeddingProvider {
     }
   }
 
-  return cachedProvider!;
+  if (!cachedProvider) {
+    throw new Error('Failed to initialize embedding provider');
+  }
+
+  return cachedProvider;
 }

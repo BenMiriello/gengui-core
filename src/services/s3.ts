@@ -17,7 +17,12 @@ class S3Service {
     this.bucket = process.env.S3_BUCKET || process.env.MINIO_BUCKET || 'media';
     this.endpoint = process.env.S3_ENDPOINT;
 
-    const config: any = {
+    const config: {
+      region: string;
+      credentials: { accessKeyId: string; secretAccessKey: string };
+      endpoint?: string;
+      forcePathStyle?: boolean;
+    } = {
       region: process.env.AWS_REGION || 'us-east-1',
       credentials: {
         accessKeyId:

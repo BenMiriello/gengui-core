@@ -96,7 +96,13 @@ export class LLMClient {
       const startTime = Date.now();
 
       try {
-        const config: any = {
+        const config: {
+          maxOutputTokens?: number;
+          thinkingConfig?: unknown;
+          httpOptions?: { timeout: number };
+          responseMimeType?: string;
+          responseJsonSchema?: unknown;
+        } = {
           maxOutputTokens,
           thinkingConfig,
         };
@@ -107,7 +113,8 @@ export class LLMClient {
 
         if (responseMimeType) {
           config.responseMimeType = responseMimeType;
-          config.responseJsonSchema = (params as any).schema;
+          config.responseJsonSchema =
+            'schema' in params ? params.schema : undefined;
         }
 
         const result = await trackedAI.callLLM({
@@ -127,7 +134,7 @@ export class LLMClient {
         });
 
         return result;
-      } catch (error: any) {
+      } catch (error: unknown) {
         lastError = error;
         const durationMs = Date.now() - startTime;
 
@@ -138,7 +145,7 @@ export class LLMClient {
               operation,
               attempt: attempt + 1,
               maxRetries,
-              error: error?.message,
+              error: error instanceof Error ? error.message : String(error),
               durationMs,
               retryDelayMs,
             },
@@ -182,7 +189,7 @@ export class LLMClient {
 
     try {
       return JSON.parse(text) as T;
-    } catch (parseError: any) {
+    } catch (parseError: unknown) {
       logger.error(
         {
           operation,
@@ -191,7 +198,10 @@ export class LLMClient {
           responseEnd: text.slice(-500),
           looksComplete,
           finishReason,
-          parseError: parseError?.message,
+          parseError:
+            parseError instanceof Error
+              ? parseError.message
+              : String(parseError),
         },
         `JSON parse failed for ${operation}`,
       );

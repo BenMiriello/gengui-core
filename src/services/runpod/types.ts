@@ -32,6 +32,6 @@ export interface RunPodJobStatusResponse {
     | 'TIMED_OUT';
   delayTime?: number;
   executionTime?: number;
-  output?: any;
+  output?: unknown;
   error?: string;
 }

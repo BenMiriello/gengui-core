@@ -98,7 +98,7 @@ export async function loadCheckpoint(
     return null;
   }
 
-  const checkpoint = doc.analysisCheckpoint as any;
+  const checkpoint = doc.analysisCheckpoint as Record<string, unknown>;
 
   // Handle version 1 checkpoints (Stage 4 removed, stages renumbered)
   if (checkpoint.version === 1) {
@@ -127,7 +127,7 @@ export async function loadCheckpoint(
     }
 
     // Create migrated checkpoint (remove stage4Output)
-    const migratedCheckpoint: AnalysisCheckpoint = {
+    const migratedCheckpoint = {
       version: 2,
       documentVersion: checkpoint.documentVersion,
       startedAt: checkpoint.startedAt,
@@ -138,7 +138,7 @@ export async function loadCheckpoint(
       summaryData: checkpoint.summaryData,
       stage3Progress: checkpoint.stage3Progress,
       stage3Output: checkpoint.stage3Output,
-    };
+    } as unknown as AnalysisCheckpoint;
 
     // Save migrated checkpoint
     await db
@@ -151,7 +151,7 @@ export async function loadCheckpoint(
 
   // Current version
   if (checkpoint.version === 2) {
-    return checkpoint as AnalysisCheckpoint;
+    return checkpoint as unknown as AnalysisCheckpoint;
   }
 
   // Unknown version

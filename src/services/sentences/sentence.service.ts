@@ -153,10 +153,12 @@ export const sentenceService = {
       )})
     `);
 
-    return (rows as unknown[]).map((row: any) => ({
-      contentHash: row.content_hash,
-      embedding: JSON.parse(row.embedding_text),
-    }));
+    return (rows as { content_hash: string; embedding_text: string }[]).map(
+      (row) => ({
+        contentHash: row.content_hash,
+        embedding: JSON.parse(row.embedding_text),
+      }),
+    );
   },
 
   /**
@@ -180,7 +182,9 @@ export const sentenceService = {
       WHERE document_id = ${documentId}
     `);
 
-    return (rows as any[]).map(rowToStoredSentenceFromRaw);
+    return (
+      rows as unknown as Parameters<typeof rowToStoredSentenceFromRaw>[0][]
+    ).map(rowToStoredSentenceFromRaw);
   },
 
   /**
@@ -211,7 +215,9 @@ export const sentenceService = {
         )})
     `);
 
-    return (rows as any[]).map(rowToStoredSentenceFromRaw);
+    return (
+      rows as unknown as Parameters<typeof rowToStoredSentenceFromRaw>[0][]
+    ).map(rowToStoredSentenceFromRaw);
   },
 
   /**
@@ -238,9 +244,17 @@ export const sentenceService = {
       LIMIT ${limit}
     `);
 
-    return (rows as any[]).map((row) => ({
+    return (
+      rows as unknown as {
+        id: string;
+        segment_id: string | null;
+        sentence_start: number;
+        sentence_end: number;
+        score: number;
+      }[]
+    ).map((row) => ({
       sentenceId: row.id,
-      segmentId: row.segment_id,
+      segmentId: row.segment_id ?? '',
       sentenceStart: row.sentence_start,
       sentenceEnd: row.sentence_end,
       score: row.score,
@@ -370,7 +384,17 @@ function _rowToStoredSentence(
   };
 }
 
-function rowToStoredSentenceFromRaw(row: any): StoredSentenceEmbedding {
+function rowToStoredSentenceFromRaw(row: {
+  id: string;
+  document_id: string;
+  segment_id: string | null;
+  sentence_start: number;
+  sentence_end: number;
+  content_hash: string;
+  embedding_text: string;
+  created_at: Date;
+  updated_at: Date;
+}): StoredSentenceEmbedding {
   return {
     id: row.id,
     documentId: row.document_id,

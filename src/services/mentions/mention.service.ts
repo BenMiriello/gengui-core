@@ -360,6 +360,43 @@ export const mentionService = {
   },
 
   /**
+   * Get paginated mentions with absolute positions (requires segments).
+   */
+  async getByNodeIdWithAbsolutePositionsPaginated(
+    nodeId: string,
+    segments: Segment[],
+    limit: number,
+    offset: number,
+  ): Promise<MentionWithAbsolutePosition[]> {
+    const rows = await db
+      .select()
+      .from(mentions)
+      .where(eq(mentions.nodeId, nodeId))
+      .limit(limit)
+      .offset(offset);
+
+    const mentionRows = rows.map(rowToMention);
+
+    return mentionRows
+      .map((mention) => {
+        const absolute = segmentService.toAbsolutePosition(
+          segments,
+          mention.segmentId,
+          mention.relativeStart,
+          mention.relativeEnd,
+        );
+        if (!absolute) return null;
+
+        return {
+          ...mention,
+          absoluteStart: absolute.absoluteStart,
+          absoluteEnd: absolute.absoluteEnd,
+        };
+      })
+      .filter((m): m is MentionWithAbsolutePosition => m !== null);
+  },
+
+  /**
    * Delete all mentions for a node.
    */
   async deleteByNodeId(nodeId: string): Promise<void> {

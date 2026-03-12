@@ -34,7 +34,7 @@ export class AuthService {
 
     const usernameValidation = validateUsername(username);
     if (!usernameValidation.valid) {
-      throw new ConflictError(usernameValidation.error!);
+      throw new ConflictError(usernameValidation.error ?? 'Invalid username');
     }
 
     const passwordValidation = validatePassword(password);
@@ -334,7 +334,7 @@ export class AuthService {
   async updateUsername(userId: string, username: string) {
     const usernameValidation = validateUsername(username);
     if (!usernameValidation.valid) {
-      throw new ConflictError(usernameValidation.error!);
+      throw new ConflictError(usernameValidation.error ?? 'Invalid username');
     }
 
     const existingUser = await db
@@ -546,7 +546,7 @@ export class AuthService {
 
     const usernameValidation = validateUsername(username);
     if (!usernameValidation.valid) {
-      throw new ConflictError(usernameValidation.error!);
+      throw new ConflictError(usernameValidation.error ?? 'Invalid username');
     }
 
     const existingUser = await db
@@ -706,7 +706,16 @@ export class AuthService {
       > | null;
     },
   ) {
-    const updates: any = {};
+    const updates: {
+      defaultImageWidth?: number;
+      defaultImageHeight?: number;
+      defaultStylePreset?: string;
+      hiddenPresetIds?: string[];
+      nodeTypeStyleDefaults?: Record<
+        string,
+        { presetId: string; prompt?: string }
+      > | null;
+    } = {};
 
     if (preferences.defaultImageWidth !== undefined) {
       updates.defaultImageWidth = preferences.defaultImageWidth;

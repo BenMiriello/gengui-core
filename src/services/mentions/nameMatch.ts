@@ -126,9 +126,10 @@ function findAllMatches(
 
   try {
     const regex = new RegExp(pattern, flags);
-    let match: RegExpExecArray | null;
+    let match: RegExpExecArray | null = null;
 
-    while ((match = regex.exec(content)) !== null) {
+    match = regex.exec(content);
+    while (match !== null) {
       matches.push({
         start: match.index,
         end: match.index + match[0].length,
@@ -139,20 +140,22 @@ function findAllMatches(
       if (match[0].length === 0) {
         regex.lastIndex++;
       }
+      match = regex.exec(content);
     }
   } catch {
     // Fallback to simple indexOf if regex fails
     const searchContent = caseSensitive ? content : content.toLowerCase();
     const searchTerm = caseSensitive ? term : term.toLowerCase();
 
-    let index = 0;
-    while ((index = searchContent.indexOf(searchTerm, index)) !== -1) {
+    let index = searchContent.indexOf(searchTerm, 0);
+    while (index !== -1) {
       matches.push({
         start: index,
         end: index + term.length,
         matchedText: content.slice(index, index + term.length),
       });
       index += term.length;
+      index = searchContent.indexOf(searchTerm, index);
     }
   }
 

@@ -596,7 +596,8 @@ export const multiStagePipeline = {
       const segmentSummaries = await pMap(
         segments,
         async (segment, index) => {
-          if (!needsRegeneration[index] && existingSegments[index]?.summary) {
+          const existingSummary = existingSegments[index]?.summary;
+          if (!needsRegeneration[index] && existingSummary) {
             logger.debug(
               {
                 segmentIndex: index,
@@ -606,7 +607,7 @@ export const multiStagePipeline = {
             );
             return {
               segmentId: segment.id,
-              summary: existingSegments[index].summary!,
+              summary: existingSummary,
             };
           }
 
@@ -934,10 +935,12 @@ export const multiStagePipeline = {
             });
 
             const segmentSummariesForPrompt = selectedSummaries
-              .filter((seg) => seg.summary)
+              .filter(
+                (seg): seg is typeof seg & { summary: string } => !!seg.summary,
+              )
               .map((seg) => ({
                 index: segmentsWithSummaries.findIndex((s) => s.id === seg.id),
-                summary: seg.summary!,
+                summary: seg.summary,
               }));
 
             const result = await extractEntitiesFromBatch(
@@ -1120,8 +1123,8 @@ export const multiStagePipeline = {
           childLogger.error(
             {
               stage: 3,
-              error: (error as any)?.message,
-              stackTrace: (error as any)?.stack,
+              error: error instanceof Error ? error.message : String(error),
+              stackTrace: error instanceof Error ? error.stack : undefined,
               partialResults: {
                 batchesCompleted: completedBatchCount,
                 totalBatches: batches?.length || 0,
@@ -1773,8 +1776,9 @@ export const multiStagePipeline = {
             { strength: rel.strength },
             { batchId: stage5And6BatchId },
           );
-        } catch (err: any) {
-          if (!err?.message?.includes('would create a cycle')) {
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : '';
+          if (!message.includes('would create a cycle')) {
             childLogger.warn(
               { rel, error: err },
               'Failed to create relationship',
@@ -2092,8 +2096,8 @@ function detectThreadCandidates(
     const stack = [event.id];
 
     while (stack.length > 0) {
-      const current = stack.pop()!;
-      if (visited.has(current)) continue;
+      const current = stack.pop();
+      if (!current || visited.has(current)) continue;
 
       visited.add(current);
       component.push(current);
@@ -2222,8 +2226,8 @@ async function processCharacterArcs(
       const stateFacets = await graphService.getFacetsForState(stateId);
       if (stateFacets.length > 0 && stateFacets.some((f) => f.embedding)) {
         const embeddings = stateFacets
-          .filter((f) => f.embedding)
-          .map((f) => f.embedding!);
+          .filter((f): f is typeof f & { embedding: number[] } => !!f.embedding)
+          .map((f) => f.embedding);
 
         if (embeddings.length > 0) {
           const sumEmbedding = embeddings[0].map(
@@ -3209,7 +3213,12 @@ function buildContextPrompt(
       );
 
       if (state) {
-        const stateFacet = state.facets.find((f) => f.id === facet.id)!;
+        const stateFacet = state.facets.find((f) => f.id === facet.id);
+        if (!stateFacet) {
+          throw new Error(
+            `State facet not found for facet ${facet.id} in state ${state.id}`,
+          );
+        }
         prompt += `    - State: State ${state.phaseIndex + 1} "${state.name}"\n`;
         prompt += `    - Causal position: ${state.causalOrder}`;
 

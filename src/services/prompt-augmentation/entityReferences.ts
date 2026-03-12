@@ -88,14 +88,17 @@ async function fetchEntityImages(
     primaryMediaId: string | null;
   }>,
 ): Promise<ReferenceImage[]> {
-  const nodesWithMedia = nodes.filter((node) => node.primaryMediaId);
+  const nodesWithMedia = nodes.filter(
+    (node): node is typeof node & { primaryMediaId: string } =>
+      !!node.primaryMediaId,
+  );
 
   if (nodesWithMedia.length === 0) {
     logger.info('Selected entity nodes have no primary media set');
     return [];
   }
 
-  const mediaIds = nodesWithMedia.map((n) => n.primaryMediaId!);
+  const mediaIds = nodesWithMedia.map((n) => n.primaryMediaId);
   const mediaRecords = await db
     .select()
     .from(media)
@@ -106,7 +109,7 @@ async function fetchEntityImages(
   const referenceImages: ReferenceImage[] = [];
 
   for (const node of nodesWithMedia) {
-    const mediaRecord = mediaMap.get(node.primaryMediaId!);
+    const mediaRecord = mediaMap.get(node.primaryMediaId);
     if (!mediaRecord?.s3Key) {
       logger.warn(
         { nodeId: node.id, nodeName: node.name },

@@ -65,8 +65,12 @@ class RedisService {
 
     // Monitor command queue size
     this.monitorInterval = setInterval(() => {
-      const commandQueue = (this.client as any).commandQueue;
-      const offlineQueue = (this.client as any).offlineQueue;
+      const clientWithQueues = this.client as unknown as {
+        commandQueue?: unknown[];
+        offlineQueue?: unknown[];
+      };
+      const commandQueue = clientWithQueues.commandQueue;
+      const offlineQueue = clientWithQueues.offlineQueue;
       if (commandQueue && commandQueue.length > 0) {
         logger.warn(
           { queueLength: commandQueue.length },
@@ -203,7 +207,7 @@ class RedisService {
     numKeys: number,
     keys: string[],
     args: string[],
-  ): Promise<any> {
+  ): Promise<unknown> {
     return this.client.eval(script, numKeys, ...keys, ...args);
   }
 

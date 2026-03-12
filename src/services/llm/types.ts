@@ -40,5 +40,5 @@ export interface LLMResponse {
   promptFeedback?: {
     blockReason?: string;
   };
-  [key: string]: any;
+  [key: string]: unknown;
 }

@@ -192,7 +192,10 @@ class GraphService {
     if (!this.client || this.client.status !== 'ready') {
       await this.connect();
     }
-    return this.client!;
+    if (!this.client) {
+      throw new Error('Failed to connect to FalkorDB');
+    }
+    return this.client;
   }
 
   /**
@@ -500,10 +503,11 @@ class GraphService {
           `CREATE INDEX FOR (n:StoryNode) ON (n.${idx.property})`,
         );
         logger.info({ index: idx.name }, 'Created property index on StoryNode');
-      } catch (err: any) {
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : '';
         if (
-          err?.message?.includes('already exists') ||
-          err?.message?.includes('already indexed')
+          message.includes('already exists') ||
+          message.includes('already indexed')
         ) {
           logger.debug({ index: idx.name }, 'Property index already exists');
         } else {
@@ -522,10 +526,11 @@ class GraphService {
         `CREATE VECTOR INDEX FOR (n:StoryNode) ON (n.embedding) OPTIONS {dimension: 1536, similarityFunction: 'cosine'}`,
       );
       logger.info('Created vector index on StoryNode.embedding');
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : '';
       if (
-        err?.message?.includes('already exists') ||
-        err?.message?.includes('already indexed')
+        message.includes('already exists') ||
+        message.includes('already indexed')
       ) {
         logger.debug('Vector index already exists');
       } else {
@@ -1224,7 +1229,9 @@ class GraphService {
       userId,
     );
     const usedColors = new Set(
-      existingThreads.map((t: any) => t.color).filter(Boolean),
+      existingThreads
+        .map((t: { color?: string }) => t.color)
+        .filter((c): c is string => typeof c === 'string'),
     );
 
     // Find first unused color, or cycle back to start
@@ -1370,7 +1377,10 @@ class GraphService {
 
     const importStart = Date.now();
     const PCAModule = await import('ml-pca');
-    const PCA = (PCAModule as any).default || PCAModule;
+    const PCA =
+      'default' in PCAModule && PCAModule.default
+        ? PCAModule.default
+        : PCAModule;
     const importTime = Date.now() - importStart;
     logger.info({ importTime }, '[projection] ml-pca import');
 

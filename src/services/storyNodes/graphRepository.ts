@@ -1370,7 +1370,8 @@ function findMatchingFacet(
   const mentionLower = mentionText.toLowerCase();
 
   if (facetContentToId.has(mentionLower)) {
-    return facetContentToId.get(mentionLower)!;
+    const facetId = facetContentToId.get(mentionLower);
+    return facetId ?? null;
   }
 
   for (const [facetContent, facetId] of facetContentToId) {

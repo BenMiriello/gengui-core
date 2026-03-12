@@ -230,7 +230,12 @@ class JobReconciliationService {
     runpodStatus: RunPodJobStatusResponse,
   ) {
     const mediaId = job.id;
-    const s3Key = runpodStatus.output?.s3Key;
+    const s3Key =
+      runpodStatus.output &&
+      typeof runpodStatus.output === 'object' &&
+      's3Key' in runpodStatus.output
+        ? (runpodStatus.output.s3Key as string | undefined)
+        : undefined;
 
     if (!s3Key) {
       // Completed but no s3Key? This shouldn't happen. Retry.

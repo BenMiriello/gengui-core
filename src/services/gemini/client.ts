@@ -121,13 +121,13 @@ export async function updateNodes(
       );
 
       return parsed;
-    } catch (error: any) {
+    } catch (error: unknown) {
       lastError = error;
       logger.warn(
         {
           attempt: attempt + 1,
           maxRetries: MAX_RETRIES,
-          error: error?.message,
+          error: error instanceof Error ? error.message : String(error),
           durationMs: Date.now() - callStartTime,
         },
         'updateNodes attempt failed',
@@ -147,7 +147,7 @@ export async function updateNodes(
 /**
  * Parse and validate Gemini API response.
  */
-function parseResponse<T>(result: any, operation: string): T {
+function parseResponse<T>(result: unknown, operation: string): T {
   if (!result?.candidates?.length) {
     const blockReason = result?.promptFeedback?.blockReason;
     if (blockReason) {
@@ -168,7 +168,7 @@ function parseResponse<T>(result: any, operation: string): T {
 
   try {
     return JSON.parse(text) as T;
-  } catch (parseError: any) {
+  } catch (parseError: unknown) {
     // Log detailed diagnostics for debugging
     logger.error(
       {
@@ -178,7 +178,8 @@ function parseResponse<T>(result: any, operation: string): T {
         responseEnd: text.slice(-500),
         looksComplete,
         finishReason,
-        parseError: parseError?.message,
+        parseError:
+          parseError instanceof Error ? parseError.message : String(parseError),
       },
       `JSON parse failed for ${operation}`,
     );
@@ -238,8 +239,8 @@ function validateUpdateResponse(
 /**
  * Convert API errors to user-friendly messages.
  */
-function handleApiError(error: any, operation: string): Error {
-  const message = error?.message || '';
+function handleApiError(error: unknown, operation: string): Error {
+  const message = error instanceof Error ? error.message : '';
 
   if (message.includes('quota')) {
     return new Error('API quota exceeded. Please try again later.');
@@ -255,7 +256,7 @@ function handleApiError(error: any, operation: string): Error {
     );
   }
   if (message.includes('blocked') || message.includes('inappropriate')) {
-    return error;
+    return error instanceof Error ? error : new Error(String(error));
   }
 
   return new Error(
@@ -522,14 +523,14 @@ export async function extractEntitiesFromBatch(
       }
 
       return parsed;
-    } catch (error: any) {
+    } catch (error: unknown) {
       lastError = error;
       logger.warn(
         {
           segmentIndices,
           attempt: attempt + 1,
           maxRetries: MAX_RETRIES,
-          error: error?.message,
+          error: error instanceof Error ? error.message : String(error),
           elapsedMs: Date.now() - startTime,
           retryDelayMs:
             attempt < MAX_RETRIES - 1 ? RETRY_DELAYS[attempt] : undefined,
@@ -860,7 +861,7 @@ export async function extractRelationshipsFromSegment(
       {
         operation: 'extractRelationshipsFromSegment',
         status: 'failed',
-        error: (error as any)?.message,
+        error: error instanceof Error ? error.message : String(error),
         durationMs: Date.now() - callStartTime,
       },
       'LLM call failed',
@@ -1023,9 +1024,17 @@ RULES:
     // Add segmentId attribution (fallback to first segment if not provided)
     const relationships: Stage4BatchRelationshipsResult['relationships'] = [];
     for (const rel of parsed.relationships) {
-      // Check if relationship already has segmentId in description or elsewhere
-      // If not, we can't reliably attribute it - log warning and skip
-      if (!(rel as any).segmentId) {
+      // Check if relationship already has segmentId
+      if ('segmentId' in rel && typeof rel.segmentId === 'string') {
+        relationships.push({
+          fromId: rel.fromId,
+          toId: rel.toId,
+          edgeType: rel.edgeType,
+          description: rel.description,
+          strength: rel.strength,
+          segmentId: rel.segmentId,
+        });
+      } else {
         logger.warn(
           { fromId: rel.fromId, toId: rel.toId, edgeType: rel.edgeType },
           'Relationship missing segmentId attribution',
@@ -1035,8 +1044,6 @@ RULES:
           ...rel,
           segmentId: segments[0].id,
         });
-      } else {
-        relationships.push(rel as any);
       }
     }
 
@@ -1352,7 +1359,7 @@ export async function refineThreads(
       {
         operation: 'refineThreads',
         status: 'failed',
-        error: (error as any)?.message,
+        error: error instanceof Error ? error.message : String(error),
         durationMs: Date.now() - callStartTime,
       },
       'LLM call failed',

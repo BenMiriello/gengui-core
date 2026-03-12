@@ -6,8 +6,15 @@ import type {
   RunPodJobStatusResponse,
 } from './types';
 
+interface RunPodEndpoint {
+  run(payload: unknown): Promise<{ id: string }>;
+  status(jobId: string): Promise<unknown>;
+  cancel(jobId: string): Promise<void>;
+  health(): Promise<unknown>;
+}
+
 class RunPodClient {
-  private endpoint: any;
+  private endpoint: RunPodEndpoint | null = null;
   private enabled: boolean;
   private initPromise: Promise<void> | null = null;
 
@@ -139,7 +146,7 @@ class RunPodClient {
   /**
    * Get endpoint health status
    */
-  async getEndpointHealth(): Promise<any> {
+  async getEndpointHealth(): Promise<unknown> {
     await this.ensureInitialized();
 
     if (!this.endpoint) {

@@ -338,7 +338,7 @@ router.get('/mentions/:id', requireAuth, async (req, res, next) => {
 router.get('/nodes/:id/mentions', requireAuth, async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { documentId } = req.query;
+    const { documentId, limit: limitParam, offset: offsetParam } = req.query;
 
     if (!documentId || typeof documentId !== 'string') {
       res.status(400).json({
@@ -349,6 +349,15 @@ router.get('/nodes/:id/mentions', requireAuth, async (req, res, next) => {
       });
       return;
     }
+
+    const limit =
+      limitParam && typeof limitParam === 'string'
+        ? Number.parseInt(limitParam, 10)
+        : 10;
+    const offset =
+      offsetParam && typeof offsetParam === 'string'
+        ? Number.parseInt(offsetParam, 10)
+        : 0;
 
     // Get segments for the document
     const segments = await segmentService.getDocumentSegments(documentId);
@@ -413,11 +422,16 @@ router.get('/nodes/:id/mentions', requireAuth, async (req, res, next) => {
       ? detectChaptersFromContent(document.contentJson)
       : [];
 
-    // Get mentions for the target node
-    const mentions = await mentionService.getByNodeIdWithAbsolutePositions(
-      id,
-      segments,
-    );
+    // Get paginated mentions for the target node
+    const [mentions, total] = await Promise.all([
+      mentionService.getByNodeIdWithAbsolutePositionsPaginated(
+        id,
+        segments,
+        limit,
+        offset,
+      ),
+      mentionService.getMentionCount(id),
+    ]);
 
     // For each mention, find ALL matching events + chapter context
     const mentionsWithContext = mentions.map((m) => {
@@ -467,6 +481,9 @@ router.get('/nodes/:id/mentions', requireAuth, async (req, res, next) => {
       nodeId: id,
       documentId,
       mentions: mentionsWithContext,
+      total,
+      limit,
+      offset,
     });
   } catch (error) {
     if (error instanceof Error && error.message.includes('not found')) {

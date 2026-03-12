@@ -142,12 +142,13 @@ export class MediaService {
     const conditions = [eq(media.userId, userId), notDeleted(media.deletedAt)];
 
     if (options?.excludeRoles?.length) {
-      conditions.push(
-        or(
-          isNull(media.mediaRole),
-          notInArray(media.mediaRole, options.excludeRoles),
-        )!,
+      const roleCondition = or(
+        isNull(media.mediaRole),
+        notInArray(media.mediaRole, options.excludeRoles),
       );
+      if (roleCondition) {
+        conditions.push(roleCondition);
+      }
     }
 
     const query = db
@@ -188,13 +189,15 @@ export class MediaService {
     requestedFields?: string[],
   ) {
     const allColumns = getTableColumns(documents);
-    let selection: Record<string, any> = allColumns;
+    type ColumnsType = typeof allColumns;
+    let selection: ColumnsType | Partial<ColumnsType> = allColumns;
 
     if (requestedFields && requestedFields.length > 0) {
-      const pickedFields: Record<string, any> = {};
+      const pickedFields: Partial<ColumnsType> = {};
       requestedFields.forEach((field) => {
         if (Object.hasOwn(allColumns, field)) {
-          pickedFields[field] = allColumns[field as keyof typeof allColumns];
+          pickedFields[field as keyof ColumnsType] =
+            allColumns[field as keyof ColumnsType];
         }
       });
 
@@ -221,7 +224,7 @@ export class MediaService {
       return [];
     }
 
-    return results as any[];
+    return results;
   }
 
   async getNodeByMediaId(mediaId: string, userId: string) {
@@ -268,8 +271,10 @@ export class MediaService {
     let key: string;
     if (type === 'thumb' && mediaItem.s3KeyThumb) {
       key = mediaItem.s3KeyThumb;
-    } else if (mediaItem.storageKey || mediaItem.s3Key) {
-      key = mediaItem.s3Key || mediaItem.storageKey!;
+    } else if (mediaItem.s3Key) {
+      key = mediaItem.s3Key;
+    } else if (mediaItem.storageKey) {
+      key = mediaItem.storageKey;
     } else {
       throw new Error('Media has no storage key');
     }

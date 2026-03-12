@@ -110,7 +110,9 @@ class GeminiProImageProvider implements ImageGenerationProvider {
       }
 
       // Build contents array with prompt and reference images
-      const contents: any[] = [input.prompt];
+      const contents: Array<
+        string | { inlineData: { mimeType: string; data: string } }
+      > = [input.prompt];
 
       if (input.referenceImages && input.referenceImages.length > 0) {
         logger.info(
@@ -200,13 +202,14 @@ class GeminiProImageProvider implements ImageGenerationProvider {
         { mediaId: input.mediaId, s3Key },
         'Gemini Pro Image generation completed',
       );
-    } catch (error: any) {
+    } catch (error: unknown) {
       logger.error(
         { error, mediaId: input.mediaId },
         'Gemini Pro Image generation failed',
       );
 
-      const errorMessage = error?.message || 'Unknown error';
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
 
       // Update DB to failed
       await db

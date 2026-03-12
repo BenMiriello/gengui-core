@@ -81,7 +81,8 @@ export async function computeCausalOrder(
   let position = 0;
 
   while (queue.length > 0) {
-    const nodeId = queue.shift()!;
+    const nodeId = queue.shift();
+    if (!nodeId) break;
     results.push({ nodeId, position });
     position++;
 
@@ -180,7 +181,8 @@ export async function detectThreads(
     visited.add(startId);
 
     while (queue.length > 0) {
-      const nodeId = queue.shift()!;
+      const nodeId = queue.shift();
+      if (!nodeId) break;
       component.push(nodeId);
 
       for (const neighbor of adj.get(nodeId) ?? []) {
@@ -309,7 +311,8 @@ function countComponents(
     const queue = [id];
     visited.add(id);
     while (queue.length > 0) {
-      const current = queue.shift()!;
+      const current = queue.shift();
+      if (!current) break;
       for (const neighbor of adj.get(current) ?? []) {
         if (!visited.has(neighbor)) {
           visited.add(neighbor);

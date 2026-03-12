@@ -78,7 +78,11 @@ export class CustomStylePromptsService {
   ) {
     await this.get(promptId, userId);
 
-    const updates: any = { updatedAt: new Date() };
+    const updates: {
+      updatedAt: Date;
+      name?: string;
+      prompt?: string;
+    } = { updatedAt: new Date() };
     if (name !== undefined) {
       if (!name.trim()) throw new BadRequestError('Name cannot be empty');
       if (name.length > 100)

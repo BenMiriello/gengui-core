@@ -29,7 +29,12 @@ export class S3StorageProvider implements StorageProvider {
       );
     }
 
-    const config: any = {
+    const config: {
+      region: string;
+      credentials: { accessKeyId: string; secretAccessKey: string };
+      endpoint?: string;
+      forcePathStyle?: boolean;
+    } = {
       region: process.env.AWS_REGION || 'us-east-1',
       credentials: {
         accessKeyId,
@@ -101,7 +106,7 @@ export class S3StorageProvider implements StorageProvider {
     }
 
     const chunks: Uint8Array[] = [];
-    for await (const chunk of response.Body as any) {
+    for await (const chunk of response.Body as AsyncIterable<Uint8Array>) {
       chunks.push(chunk);
     }
 

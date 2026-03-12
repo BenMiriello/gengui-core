@@ -51,9 +51,10 @@ export function splitIntoSentences(text: string): Sentence[] {
   const sentenceEndRegex = /([.!?]+)(\s+|$)/g;
 
   let lastEnd = 0;
-  let match: RegExpExecArray | null;
+  let match: RegExpExecArray | null = null;
 
-  while ((match = sentenceEndRegex.exec(text)) !== null) {
+  match = sentenceEndRegex.exec(text);
+  while (match !== null) {
     const punctuationEnd = match.index + match[1].length;
 
     // Check if this is an abbreviation
@@ -86,6 +87,8 @@ export function splitIntoSentences(text: string): Sentence[] {
     while (lastEnd < text.length && /\s/.test(text[lastEnd])) {
       lastEnd++;
     }
+
+    match = sentenceEndRegex.exec(text);
   }
 
   // Handle remaining text (no sentence-ending punctuation)
