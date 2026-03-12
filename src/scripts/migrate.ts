@@ -1,3 +1,4 @@
+import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import 'dotenv/config';
@@ -78,15 +79,36 @@ async function runMigrations(): Promise<void> {
       const filePath = path.join(migrationsFolder, file);
       const content = fs.readFileSync(filePath, 'utf-8');
 
-      // Execute migration in a transaction
-      await sql.begin(async (tx) => {
-        await tx.unsafe(content);
-        await tx`
+      // Baseline migrations (like 0000_baseline.sql) are applied via psql
+      // because they're large pg_dump files that work best with psql
+      if (version.startsWith('0000_')) {
+        const psqlEnv = {
+          PGHOST: DB_HOST,
+          PGPORT: DB_PORT.toString(),
+          PGUSER: DB_USER,
+          PGPASSWORD: DB_PASSWORD,
+          PGDATABASE: DB_NAME,
+        };
+        execSync(`psql -f "${filePath}"`, {
+          env: { ...process.env, ...psqlEnv },
+          stdio: 'pipe',
+        });
+        await sql`
           INSERT INTO schema_migrations (version)
           VALUES (${version})
           ON CONFLICT DO NOTHING
         `;
-      });
+      } else {
+        // Execute regular migrations in a transaction
+        await sql.begin(async (tx) => {
+          await tx.unsafe(content);
+          await tx`
+            INSERT INTO schema_migrations (version)
+            VALUES (${version})
+            ON CONFLICT DO NOTHING
+          `;
+        });
+      }
 
       console.log(`[DONE] ${version}`);
       appliedCount++;
