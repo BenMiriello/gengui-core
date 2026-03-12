@@ -93,24 +93,6 @@ async function resetSchema(db: ReturnType<typeof drizzle>): Promise<void> {
   await db.execute(sql`DROP SCHEMA public CASCADE`);
   await db.execute(sql`CREATE SCHEMA public`);
   await db.execute(sql`GRANT ALL ON SCHEMA public TO public`);
-
-  // Create vector extension as superuser before migrations run
-  // This is required because baseline SQL includes CREATE EXTENSION which needs superuser
-  // We use postgres superuser to create it, then migrations can reference it
-  const superuserClient = postgres({
-    host: process.env.DB_HOST || 'localhost',
-    port: Number(process.env.DB_PORT) || 5432,
-    username: 'postgres',
-    password: '',
-    database: process.env.DB_NAME || 'gengui_test',
-    max: 1,
-  });
-  const superuserDb = drizzle(superuserClient);
-  try {
-    await superuserDb.execute(sql`CREATE EXTENSION IF NOT EXISTS vector`);
-  } finally {
-    await superuserClient.end();
-  }
 }
 
 async function applyMigrations(db: ReturnType<typeof drizzle>): Promise<void> {
