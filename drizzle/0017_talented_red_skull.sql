@@ -1,1 +1,0 @@
-ALTER TYPE "public"."media_status" ADD VALUE 'augmenting' BEFORE 'processing';

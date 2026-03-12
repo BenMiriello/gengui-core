@@ -1,1 +1,0 @@
-ALTER TABLE "document_versions" DROP COLUMN "content_json";
