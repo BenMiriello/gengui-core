@@ -747,11 +747,14 @@ router.get(
           ? await graphStoryNodesRepository.getConnectionsForDocument(id)
           : [];
 
-      const nodesWithPrimaryMedia = nodes.filter((n) => n.primaryMediaId);
+      const nodesWithPrimaryMedia = nodes.filter(
+        (n): n is (typeof nodes)[0] & { primaryMediaId: string } =>
+          n.primaryMediaId !== null && n.primaryMediaId !== undefined,
+      );
       const primaryMediaUrls: Record<string, string> = {};
 
       if (nodesWithPrimaryMedia.length > 0) {
-        const mediaIds = nodesWithPrimaryMedia.map((n) => n.primaryMediaId!);
+        const mediaIds = nodesWithPrimaryMedia.map((n) => n.primaryMediaId);
         const mediaRecords = await db
           .select({
             id: media.id,

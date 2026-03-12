@@ -10,12 +10,12 @@ if (!adminEmail) {
   process.exit(1);
 }
 
-async function createAdmin() {
+async function createAdmin(email: string) {
   try {
     const [user] = await db
       .update(users)
       .set({ role: 'admin' })
-      .where(eq(users.email, adminEmail!))
+      .where(eq(users.email, email))
       .returning();
 
     if (user) {
@@ -31,4 +31,4 @@ async function createAdmin() {
   }
 }
 
-createAdmin();
+createAdmin(adminEmail);
