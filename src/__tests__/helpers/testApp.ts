@@ -1,25 +1,34 @@
-import { mock } from 'bun:test';
 import type { Server } from 'node:http';
+import { vi } from 'vitest';
 
 import { getEmailServiceMock } from './mocks';
 
-const emailMock = getEmailServiceMock();
-
-const redisStore = new Map<string, string>();
+const {
+  redisStore,
+  mockStorageData,
+  mockStoryNodes,
+  primaryEditors,
+  storageKeyCounter,
+} = vi.hoisted(() => {
+  return {
+    redisStore: new Map<string, string>(),
+    mockStorageData: new Map<string, Buffer>(),
+    mockStoryNodes: new Map<string, any>(),
+    primaryEditors: new Map<string, string>(),
+    storageKeyCounter: { value: 0 },
+  };
+});
 
 export function clearRedisStore() {
   redisStore.clear();
 }
 
-const mockStorageData = new Map<string, Buffer>();
-let storageKeyCounter = 0;
-
 export function clearStorageData() {
   mockStorageData.clear();
-  storageKeyCounter = 0;
+  storageKeyCounter.value = 0;
 }
 
-mock.module('../../services/storage', () => ({
+vi.mock('../../services/storage', () => ({
   storageProvider: {
     upload: async (
       userId: string,
@@ -27,7 +36,7 @@ mock.module('../../services/storage', () => ({
       buffer: Buffer,
       _mimeType: string,
     ) => {
-      const key = `${userId}/${mediaId}/${++storageKeyCounter}`;
+      const key = `${userId}/${mediaId}/${++storageKeyCounter.value}`;
       mockStorageData.set(key, buffer);
       return key;
     },
@@ -51,7 +60,7 @@ mock.module('../../services/storage', () => ({
       buffer: Buffer,
       _mimeType: string,
     ) => {
-      const key = `${userId}/${mediaId}/${++storageKeyCounter}`;
+      const key = `${userId}/${mediaId}/${++storageKeyCounter.value}`;
       mockStorageData.set(key, buffer);
       return key;
     },
@@ -70,14 +79,14 @@ mock.module('../../services/storage', () => ({
   }),
 }));
 
-mock.module('../../services/imageProcessor', () => ({
+vi.mock('../../services/imageProcessor', () => ({
   imageProcessor: {
     extractDimensions: async (_buffer: Buffer) => ({ width: 100, height: 100 }),
     createThumbnail: async (buffer: Buffer, _size: number) => buffer,
   },
 }));
 
-mock.module('../../services/cache', () => ({
+vi.mock('../../services/cache', () => ({
   cache: {
     getMediaUrl: async () => null,
     setMediaUrl: async () => {},
@@ -141,7 +150,7 @@ const mockRedisClient = {
   quit: async () => {},
 };
 
-mock.module('../../services/redis', () => ({
+vi.mock('../../services/redis', () => ({
   redis: {
     getClient: () => mockRedisClient,
     getSubscriber: () => mockRedisClient,
@@ -174,25 +183,28 @@ mock.module('../../services/redis', () => ({
   },
 }));
 
-const noOpRateLimiter = (_req: unknown, _res: unknown, next: () => void) =>
-  next();
+vi.mock('../../middleware/rateLimiter', () => {
+  const noOpRateLimiter = (_req: unknown, _res: unknown, next: () => void) =>
+    next();
+  return {
+    authRateLimiter: noOpRateLimiter,
+    signupRateLimiter: noOpRateLimiter,
+    passwordResetRateLimiter: noOpRateLimiter,
+    emailVerificationRateLimiter: noOpRateLimiter,
+  };
+});
 
-mock.module('../../middleware/rateLimiter', () => ({
-  authRateLimiter: noOpRateLimiter,
-  signupRateLimiter: noOpRateLimiter,
-  passwordResetRateLimiter: noOpRateLimiter,
-  emailVerificationRateLimiter: noOpRateLimiter,
+vi.mock('../../middleware/generationRateLimiter', () => ({
+  generationRateLimiter: (_req: unknown, _res: unknown, next: () => void) =>
+    next(),
 }));
 
-mock.module('../../middleware/generationRateLimiter', () => ({
-  generationRateLimiter: noOpRateLimiter,
+vi.mock('../../middleware/augmentationRateLimiter', () => ({
+  augmentationRateLimiter: (_req: unknown, _res: unknown, next: () => void) =>
+    next(),
 }));
 
-mock.module('../../middleware/augmentationRateLimiter', () => ({
-  augmentationRateLimiter: noOpRateLimiter,
-}));
-
-mock.module('../../services/runpod/client', () => ({
+vi.mock('../../services/runpod/client', () => ({
   runpodClient: {
     isEnabled: () => false,
     getJobStatus: async () => ({ status: 'COMPLETED' }),
@@ -200,17 +212,21 @@ mock.module('../../services/runpod/client', () => ({
   },
 }));
 
-mock.module('../../services/emailService', () => ({
-  emailService: emailMock,
-  EmailService: class {
-    sendVerificationEmail = emailMock.sendVerificationEmail;
-    sendEmailChangeVerification = emailMock.sendEmailChangeVerification;
-    sendPasswordResetEmail = emailMock.sendPasswordResetEmail;
-    sendPasswordChangedEmail = emailMock.sendPasswordChangedEmail;
-  },
-}));
+vi.mock('../../services/emailService', async () => {
+  const { getEmailServiceMock } = await import('./mocks');
+  const emailMock = getEmailServiceMock();
+  return {
+    emailService: emailMock,
+    EmailService: class {
+      sendVerificationEmail = emailMock.sendVerificationEmail;
+      sendEmailChangeVerification = emailMock.sendEmailChangeVerification;
+      sendPasswordResetEmail = emailMock.sendPasswordResetEmail;
+      sendPasswordChangedEmail = emailMock.sendPasswordChangedEmail;
+    },
+  };
+});
 
-mock.module('../../services/image-generation/factory', () => ({
+vi.mock('../../services/image-generation/factory', () => ({
   getImageProvider: async () => ({
     name: 'test',
     validateDimensions: () => true,
@@ -227,8 +243,6 @@ mock.module('../../services/image-generation/factory', () => ({
   getImageProviderName: () => 'test',
 }));
 
-const primaryEditors = new Map<string, string>();
-
 export function setPrimaryEditor(documentId: string, sessionId: string) {
   primaryEditors.set(documentId, sessionId);
 }
@@ -237,7 +251,7 @@ export function clearPrimaryEditors() {
   primaryEditors.clear();
 }
 
-mock.module('../../services/presence', () => ({
+vi.mock('../../services/presence', () => ({
   presenceService: {
     isPrimaryEditor: async (documentId: string, sessionId: string) => {
       const primary = primaryEditors.get(documentId);
@@ -257,7 +271,7 @@ mock.module('../../services/presence', () => ({
   },
 }));
 
-mock.module('../../services/sse', () => ({
+vi.mock('../../services/sse', () => ({
   sseService: {
     addClient: () => {},
     removeClient: () => {},
@@ -266,13 +280,11 @@ mock.module('../../services/sse', () => ({
   },
 }));
 
-mock.module('../../services/redis-streams', () => ({
+vi.mock('../../services/redis-streams', () => ({
   redisStreams: {
     add: async () => 'mock-stream-id',
   },
 }));
-
-const mockStoryNodes = new Map<string, unknown>();
 
 export function clearMockStoryNodes() {
   mockStoryNodes.clear();
@@ -284,7 +296,7 @@ export function setMockStoryNode(nodeId: string, node: unknown) {
 
 // Always mock graphService for API tests that use setMockStoryNode helper
 // Graph integration tests (in __tests__/graph/) create their own connection
-mock.module('../../services/graph/graph.service', () => ({
+vi.mock('../../services/graph/graph.service', () => ({
   graphService: {
     __isMocked: true,
     connect: async () => {},
@@ -333,7 +345,7 @@ mock.module('../../services/graph/graph.service', () => ({
   },
 }));
 
-mock.module('../../services/graph/graph.threads.js', () => ({
+vi.mock('../../services/graph/graph.threads.js', () => ({
   graphThreads: {
     getThreadsForDocument: async () => [],
     getThreadById: async () => null,
@@ -344,7 +356,7 @@ mock.module('../../services/graph/graph.threads.js', () => ({
   },
 }));
 
-mock.module('../../config/env', () => ({
+vi.mock('../../config/env', () => ({
   env: {
     NODE_ENV: 'development',
     PORT: 3000,
@@ -498,4 +510,5 @@ export function getBaseUrl(): string {
   return `http://127.0.0.1:${serverPort}`;
 }
 
+const emailMock = getEmailServiceMock();
 export { emailMock, mockStorageData, mockStoryNodes };

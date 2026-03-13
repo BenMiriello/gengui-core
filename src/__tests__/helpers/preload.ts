@@ -28,12 +28,12 @@ try {
   process.env.FALKORDB_AVAILABLE = 'false';
 }
 
-import { mock } from 'bun:test';
+import { vi } from 'vitest';
 
 const noOpRateLimiter = (_req: unknown, _res: unknown, next: () => void) =>
   next();
 
-mock.module('../../../src/middleware/rateLimiter', () => ({
+vi.mock('../../../src/middleware/rateLimiter', () => ({
   authRateLimiter: noOpRateLimiter,
   signupRateLimiter: noOpRateLimiter,
   passwordResetRateLimiter: noOpRateLimiter,

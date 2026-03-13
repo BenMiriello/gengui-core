@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   afterAll,
   beforeAll,
@@ -5,8 +6,7 @@ import {
   describe,
   expect,
   test,
-} from 'bun:test';
-import { randomUUID } from 'node:crypto';
+} from 'vitest';
 import {
   closeDb,
   createTestDocument,

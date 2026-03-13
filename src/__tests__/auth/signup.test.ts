@@ -1,3 +1,4 @@
+import bcrypt from 'bcrypt';
 import {
   afterAll,
   beforeAll,
@@ -5,8 +6,7 @@ import {
   describe,
   expect,
   test,
-} from 'bun:test';
-import bcrypt from 'bcrypt';
+} from 'vitest';
 import {
   closeDb,
   createTestUser,

@@ -5,7 +5,7 @@ import {
   describe,
   expect,
   test,
-} from 'bun:test';
+} from 'vitest';
 import { GraphService } from '../../services/graph/graph.service';
 import type { StoryNodeResult } from '../../types/storyNodes';
 
