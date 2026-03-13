@@ -337,7 +337,7 @@ psql -h localhost -U gengui -d gengui_media -f drizzle/${NEXT}_descriptive_actio
 
 **Applying migrations:**
 ```bash
-bun src/scripts/migrate.ts  # Applies all unapplied migrations
+npm run migrate  # Applies all unapplied migrations
 ```
 
 See full TDD for: migration template, workflow, rollback procedures, and baseline reset instructions.

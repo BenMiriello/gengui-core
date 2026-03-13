@@ -11,9 +11,10 @@ export default defineConfig({
     pool: 'forks',
     poolOptions: {
       forks: {
-        singleFork: false,
+        singleFork: true,
       },
     },
+    fileParallelism: false,
     include: ['src/**/*.test.ts'],
     exclude: ['node_modules', 'dist'],
   },
