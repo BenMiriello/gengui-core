@@ -13,7 +13,7 @@ const {
   return {
     redisStore: new Map<string, string>(),
     mockStorageData: new Map<string, Buffer>(),
-    mockStoryNodes: new Map<string, any>(),
+    mockStoryNodes: new Map<string, unknown>(),
     primaryEditors: new Map<string, string>(),
     storageKeyCounter: { value: 0 },
   };
