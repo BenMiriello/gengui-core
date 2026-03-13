@@ -5,6 +5,9 @@ class RedisService {
   private client: Redis;
   private subscriber: Redis;
   private monitorInterval: NodeJS.Timeout | null = null;
+  private messageHandler:
+    | ((pattern: string, channel: string, message: string) => void)
+    | null = null;
 
   constructor() {
     const redisUrl = process.env.REDIS_URL;
@@ -22,9 +25,11 @@ class RedisService {
       enableReadyCheck: true,
       lazyConnect: false,
       enableOfflineQueue: true,
-      keepAlive: 0,
+      keepAlive: 30000,
       family: 4,
       enableAutoPipelining: false,
+      blockingTimeout: 30000,
+      autoResubscribe: true,
     });
 
     this.subscriber = new Redis(redisUrl, {
@@ -35,9 +40,11 @@ class RedisService {
       enableReadyCheck: true,
       lazyConnect: false,
       enableOfflineQueue: true,
-      keepAlive: 0,
+      keepAlive: 30000,
       family: 4,
       enableAutoPipelining: false,
+      blockingTimeout: 30000,
+      autoResubscribe: true,
     });
 
     this.client.on('connect', () => {
@@ -119,13 +126,21 @@ class RedisService {
     pattern: string,
     callback: (channel: string, message: string) => void,
   ): Promise<void> {
+    // Remove old listener if exists
+    if (this.messageHandler) {
+      this.subscriber.off('pmessage', this.messageHandler);
+    }
+
     await this.subscriber.psubscribe(pattern);
 
-    this.subscriber.on('pmessage', (subscribedPattern, channel, message) => {
+    // Create and store new handler
+    this.messageHandler = (subscribedPattern, channel, message) => {
       if (subscribedPattern === pattern) {
         callback(channel, message);
       }
-    });
+    };
+
+    this.subscriber.on('pmessage', this.messageHandler);
   }
 
   async publish(channel: string, message: string): Promise<number> {

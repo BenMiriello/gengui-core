@@ -69,12 +69,16 @@ export abstract class JobWorker<
       'Starting job worker',
     );
 
-    // Subscribe to job notifications
     const redisUrl = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
     this.subscriber = new Redis(redisUrl, {
       maxRetriesPerRequest: 3,
       retryStrategy: (times: number) => Math.min(times * 500, 5000),
+      commandTimeout: 15000,
+      connectTimeout: 10000,
       family: 4,
+      keepAlive: 30000,
+      blockingTimeout: 30000,
+      autoResubscribe: true,
     });
 
     this.subscriber.on('error', (error) => {
@@ -92,7 +96,6 @@ export abstract class JobWorker<
       }
     });
 
-    // Fallback polling + stale job recovery
     this.pollInterval = setInterval(async () => {
       if (this.isRunning && !this.processingPromise) {
         this.processingPromise = (async () => {
@@ -104,7 +107,6 @@ export abstract class JobWorker<
       }
     }, POLL_INTERVAL_MS);
 
-    // Initial check for pending jobs
     this.processAvailable().catch((error) => {
       logger.error(
         { error, service: this.serviceName },
@@ -112,7 +114,6 @@ export abstract class JobWorker<
       );
     });
 
-    // Initial stale job recovery
     this.recoverStaleJobs().catch((error) => {
       logger.error(
         { error, service: this.serviceName },

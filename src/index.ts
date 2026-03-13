@@ -43,7 +43,6 @@ const server = app.listen(env.PORT, '0.0.0.0', async () => {
     cleanupTask = startCleanupJob();
     cleanupReservationsTask = startCleanupReservationsJob();
     cleanupActivitiesTask = startCleanupActivitiesJob();
-
     await graphService.initializeIndexes();
   } catch (error) {
     logger.error({ error }, 'Failed to start generation services');

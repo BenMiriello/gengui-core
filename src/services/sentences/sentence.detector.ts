@@ -62,11 +62,13 @@ export function splitIntoSentences(text: string): Sentence[] {
     const lastWord = beforePunctuation.split(/\s+/).pop()?.toLowerCase() || '';
 
     if (ABBREVIATIONS.has(lastWord.replace(/\.$/, ''))) {
+      match = sentenceEndRegex.exec(text);
       continue;
     }
 
     // Check for initials (single letter followed by period)
     if (/^[A-Z]\.$/.test(lastWord)) {
+      match = sentenceEndRegex.exec(text);
       continue;
     }
 
