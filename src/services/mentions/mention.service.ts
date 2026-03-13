@@ -470,11 +470,22 @@ export const mentionService = {
   async updateKeyPassage(
     mentionId: string,
     isKeyPassage: boolean,
-  ): Promise<void> {
+  ): Promise<{ documentId: string; nodeId: string }> {
+    const mention = await db.query.mentions.findFirst({
+      where: eq(mentions.id, mentionId),
+      columns: { documentId: true, nodeId: true },
+    });
+
+    if (!mention) {
+      throw new Error(`Mention ${mentionId} not found`);
+    }
+
     await db
       .update(mentions)
       .set({ isKeyPassage })
       .where(eq(mentions.id, mentionId));
+
+    return { documentId: mention.documentId, nodeId: mention.nodeId };
   },
 
   /**
@@ -612,6 +623,23 @@ export const mentionService = {
     }
 
     return null;
+  },
+
+  /**
+   * Get the last modified timestamp for mentions in a document.
+   * Used for Last-Modified caching optimization.
+   */
+  async getLastModified(documentId: string): Promise<Date | null> {
+    const [row] = await db
+      .select({
+        updatedAt: mentions.updatedAt,
+      })
+      .from(mentions)
+      .where(eq(mentions.documentId, documentId))
+      .orderBy(sql`${mentions.updatedAt} DESC`)
+      .limit(1);
+
+    return row?.updatedAt ?? null;
   },
 
   /**

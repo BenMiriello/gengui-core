@@ -11,6 +11,7 @@ import { augmentationRateLimiter } from '../middleware/augmentationRateLimiter';
 import { requireAuth, requireEmailVerified } from '../middleware/auth';
 import { generationRateLimiter } from '../middleware/generationRateLimiter';
 import { generationsService } from '../services/generationsService';
+import { sseService } from '../services/sse';
 import {
   ConcurrentLimitExceededError,
   UsageQuotaExceededError,
@@ -92,6 +93,18 @@ router.post(
           validatedData,
         );
         success = true;
+
+        if (validatedData.documentId) {
+          await sseService.broadcastToDocument(
+            validatedData.documentId,
+            'media-uploaded',
+            {
+              documentId: validatedData.documentId,
+              mediaId: result.id,
+              nodeId: undefined,
+            },
+          );
+        }
 
         res.status(201).json({
           id: result.id,

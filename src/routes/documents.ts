@@ -92,6 +92,13 @@ router.post(
         title,
         content || '',
       );
+
+      await sseService.broadcastToUser(userId, 'document-updated', {
+        documentId: document.id,
+        currentVersion: 1,
+        updatedAt: document.createdAt,
+      });
+
       res.status(201).json({ document });
     } catch (error) {
       next(error);
@@ -112,6 +119,13 @@ router.post(
         userId,
         title || 'Untitled',
       );
+
+      await sseService.broadcastToUser(userId, 'document-updated', {
+        documentId: document.id,
+        currentVersion: 1,
+        updatedAt: document.createdAt,
+      });
+
       res.status(201).json({ document });
     } catch (error) {
       next(error);
@@ -154,6 +168,13 @@ router.patch(
         expectedVersion,
         forceOverwrite,
       });
+
+      await sseService.broadcastToDocument(id, 'document-updated', {
+        documentId: document.id,
+        currentVersion: document.currentVersion,
+        updatedAt: document.updatedAt,
+      });
+
       res.json({ document });
     } catch (error) {
       next(error);
@@ -238,6 +259,11 @@ router.delete(
       if (!req.user) throw new Error('User not authenticated');
       const userId = req.user.id;
       const { id } = req.params;
+
+      await sseService.broadcastToDocument(id, 'document-deleted', {
+        documentId: id,
+      });
+
       await documentsService.delete(id, userId);
       res.json({ success: true });
     } catch (error) {
@@ -826,6 +852,10 @@ router.delete(
 
       logger.info({ documentId: id, userId }, 'DELETE story-nodes called');
 
+      // Get node IDs before deletion for SSE event
+      const nodes = await graphStoryNodesRepository.getActiveNodes(id, userId);
+      const nodeIds = nodes.map((n) => n.id);
+
       // Check state BEFORE delete
       const [docBefore] = await db
         .select({
@@ -909,6 +939,11 @@ router.delete(
         },
         'State after delete - DELETE COMPLETED',
       );
+
+      await sseService.broadcastToDocument(id, 'node-deleted', {
+        documentId: id,
+        nodeIds,
+      });
 
       res.json({ success: true });
     } catch (error) {

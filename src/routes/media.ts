@@ -3,6 +3,7 @@ import multer from 'multer';
 import { PRESIGNED_S3_URL_EXPIRATION } from '../config/constants';
 import { requireAuth } from '../middleware/auth';
 import { mediaService } from '../services/mediaService';
+import { sseService } from '../services/sse';
 
 const router = Router();
 const upload = multer({
@@ -120,10 +121,26 @@ router.get('/:id/node', requireAuth, async (req, res, next) => {
 
 router.delete('/:id', requireAuth, async (req, res, next) => {
   try {
-    const result = await mediaService.delete(
-      req.params.id,
-      req.user?.id as string,
+    const mediaId = req.params.id;
+    const userId = req.user?.id as string;
+
+    const documents = await mediaService.getDocumentsByMediaId(
+      mediaId,
+      userId,
+      ['id'],
     );
+
+    const result = await mediaService.delete(mediaId, userId);
+
+    for (const doc of documents) {
+      if (doc.id) {
+        await sseService.broadcastToDocument(doc.id, 'media-deleted', {
+          documentId: doc.id,
+          mediaId,
+          nodeId: undefined,
+        });
+      }
+    }
 
     res.json({ message: 'Media deleted', id: result.id });
   } catch (error) {

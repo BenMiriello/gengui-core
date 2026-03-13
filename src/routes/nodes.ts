@@ -65,6 +65,22 @@ router.post(
         cursorPosition: validatedData.cursorPosition,
       });
 
+      const node = await graphService.getStoryNodeById(
+        req.params.id,
+        req.user?.id as string,
+      );
+      if (node) {
+        await sseService.broadcastToDocument(
+          node.documentId,
+          'media-uploaded',
+          {
+            documentId: node.documentId,
+            mediaId: result.id,
+            nodeId: node.id,
+          },
+        );
+      }
+
       res.status(201).json({
         id: result.id,
         status: result.status,
@@ -250,6 +266,14 @@ router.patch('/nodes/:id', requireAuth, async (req, res, next) => {
       id,
       req.user?.id as string,
     );
+
+    if (updated) {
+      await sseService.broadcastToDocument(updated.documentId, 'node-updated', {
+        documentId: updated.documentId,
+        nodeId: updated.id,
+      });
+    }
+
     res.json(updated);
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -507,8 +531,22 @@ router.patch(
         .object({ isKeyPassage: z.boolean() })
         .parse(req.body);
 
-      // Update the mention
-      await mentionService.updateKeyPassage(mentionId, isKeyPassage);
+      const { documentId, nodeId } = await mentionService.updateKeyPassage(
+        mentionId,
+        isKeyPassage,
+      );
+
+      await sseService.broadcastToDocument(
+        documentId,
+        'mention-key-passage-updated',
+        {
+          documentId,
+          mentionId,
+          nodeId,
+          isKeyPassage,
+          timestamp: Date.now(),
+        },
+      );
 
       res.json({ success: true, isKeyPassage });
     } catch (error) {
@@ -534,6 +572,20 @@ router.get('/documents/:id/mentions', requireAuth, async (req, res, next) => {
 
     const mentions =
       await mentionService.getByDocumentIdWithAbsolutePositions(id);
+
+    const lastModified = await mentionService.getLastModified(id);
+
+    if (lastModified && req.headers['if-modified-since']) {
+      const ifModifiedSince = new Date(req.headers['if-modified-since']);
+      if (lastModified <= ifModifiedSince) {
+        res.status(304).end();
+        return;
+      }
+    }
+
+    if (lastModified) {
+      res.setHeader('Last-Modified', lastModified.toUTCString());
+    }
 
     res.json({ mentions });
   } catch (error) {
