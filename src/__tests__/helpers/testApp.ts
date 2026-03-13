@@ -9,6 +9,7 @@ const {
   mockStoryNodes,
   primaryEditors,
   storageKeyCounter,
+  testServer,
 } = vi.hoisted(() => {
   return {
     redisStore: new Map<string, string>(),
@@ -16,6 +17,7 @@ const {
     mockStoryNodes: new Map<string, unknown>(),
     primaryEditors: new Map<string, string>(),
     storageKeyCounter: { value: 0 },
+    testServer: { server: null as any, port: 0 },
   };
 });
 
@@ -386,15 +388,26 @@ import helmet from 'helmet';
 import { requireAuth, requireEmailVerified } from '../../middleware/auth';
 import { errorHandler } from '../../middleware/errorHandler';
 import { requireAdmin } from '../../middleware/requireAdmin';
-import adminRoutes from '../../routes/admin';
-import authRoutes from '../../routes/auth';
-import documentRoutes from '../../routes/documents';
-import generationRoutes from '../../routes/generations';
-import mediaRoutes from '../../routes/media';
-import nodeRoutes from '../../routes/nodes';
-import tagRoutes from '../../routes/tags';
 
-function createTestApp() {
+async function createTestApp() {
+  const [
+    { default: adminRoutes },
+    { default: authRoutes },
+    { default: documentRoutes },
+    { default: generationRoutes },
+    { default: mediaRoutes },
+    { default: nodeRoutes },
+    { default: tagRoutes },
+  ] = await Promise.all([
+    import('../../routes/admin'),
+    import('../../routes/auth'),
+    import('../../routes/documents'),
+    import('../../routes/generations'),
+    import('../../routes/media'),
+    import('../../routes/nodes'),
+    import('../../routes/tags'),
+  ]);
+
   const app = express();
 
   app.use(
@@ -461,41 +474,38 @@ function createTestApp() {
   return app;
 }
 
-let server: Server | null = null;
-let serverPort: number = 0;
-
 export async function startTestServer(): Promise<{
-  app: ReturnType<typeof createTestApp>;
+  app: Awaited<ReturnType<typeof createTestApp>>;
   port: number;
   baseUrl: string;
 }> {
-  const app = createTestApp();
+  const app = await createTestApp();
 
   return new Promise((resolve, reject) => {
-    server = app.listen(0, () => {
-      const address = server?.address();
+    testServer.server = app.listen(0, () => {
+      const address = testServer.server?.address();
       if (typeof address === 'object' && address !== null) {
-        serverPort = address.port;
+        testServer.port = address.port;
         resolve({
           app,
-          port: serverPort,
-          baseUrl: `http://127.0.0.1:${serverPort}`,
+          port: testServer.port,
+          baseUrl: `http://127.0.0.1:${testServer.port}`,
         });
       } else {
         reject(new Error('Failed to get server address'));
       }
     });
 
-    server.on('error', reject);
+    testServer.server.on('error', reject);
   });
 }
 
 export async function stopTestServer(): Promise<void> {
-  if (server) {
+  if (testServer.server) {
     return new Promise((resolve) => {
-      server?.close(() => {
-        server = null;
-        serverPort = 0;
+      testServer.server?.close(() => {
+        testServer.server = null;
+        testServer.port = 0;
         resolve();
       });
     });
