@@ -24,12 +24,17 @@ async function createClient(): Promise<OpenAIClient | null> {
 
 async function getClient(): Promise<OpenAIClient | null> {
   if (!initPromise) {
-    initPromise = createClient().then((client) => {
-      if (!client) {
-        logger.warn('OPENAI_API_KEY not configured');
-      }
-      return client;
-    });
+    initPromise = createClient()
+      .then((client) => {
+        if (!client) {
+          logger.warn('OPENAI_API_KEY not configured');
+        }
+        return client;
+      })
+      .catch((err) => {
+        initPromise = null;
+        throw err;
+      });
   }
   return await initPromise;
 }

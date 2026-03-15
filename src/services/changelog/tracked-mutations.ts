@@ -89,9 +89,17 @@ export async function createTrackedFacet(
   entityId: string,
   facet: FacetInput,
   embedding?: number[],
-  trackingOptions?: TrackedMutationOptions & { entityName?: string },
+  trackingOptions?: TrackedMutationOptions & {
+    entityName?: string;
+    analysisVersion?: string;
+  },
 ): Promise<string> {
-  const facetId = await graphService.createFacet(entityId, facet, embedding);
+  const facetId = await graphService.createFacet(
+    entityId,
+    facet,
+    embedding,
+    trackingOptions?.analysisVersion,
+  );
 
   await safeLog(
     () =>

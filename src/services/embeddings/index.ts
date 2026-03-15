@@ -1,20 +1,30 @@
 import type { StoredStoryNode } from '../graph/graph.service';
-import { getEmbeddingProvider } from './factory';
+import {
+  getEmbeddingProvider,
+  getEmbeddingProviderForVersion,
+} from './factory';
 
-export { getEmbeddingProvider } from './factory';
+export {
+  getEmbeddingProvider,
+  getEmbeddingProviderForVersion,
+} from './factory';
 export type { EmbeddingProvider } from './provider.interface';
 
-export async function generateEmbedding(text: string): Promise<number[]> {
-  const provider = getEmbeddingProvider();
+/**
+ * Generate embedding for a single text.
+ * @param text - Text to embed
+ * @param model - Optional model name. If not provided, uses current default.
+ */
+export async function generateEmbedding(
+  text: string,
+  model?: string,
+): Promise<number[]> {
+  const provider = getEmbeddingProvider(model);
 
-  // Retry up to 3 times if OpenAI returns wrong dimensions
   const maxRetries = 3;
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       const embedding = await provider.embed(text);
-      console.log(
-        `[DEBUG] generateEmbedding: provider=${provider.name}, dimensions=${embedding.length}, textLength=${text.length}`,
-      );
       return embedding;
     } catch (error: unknown) {
       const isWrongDimension =
@@ -36,11 +46,47 @@ export async function generateEmbedding(text: string): Promise<number[]> {
   throw new Error('Failed to generate embedding after retries');
 }
 
-export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
+/**
+ * Generate embeddings for multiple texts in batch.
+ * @param texts - Array of texts to embed
+ * @param model - Optional model name. If not provided, uses current default.
+ */
+export async function generateEmbeddings(
+  texts: string[],
+  model?: string,
+): Promise<number[][]> {
   if (texts.length === 0) return [];
-  if (texts.length === 1) return [await generateEmbedding(texts[0])];
+  if (texts.length === 1) return [await generateEmbedding(texts[0], model)];
 
-  const provider = getEmbeddingProvider();
+  const provider = getEmbeddingProvider(model);
+  return provider.batchEmbed(texts);
+}
+
+/**
+ * Generate embedding for a specific analysis version.
+ * Uses the embedding model configured for that version.
+ */
+export async function generateEmbeddingForVersion(
+  text: string,
+  version: string,
+): Promise<number[]> {
+  const provider = getEmbeddingProviderForVersion(version);
+  return provider.embed(text);
+}
+
+/**
+ * Generate embeddings for a specific analysis version.
+ * Uses the embedding model configured for that version.
+ */
+export async function generateEmbeddingsForVersion(
+  texts: string[],
+  version: string,
+): Promise<number[][]> {
+  if (texts.length === 0) return [];
+  if (texts.length === 1)
+    return [await generateEmbeddingForVersion(texts[0], version)];
+
+  const provider = getEmbeddingProviderForVersion(version);
   return provider.batchEmbed(texts);
 }
 

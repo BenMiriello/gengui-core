@@ -280,6 +280,7 @@ export const documents = pgTable(
     currentVersion: integer('current_version').default(0).notNull(),
     lastAnalyzedVersion: integer('last_analyzed_version'),
     analysisStatus: text('analysis_status'),
+    analysisVersion: varchar('analysis_version', { length: 20 }),
     analysisStartedAt: timestamp('analysis_started_at', { withTimezone: true }),
     analysisCompletedAt: timestamp('analysis_completed_at', {
       withTimezone: true,
@@ -617,7 +618,9 @@ export const sentenceEmbeddings = pgTable(
     sentenceStart: integer('sentence_start').notNull(),
     sentenceEnd: integer('sentence_end').notNull(),
     contentHash: varchar('content_hash', { length: 64 }).notNull(),
-    embedding: text('embedding').notNull(),
+    embeddingModel: varchar('embedding_model', { length: 50 }).notNull(),
+    embedding_1536: text('embedding_1536'),
+    embedding_1024: text('embedding_1024'),
     createdAt: timestamp('created_at', { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -631,7 +634,10 @@ export const sentenceEmbeddings = pgTable(
       table.documentId,
       table.segmentId,
     ),
-    index('idx_sentence_embeddings_hash').on(table.contentHash),
+    index('idx_sentence_embeddings_hash_model').on(
+      table.contentHash,
+      table.embeddingModel,
+    ),
   ],
 );
 

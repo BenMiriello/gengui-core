@@ -1,25 +1,56 @@
+import {
+  getCurrentAnalysisVersion,
+  getVersionConfig,
+} from '../../config/analysis-versions';
 import type { EmbeddingProvider } from './provider.interface';
 
-let cachedProvider: EmbeddingProvider | null = null;
+const providerCache = new Map<string, EmbeddingProvider>();
 
-export function getEmbeddingProvider(): EmbeddingProvider {
-  if (cachedProvider) return cachedProvider;
+function getProviderForModel(model: string): EmbeddingProvider {
+  const cached = providerCache.get(model);
+  if (cached) return cached;
 
-  const providerName = process.env.EMBEDDING_PROVIDER || 'openai';
+  let provider: EmbeddingProvider;
 
-  switch (providerName) {
-    default: {
+  switch (model) {
+    case 'openai-3-small': {
       const {
         openaiEmbeddingProvider,
       } = require('./providers/openai.provider');
-      cachedProvider = openaiEmbeddingProvider;
+      provider = openaiEmbeddingProvider;
       break;
     }
+    case 'voyage-4-lite': {
+      const {
+        voyageEmbeddingProvider,
+      } = require('./providers/voyage.provider');
+      provider = voyageEmbeddingProvider;
+      break;
+    }
+    default:
+      throw new Error(`Unknown embedding model: ${model}`);
   }
 
-  if (!cachedProvider) {
-    throw new Error('Failed to initialize embedding provider');
-  }
+  providerCache.set(model, provider);
+  return provider;
+}
 
-  return cachedProvider;
+/**
+ * Get embedding provider for a specific model.
+ * If no model specified, uses the current default version's model.
+ */
+export function getEmbeddingProvider(model?: string): EmbeddingProvider {
+  const targetModel =
+    model ?? getVersionConfig(getCurrentAnalysisVersion()).embeddingModel;
+  return getProviderForModel(targetModel);
+}
+
+/**
+ * Get embedding provider for a specific analysis version.
+ */
+export function getEmbeddingProviderForVersion(
+  version: string,
+): EmbeddingProvider {
+  const versionConfig = getVersionConfig(version);
+  return getProviderForModel(versionConfig.embeddingModel);
 }
