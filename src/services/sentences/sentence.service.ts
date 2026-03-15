@@ -4,10 +4,16 @@
  */
 
 import { and, eq, inArray, sql } from 'drizzle-orm';
+import {
+  ANALYSIS_VERSIONS,
+  type EmbeddingColumn,
+  getCurrentAnalysisVersion,
+  getVersionConfig,
+} from '../../config/analysis-versions.js';
 import { db } from '../../config/database';
 import { sentenceEmbeddings } from '../../models/schema';
 import { logger } from '../../utils/logger';
-import { generateEmbedding, generateEmbeddings } from '../embeddings';
+import { generateEmbeddings } from '../embeddings';
 import type { Segment } from '../segments';
 import { splitIntoSentences } from './sentence.detector';
 import type {
@@ -28,21 +34,26 @@ export const sentenceService = {
   /**
    * Process a segment: extract sentences and generate/cache embeddings.
    * Returns sentences with embeddings.
+   * @param analysisVersion - The analysis version to use for embeddings
    */
   async processSegment(
     documentId: string,
     segmentId: string,
     segmentText: string,
+    analysisVersion?: string,
   ): Promise<SentenceWithEmbedding[]> {
+    const version = analysisVersion ?? getCurrentAnalysisVersion();
+    const versionConfig = getVersionConfig(version);
+    const embeddingModel = versionConfig.embeddingModel;
+
     const sentences = this.extractSentences(segmentText);
 
     if (sentences.length === 0) {
       return [];
     }
 
-    // Check cache for existing embeddings
     const contentHashes = sentences.map((s) => s.contentHash);
-    const cached = await this.getCachedByHashes(contentHashes);
+    const cached = await this.getCachedByHashes(contentHashes, embeddingModel);
     const cachedMap = new Map(cached.map((c) => [c.contentHash, c.embedding]));
 
     const results: SentenceWithEmbedding[] = [];
@@ -57,10 +68,10 @@ export const sentenceService = {
       }
     }
 
-    // Generate embeddings for uncached sentences
     if (toEmbed.length > 0) {
       const embeddings = await this.generateBatchEmbeddings(
         toEmbed.map((s) => s.text),
+        embeddingModel,
       );
 
       for (let i = 0; i < toEmbed.length; i++) {
@@ -69,12 +80,17 @@ export const sentenceService = {
 
         results.push({ ...sentence, embedding });
 
-        // Store in database
-        await this.store(documentId, segmentId, sentence, embedding);
+        await this.store(
+          documentId,
+          segmentId,
+          sentence,
+          embedding,
+          embeddingModel,
+          versionConfig.embeddingColumn,
+        );
       }
     }
 
-    // Sort by start position
     results.sort((a, b) => a.start - b.start);
     return results;
   },
@@ -82,12 +98,13 @@ export const sentenceService = {
   /**
    * Process all segments of a document.
    * Returns map of segmentId -> sentences with embeddings.
-   * Processes segments in parallel with limited concurrency.
+   * @param analysisVersion - The analysis version to use for embeddings
    */
   async processDocument(
     documentId: string,
     documentContent: string,
     segments: Segment[],
+    analysisVersion?: string,
   ): Promise<Map<string, SentenceWithEmbedding[]>> {
     const { default: pMap } = await import('p-map');
     const result = new Map<string, SentenceWithEmbedding[]>();
@@ -100,6 +117,7 @@ export const sentenceService = {
           documentId,
           segment.id,
           segmentText,
+          analysisVersion,
         );
         result.set(segment.id, sentences);
       },
@@ -117,15 +135,27 @@ export const sentenceService = {
     segmentId: string,
     sentence: Sentence,
     embedding: number[],
+    embeddingModel: string,
+    embeddingColumn: EmbeddingColumn,
   ): Promise<void> {
     try {
       const embeddingStr = `[${embedding.join(',')}]`;
-      await db.execute(sql`
-        INSERT INTO sentence_embeddings
-          (document_id, segment_id, sentence_start, sentence_end, content_hash, embedding)
-        VALUES
-          (${documentId}, ${segmentId}, ${sentence.start}, ${sentence.end}, ${sentence.contentHash}, ${embeddingStr}::vector)
-      `);
+
+      if (embeddingColumn === 'embedding_1536') {
+        await db.execute(sql`
+          INSERT INTO sentence_embeddings
+            (document_id, segment_id, sentence_start, sentence_end, content_hash, embedding_model, embedding_1536)
+          VALUES
+            (${documentId}, ${segmentId}, ${sentence.start}, ${sentence.end}, ${sentence.contentHash}, ${embeddingModel}, ${embeddingStr}::vector)
+        `);
+      } else {
+        await db.execute(sql`
+          INSERT INTO sentence_embeddings
+            (document_id, segment_id, sentence_start, sentence_end, content_hash, embedding_model, embedding_1024)
+          VALUES
+            (${documentId}, ${segmentId}, ${sentence.start}, ${sentence.end}, ${sentence.contentHash}, ${embeddingModel}, ${embeddingStr}::vector)
+        `);
+      }
     } catch (err) {
       logger.warn(
         { documentId, segmentId, error: err },
@@ -135,22 +165,31 @@ export const sentenceService = {
   },
 
   /**
-   * Get cached embeddings by content hashes.
+   * Get cached embeddings by content hashes and model.
    */
   async getCachedByHashes(
     hashes: string[],
+    embeddingModel: string,
   ): Promise<Array<{ contentHash: string; embedding: number[] }>> {
     if (hashes.length === 0) return [];
+
+    const versionConfig = Object.values(ANALYSIS_VERSIONS).find(
+      (v) => v.embeddingModel === embeddingModel,
+    );
+
+    const embeddingColumn = versionConfig?.embeddingColumn ?? 'embedding_1536';
 
     const rows = await db.execute(sql`
       SELECT DISTINCT
         content_hash,
-        embedding::text as embedding_text
+        ${sql.raw(embeddingColumn)}::text as embedding_text
       FROM sentence_embeddings
       WHERE content_hash IN (${sql.join(
         hashes.map((h) => sql`${h}`),
         sql`, `,
       )})
+      AND embedding_model = ${embeddingModel}
+      AND ${sql.raw(embeddingColumn)} IS NOT NULL
     `);
 
     return (
@@ -163,10 +202,16 @@ export const sentenceService = {
 
   /**
    * Get all sentence embeddings for a document.
+   * @param analysisVersion - Optional version to determine which column to read
    */
   async getByDocumentId(
     documentId: string,
+    analysisVersion?: string,
   ): Promise<StoredSentenceEmbedding[]> {
+    const version = analysisVersion ?? getCurrentAnalysisVersion();
+    const versionConfig = getVersionConfig(version);
+    const embeddingColumn = versionConfig.embeddingColumn;
+
     const rows = await db.execute(sql`
       SELECT
         id,
@@ -175,11 +220,13 @@ export const sentenceService = {
         sentence_start,
         sentence_end,
         content_hash,
-        embedding::text as embedding_text,
+        embedding_model,
+        ${sql.raw(embeddingColumn)}::text as embedding_text,
         created_at,
         updated_at
       FROM sentence_embeddings
       WHERE document_id = ${documentId}
+        AND ${sql.raw(embeddingColumn)} IS NOT NULL
     `);
 
     return (
@@ -189,12 +236,18 @@ export const sentenceService = {
 
   /**
    * Get sentence embeddings for specific segments.
+   * @param analysisVersion - Optional version to determine which column to read
    */
   async getBySegmentIds(
     documentId: string,
     segmentIds: string[],
+    analysisVersion?: string,
   ): Promise<StoredSentenceEmbedding[]> {
     if (segmentIds.length === 0) return [];
+
+    const version = analysisVersion ?? getCurrentAnalysisVersion();
+    const versionConfig = getVersionConfig(version);
+    const embeddingColumn = versionConfig.embeddingColumn;
 
     const rows = await db.execute(sql`
       SELECT
@@ -204,7 +257,8 @@ export const sentenceService = {
         sentence_start,
         sentence_end,
         content_hash,
-        embedding::text as embedding_text,
+        embedding_model,
+        ${sql.raw(embeddingColumn)}::text as embedding_text,
         created_at,
         updated_at
       FROM sentence_embeddings
@@ -213,6 +267,7 @@ export const sentenceService = {
           segmentIds.map((id) => sql`${id}`),
           sql`, `,
         )})
+        AND ${sql.raw(embeddingColumn)} IS NOT NULL
     `);
 
     return (
@@ -223,12 +278,18 @@ export const sentenceService = {
   /**
    * Find sentences similar to a query embedding.
    * Uses cosine similarity via pgvector.
+   * @param analysisVersion - The version to determine which column to search
    */
   async findSimilar(
     documentId: string,
     queryEmbedding: number[],
     limit: number = 10,
+    analysisVersion?: string,
   ): Promise<SentenceSimilarityResult[]> {
+    const version = analysisVersion ?? getCurrentAnalysisVersion();
+    const versionConfig = getVersionConfig(version);
+    const embeddingColumn = versionConfig.embeddingColumn;
+
     const embeddingStr = `[${queryEmbedding.join(',')}]`;
 
     const rows = await db.execute(sql`
@@ -237,10 +298,11 @@ export const sentenceService = {
         segment_id,
         sentence_start,
         sentence_end,
-        1 - (embedding <=> ${embeddingStr}::vector) as score
+        1 - (${sql.raw(embeddingColumn)} <=> ${embeddingStr}::vector) as score
       FROM sentence_embeddings
       WHERE document_id = ${documentId}
-      ORDER BY embedding <=> ${embeddingStr}::vector
+        AND ${sql.raw(embeddingColumn)} IS NOT NULL
+      ORDER BY ${sql.raw(embeddingColumn)} <=> ${embeddingStr}::vector
       LIMIT ${limit}
     `);
 
@@ -264,14 +326,23 @@ export const sentenceService = {
   /**
    * Find sentences similar to text.
    * Generates embedding for the query text first.
+   * @param analysisVersion - The version to use for embedding and search
    */
   async findSimilarToText(
     documentId: string,
     queryText: string,
     limit: number = 10,
+    analysisVersion?: string,
   ): Promise<SentenceSimilarityResult[]> {
-    const queryEmbedding = await generateEmbedding(queryText);
-    return this.findSimilar(documentId, queryEmbedding, limit);
+    const version = analysisVersion ?? getCurrentAnalysisVersion();
+    const versionConfig = getVersionConfig(version);
+
+    const { generateEmbedding } = await import('../embeddings/index.js');
+    const queryEmbedding = await generateEmbedding(
+      queryText,
+      versionConfig.embeddingModel,
+    );
+    return this.findSimilar(documentId, queryEmbedding, limit, version);
   },
 
   /**
@@ -304,9 +375,13 @@ export const sentenceService = {
 
   /**
    * Generate embeddings for multiple texts in batch.
-   * Uses batch API with event loop yields between batches to prevent blocking.
+   * Uses batch API with event loop yields between batches.
+   * @param embeddingModel - The model to use for embedding generation
    */
-  async generateBatchEmbeddings(texts: string[]): Promise<number[][]> {
+  async generateBatchEmbeddings(
+    texts: string[],
+    embeddingModel?: string,
+  ): Promise<number[][]> {
     if (texts.length === 0) return [];
 
     const BATCH_SIZE = 100;
@@ -314,7 +389,7 @@ export const sentenceService = {
 
     for (let i = 0; i < texts.length; i += BATCH_SIZE) {
       const batch = texts.slice(i, i + BATCH_SIZE);
-      const embeddings = await generateEmbeddings(batch);
+      const embeddings = await generateEmbeddings(batch, embeddingModel);
       results.push(...embeddings);
 
       if (i + BATCH_SIZE < texts.length) {
@@ -327,7 +402,6 @@ export const sentenceService = {
 
   /**
    * Compute average embedding for a set of sentence embeddings.
-   * Used for representing a segment's semantic content.
    */
   computeAverageEmbedding(embeddings: number[][]): number[] {
     if (embeddings.length === 0) {
@@ -347,7 +421,6 @@ export const sentenceService = {
       result[i] /= embeddings.length;
     }
 
-    // L2 normalize
     let norm = 0;
     for (let i = 0; i < dim; i++) {
       norm += result[i] * result[i];
@@ -364,26 +437,6 @@ export const sentenceService = {
   },
 };
 
-// @ts-expect-error - Reserved for future use
-function _rowToStoredSentence(
-  row: typeof sentenceEmbeddings.$inferSelect,
-): StoredSentenceEmbedding {
-  return {
-    id: row.id,
-    documentId: row.documentId,
-    segmentId: row.segmentId,
-    sentenceStart: row.sentenceStart,
-    sentenceEnd: row.sentenceEnd,
-    contentHash: row.contentHash,
-    embedding:
-      typeof row.embedding === 'string'
-        ? JSON.parse(row.embedding)
-        : row.embedding,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  };
-}
-
 function rowToStoredSentenceFromRaw(row: {
   id: string;
   document_id: string;
@@ -391,6 +444,7 @@ function rowToStoredSentenceFromRaw(row: {
   sentence_start: number;
   sentence_end: number;
   content_hash: string;
+  embedding_model: string;
   embedding_text: string;
   created_at: Date;
   updated_at: Date;
@@ -402,6 +456,7 @@ function rowToStoredSentenceFromRaw(row: {
     sentenceStart: row.sentence_start,
     sentenceEnd: row.sentence_end,
     contentHash: row.content_hash,
+    embeddingModel: row.embedding_model,
     embedding: JSON.parse(row.embedding_text),
     createdAt: row.created_at,
     updatedAt: row.updated_at,

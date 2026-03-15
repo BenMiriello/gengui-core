@@ -16,6 +16,10 @@
 
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
+import {
+  getCurrentAnalysisVersion,
+  getVersionConfig,
+} from '../../config/analysis-versions.js';
 import { db } from '../../config/database';
 import { getTextModelConfig } from '../../config/text-models';
 import { documents, reviewQueue } from '../../models/schema';
@@ -412,14 +416,26 @@ export const multiStagePipeline = {
       versionNumber,
     });
 
+    // Determine analysis version (new documents get current, re-analysis uses current)
+    const analysisVersion = getCurrentAnalysisVersion();
+    const versionConfig = getVersionConfig(analysisVersion);
+
     childLogger.info(
       {
         segmentCount: segments.length,
         contentLength: documentContent.length,
         isInitialExtraction,
+        analysisVersion,
+        embeddingModel: versionConfig.embeddingModel,
       },
       'Analysis pipeline started',
     );
+
+    // Update document's analysis version
+    await db
+      .update(documents)
+      .set({ analysisVersion })
+      .where(eq(documents.id, documentId));
 
     const pipelineStartTime = Date.now();
 
@@ -535,6 +551,7 @@ export const multiStagePipeline = {
         documentId,
         documentContent,
         segments,
+        analysisVersion,
       );
 
       await saveCheckpoint(documentId, {
@@ -1222,7 +1239,9 @@ export const multiStagePipeline = {
           `${entity.name}: ${entity.facets.map((f) => f.content).join(', ')}`,
       );
       const entityEmbeddings =
-        entityTexts.length > 0 ? await generateEmbeddings(entityTexts) : [];
+        entityTexts.length > 0
+          ? await generateEmbeddings(entityTexts, versionConfig.embeddingModel)
+          : [];
       const embeddingByName = new Map<string, number[]>();
       entitiesNeedingEmbeddings.forEach((e, i) => {
         embeddingByName.set(e.name, entityEmbeddings[i]);
@@ -1336,7 +1355,10 @@ export const multiStagePipeline = {
           if (created) {
             // Create facets for newly created entity
             for (const facet of uniqueFacets) {
-              const facetEmbedding = await generateEmbedding(facet.content);
+              const facetEmbedding = await generateEmbedding(
+                facet.content,
+                versionConfig.embeddingModel,
+              );
               logger.debug(
                 {
                   entityId,
@@ -1349,6 +1371,7 @@ export const multiStagePipeline = {
               await createTrackedFacet(entityId, facet, facetEmbedding, {
                 batchId: stage4BatchId,
                 entityName: primaryName,
+                analysisVersion,
               });
             }
 
@@ -1359,7 +1382,10 @@ export const multiStagePipeline = {
                 type: 'name',
                 content: primaryName,
               };
-              const facetEmbedding = await generateEmbedding(nameFacet.content);
+              const facetEmbedding = await generateEmbedding(
+                nameFacet.content,
+                versionConfig.embeddingModel,
+              );
               logger.debug(
                 {
                   entityId,
@@ -1371,6 +1397,7 @@ export const multiStagePipeline = {
               await createTrackedFacet(entityId, nameFacet, facetEmbedding, {
                 batchId: stage4BatchId,
                 entityName: primaryName,
+                analysisVersion,
               });
               logger.debug(
                 { entityId, entityName: primaryName },
@@ -1386,7 +1413,11 @@ export const multiStagePipeline = {
             // Set entity embedding
             const embedding = embeddingByName.get(primaryName);
             if (embedding) {
-              await graphService.setNodeEmbedding(entityId, embedding);
+              await graphService.setNodeEmbedding(
+                entityId,
+                embedding,
+                analysisVersion,
+              );
             }
           }
         } else {
@@ -1401,7 +1432,10 @@ export const multiStagePipeline = {
           for (const facet of uniqueFacets) {
             const key = `${facet.type}:${facet.content}`;
             if (!existingFacetKeys.has(key)) {
-              const facetEmbedding = await generateEmbedding(facet.content);
+              const facetEmbedding = await generateEmbedding(
+                facet.content,
+                versionConfig.embeddingModel,
+              );
               logger.debug(
                 {
                   entityId,
@@ -1414,6 +1448,7 @@ export const multiStagePipeline = {
               await createTrackedFacet(entityId, facet, facetEmbedding, {
                 batchId: stage4BatchId,
                 entityName: primaryName,
+                analysisVersion,
               });
               if (facet.type === 'name') {
                 addedNameFacet = true;
@@ -1945,6 +1980,7 @@ export const multiStagePipeline = {
             entityIdByName,
             events,
             stage7BatchId,
+            analysisVersion,
           );
         }
       }
@@ -2140,6 +2176,7 @@ async function processCharacterArcs(
   _entityIdByName: Map<string, string>,
   events: Array<{ id: string; documentOrder: number }>,
   batchId: string,
+  analysisVersion: string,
 ): Promise<void> {
   // Group phases by characterId
   const phasesByCharacter = new Map<string, typeof arcPhases>();
@@ -2234,7 +2271,11 @@ async function processCharacterArcs(
             (_, i) =>
               embeddings.reduce((sum, e) => sum + e[i], 0) / embeddings.length,
           );
-          await graphService.setCharacterStateEmbedding(stateId, sumEmbedding);
+          await graphService.setCharacterStateEmbedding(
+            stateId,
+            sumEmbedding,
+            analysisVersion,
+          );
         }
       }
     }

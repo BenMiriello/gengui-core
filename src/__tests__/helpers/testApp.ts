@@ -1,4 +1,3 @@
-import type { Server } from 'node:http';
 import { vi } from 'vitest';
 
 import { getEmailServiceMock } from './mocks';
@@ -17,7 +16,7 @@ const {
     mockStoryNodes: new Map<string, unknown>(),
     primaryEditors: new Map<string, string>(),
     storageKeyCounter: { value: 0 },
-    testServer: { server: null as any, port: 0 },
+    testServer: { server: null as unknown, port: 0 },
   };
 });
 
@@ -385,9 +384,6 @@ import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express from 'express';
 import helmet from 'helmet';
-import { requireAuth, requireEmailVerified } from '../../middleware/auth';
-import { errorHandler } from '../../middleware/errorHandler';
-import { requireAdmin } from '../../middleware/requireAdmin';
 
 async function createTestApp() {
   const [
@@ -398,6 +394,9 @@ async function createTestApp() {
     { default: mediaRoutes },
     { default: nodeRoutes },
     { default: tagRoutes },
+    { requireAuth, requireEmailVerified },
+    { errorHandler },
+    { requireAdmin },
   ] = await Promise.all([
     import('../../routes/admin'),
     import('../../routes/auth'),
@@ -406,6 +405,9 @@ async function createTestApp() {
     import('../../routes/media'),
     import('../../routes/nodes'),
     import('../../routes/tags'),
+    import('../../middleware/auth'),
+    import('../../middleware/errorHandler'),
+    import('../../middleware/requireAdmin'),
   ]);
 
   const app = express();
@@ -510,14 +512,6 @@ export async function stopTestServer(): Promise<void> {
       });
     });
   }
-}
-
-export function getServerPort(): number {
-  return serverPort;
-}
-
-export function getBaseUrl(): string {
-  return `http://127.0.0.1:${serverPort}`;
 }
 
 const emailMock = getEmailServiceMock();

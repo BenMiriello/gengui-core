@@ -24,6 +24,7 @@ export interface StoredSentenceEmbedding {
   sentenceStart: number;
   sentenceEnd: number;
   contentHash: string;
+  embeddingModel: string;
   embedding: number[];
   createdAt: Date;
   updatedAt: Date;

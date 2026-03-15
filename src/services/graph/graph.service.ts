@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import Redis from 'ioredis';
+import {
+  getCurrentAnalysisVersion,
+  getVersionConfig,
+} from '../../config/analysis-versions.js';
 import { THREAD_COLORS } from '../../config/constants';
 import { db } from '../../config/database.js';
 import { documents } from '../../models/schema.js';
@@ -97,6 +101,9 @@ const ALLOWED_PROPERTY_NAMES = new Set([
   'updatedAt',
   'deletedAt',
   'embedding',
+  'embedding_1536',
+  'embedding_1024',
+  'embeddingModel',
   'isPrimary',
   'order',
   'strength',
@@ -521,21 +528,33 @@ class GraphService {
   }
 
   async createVectorIndex(): Promise<void> {
-    try {
-      await this.query(
-        `CREATE VECTOR INDEX FOR (n:StoryNode) ON (n.embedding) OPTIONS {dimension: 1536, similarityFunction: 'cosine'}`,
-      );
-      logger.info('Created vector index on StoryNode.embedding');
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : '';
-      if (
-        message.includes('already exists') ||
-        message.includes('already indexed')
-      ) {
-        logger.debug('Vector index already exists');
-      } else {
-        logger.error({ error: err }, 'Failed to create vector index');
-        throw err;
+    const indexes = [
+      { column: 'embedding_1536', dimension: 1536 },
+      { column: 'embedding_1024', dimension: 1024 },
+    ];
+
+    for (const idx of indexes) {
+      try {
+        await this.query(
+          `CREATE VECTOR INDEX FOR (n:StoryNode) ON (n.${idx.column}) OPTIONS {dimension: ${idx.dimension}, similarityFunction: 'cosine'}`,
+        );
+        logger.info(
+          { column: idx.column },
+          'Created vector index on StoryNode',
+        );
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : '';
+        if (
+          message.includes('already exists') ||
+          message.includes('already indexed')
+        ) {
+          logger.debug({ column: idx.column }, 'Vector index already exists');
+        } else {
+          logger.error(
+            { error: err, column: idx.column },
+            'Failed to create vector index',
+          );
+        }
       }
     }
   }
@@ -580,22 +599,39 @@ class GraphService {
     return result.join('\n');
   }
 
-  async setNodeEmbedding(nodeId: string, embedding: number[]): Promise<void> {
-    this.validateEmbedding(embedding);
+  async setNodeEmbedding(
+    nodeId: string,
+    embedding: number[],
+    analysisVersion?: string,
+  ): Promise<void> {
+    const version = analysisVersion ?? getCurrentAnalysisVersion();
+    const versionConfig = getVersionConfig(version);
+    this.validateEmbedding(embedding, versionConfig.embeddingDimensions);
     const vecString = embedding.join(',');
+    const embeddingColumn = versionConfig.embeddingColumn;
     const cypher = `
       MATCH (n:StoryNode)
       WHERE n.id = $nodeId
-      SET n.embedding = vecf32([${vecString}])
+      SET n.${embeddingColumn} = vecf32([${vecString}]),
+          n.embeddingModel = $embeddingModel
     `;
-    await this.query(cypher, { nodeId });
+    await this.query(cypher, {
+      nodeId,
+      embeddingModel: versionConfig.embeddingModel,
+    });
   }
 
-  async getNodeEmbedding(nodeId: string): Promise<number[] | null> {
+  async getNodeEmbedding(
+    nodeId: string,
+    analysisVersion?: string,
+  ): Promise<number[] | null> {
+    const version = analysisVersion ?? getCurrentAnalysisVersion();
+    const embeddingColumn = getVersionConfig(version).embeddingColumn;
+
     const cypher = `
       MATCH (n:StoryNode)
-      WHERE n.id = $nodeId AND n.embedding IS NOT NULL
-      RETURN n.embedding
+      WHERE n.id = $nodeId AND n.${embeddingColumn} IS NOT NULL
+      RETURN n.${embeddingColumn}
     `;
     const result = await this.query(cypher, { nodeId });
 
@@ -608,24 +644,27 @@ class GraphService {
       return null;
     }
 
-    // FalkorDB returns vecf32 as a Float32Array-like object or comma-separated string
+    return this.parseEmbeddingRaw(embeddingRaw);
+  }
+
+  private parseEmbeddingRaw(embeddingRaw: unknown): number[] | null {
     if (Array.isArray(embeddingRaw)) {
       return embeddingRaw as number[];
     }
     if (typeof embeddingRaw === 'string') {
-      return embeddingRaw.split(',').map(Number);
+      const cleaned = embeddingRaw.replace(/^<|>$/g, '').trim();
+      if (!cleaned) return null;
+      return cleaned.split(',').map(Number);
     }
     if (embeddingRaw instanceof Float32Array) {
       return Array.from(embeddingRaw);
     }
-    // Handle object with numeric indices
     if (typeof embeddingRaw === 'object' && embeddingRaw !== null) {
       const values = Object.values(embeddingRaw);
       if (values.length > 0 && typeof values[0] === 'number') {
         return values as number[];
       }
     }
-
     return null;
   }
 
@@ -634,14 +673,17 @@ class GraphService {
     documentId: string,
     userId: string,
     limit: number = 10,
+    analysisVersion?: string,
   ): Promise<(StoredStoryNode & { score: number })[]> {
-    this.validateEmbedding(embedding);
-    // Over-fetch to ensure we get enough results after filtering by document/user.
-    // FalkorDB vector search has no native filtering, so we fetch extra and filter in WHERE.
+    const version = analysisVersion ?? getCurrentAnalysisVersion();
+    const versionConfig = getVersionConfig(version);
+    this.validateEmbedding(embedding, versionConfig.embeddingDimensions);
+
     const overFetchLimit = Math.min(limit * 3, 100);
     const vecString = embedding.join(',');
+    const embeddingColumn = versionConfig.embeddingColumn;
     const cypher = `
-      CALL db.idx.vector.queryNodes('StoryNode', 'embedding', ${overFetchLimit}, vecf32([${vecString}]))
+      CALL db.idx.vector.queryNodes('StoryNode', '${embeddingColumn}', ${overFetchLimit}, vecf32([${vecString}]))
       YIELD node, score
       WHERE node.documentId = $documentId AND node.userId = $userId AND node.deletedAt IS NULL
       RETURN node.id, node.documentId, node.userId, node.type, node.name, node.description,
@@ -1286,13 +1328,16 @@ class GraphService {
     userId: string,
     k: number = 10,
     cutoff: number = 0.3,
+    analysisVersion?: string,
   ): Promise<{ source: string; target: string; similarity: number }[]> {
-    // Single query: pass source.embedding directly to vector index (never leaves FalkorDB)
+    const version = analysisVersion ?? getCurrentAnalysisVersion();
+    const embeddingColumn = getVersionConfig(version).embeddingColumn;
+
     const cypher = `
       MATCH (source:StoryNode)
       WHERE source.documentId = $documentId AND source.userId = $userId
-        AND source.deletedAt IS NULL AND source.embedding IS NOT NULL
-      CALL db.idx.vector.queryNodes('StoryNode', 'embedding', ${k + 1}, source.embedding)
+        AND source.deletedAt IS NULL AND source.${embeddingColumn} IS NOT NULL
+      CALL db.idx.vector.queryNodes('StoryNode', '${embeddingColumn}', ${k + 1}, source.${embeddingColumn})
       YIELD node, score
       WHERE node.documentId = $documentId AND node.userId = $userId
         AND node.deletedAt IS NULL AND node.id <> source.id AND score >= $cutoff
@@ -1312,7 +1357,6 @@ class GraphService {
       const targetId = row[1] as string;
       const score = row[2] as number;
 
-      // Dedupe symmetric pairs (A→B and B→A)
       const pairKey = [sourceId, targetId].sort().join('-');
       if (seen.has(pairKey)) continue;
       seen.add(pairKey);
@@ -1337,7 +1381,13 @@ class GraphService {
   async getNodeEmbeddingsProjection(
     documentId: string,
     userId: string,
+    analysisVersion?: string,
   ): Promise<Array<{ nodeId: string; x: number; y: number }>> {
+    const version = analysisVersion ?? getCurrentAnalysisVersion();
+    const versionConfig = getVersionConfig(version);
+    const embeddingColumn = versionConfig.embeddingColumn;
+    const expectedDimension = versionConfig.embeddingDimensions;
+
     const document = await db.query.documents.findFirst({
       where: eq(documents.id, documentId),
       columns: { id: true, layoutPositions: true },
@@ -1361,8 +1411,8 @@ class GraphService {
     const cypher = `
       MATCH (n:StoryNode)
       WHERE n.documentId = $documentId AND n.userId = $userId
-        AND n.deletedAt IS NULL AND n.embedding IS NOT NULL
-      RETURN n.id, n.embedding
+        AND n.deletedAt IS NULL AND n.${embeddingColumn} IS NOT NULL
+      RETURN n.id, n.${embeddingColumn}
     `;
     const result = await this.query(cypher, { documentId, userId });
     const queryTime = Date.now() - startTime;
@@ -1391,19 +1441,8 @@ class GraphService {
       const nodeId = row[0] as string;
       const embeddingRaw = row[1];
 
-      let embedding: number[];
-      if (Array.isArray(embeddingRaw)) {
-        embedding = embeddingRaw as number[];
-      } else if (typeof embeddingRaw === 'string') {
-        // FalkorDB returns vector as string like "<-0.024,0.015,...>"
-        // Strip < and > and split by comma
-        const cleaned = embeddingRaw.replace(/^<|>$/g, '').trim();
-        if (!cleaned) {
-          logger.warn({ nodeId }, 'Skipping node with empty embedding string');
-          continue;
-        }
-        embedding = cleaned.split(',').map((s) => parseFloat(s.trim()));
-      } else {
+      const embedding = this.parseEmbeddingRaw(embeddingRaw);
+      if (!embedding) {
         logger.warn(
           { nodeId, embeddingType: typeof embeddingRaw },
           'Skipping node with invalid embedding format',
@@ -1411,9 +1450,9 @@ class GraphService {
         continue;
       }
 
-      if (embedding.length !== 1536) {
+      if (embedding.length !== expectedDimension) {
         logger.warn(
-          { nodeId, length: embedding.length },
+          { nodeId, length: embedding.length, expected: expectedDimension },
           'Skipping node with wrong embedding dimension',
         );
         continue;
@@ -1512,6 +1551,7 @@ class GraphService {
     entityId: string,
     facet: FacetInput,
     embedding?: number[],
+    analysisVersion?: string,
   ): Promise<string> {
     const facetId = randomUUID();
     const now = new Date().toISOString();
@@ -1545,7 +1585,7 @@ class GraphService {
 
     // Set embedding if provided
     if (embedding) {
-      await this.setFacetEmbedding(facetId, embedding);
+      await this.setFacetEmbedding(facetId, embedding, analysisVersion);
     }
 
     logger.info(
@@ -1555,15 +1595,26 @@ class GraphService {
     return facetId;
   }
 
-  async setFacetEmbedding(facetId: string, embedding: number[]): Promise<void> {
-    this.validateEmbedding(embedding);
+  async setFacetEmbedding(
+    facetId: string,
+    embedding: number[],
+    analysisVersion?: string,
+  ): Promise<void> {
+    const version = analysisVersion ?? getCurrentAnalysisVersion();
+    const versionConfig = getVersionConfig(version);
+    this.validateEmbedding(embedding, versionConfig.embeddingDimensions);
     const vecString = embedding.join(',');
+    const embeddingColumn = versionConfig.embeddingColumn;
     const cypher = `
       MATCH (f:Facet)
       WHERE f.id = $facetId
-      SET f.embedding = vecf32([${vecString}])
+      SET f.${embeddingColumn} = vecf32([${vecString}]),
+          f.embeddingModel = $embeddingModel
     `;
-    await this.query(cypher, { facetId });
+    await this.query(cypher, {
+      facetId,
+      embeddingModel: versionConfig.embeddingModel,
+    });
   }
 
   async getFacetsForEntity(entityId: string): Promise<StoredFacet[]> {
@@ -2280,15 +2331,23 @@ class GraphService {
   async setCharacterStateEmbedding(
     stateId: string,
     embedding: number[],
+    analysisVersion?: string,
   ): Promise<void> {
-    this.validateEmbedding(embedding);
+    const version = analysisVersion ?? getCurrentAnalysisVersion();
+    const versionConfig = getVersionConfig(version);
+    this.validateEmbedding(embedding, versionConfig.embeddingDimensions);
     const vecString = embedding.join(',');
+    const embeddingColumn = versionConfig.embeddingColumn;
     const cypher = `
       MATCH (s:CharacterState)
       WHERE s.id = $stateId
-      SET s.embedding = vecf32([${vecString}])
+      SET s.${embeddingColumn} = vecf32([${vecString}]),
+          s.embeddingModel = $embeddingModel
     `;
-    await this.query(cypher, { stateId });
+    await this.query(cypher, {
+      stateId,
+      embeddingModel: versionConfig.embeddingModel,
+    });
   }
 
   /**
