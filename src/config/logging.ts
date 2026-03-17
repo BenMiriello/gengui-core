@@ -37,7 +37,6 @@ export function getLogConfig() {
     const today = new Date().toISOString().split('T')[0];
     const logFile = path.join(process.cwd(), 'logs', `app-${today}.jsonl`);
 
-    // TEMPORARY: Disable pino-pretty to test if it's causing regex blocking
     return {
       level: logLevel,
       transport: {
@@ -48,6 +47,15 @@ export function getLogConfig() {
             options: {
               destination: logFile,
               mkdir: true,
+            },
+          },
+          {
+            target: 'pino-pretty',
+            level: logLevel,
+            options: {
+              colorize: true,
+              translateTime: 'HH:MM:ss',
+              ignore: 'pid,hostname',
             },
           },
         ],
