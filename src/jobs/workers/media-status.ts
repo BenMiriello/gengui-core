@@ -88,10 +88,8 @@ class MediaStatusWorker extends JobWorker<MediaStatusPayload, JobProgress> {
         .set({ status: 'completed', s3Key, updatedAt: new Date() })
         .where(eq(media.id, mediaId));
 
-      // Update activity to completed
-      await this.updateActivityStatus(mediaId, 'completed', {
-        resultUrl: `/media/${mediaId}`,
-      });
+      // Update activity to completed (frontend handles navigation via documentId)
+      await this.updateActivityStatus(mediaId, 'completed');
 
       logger.info({ mediaId, s3Key }, 'Updated media status to completed');
 
@@ -140,6 +138,11 @@ class MediaStatusWorker extends JobWorker<MediaStatusPayload, JobProgress> {
       const activity = await activityService.getByMediaId(mediaId);
       if (activity) {
         await activityService.updateStatus(activity.id, status, extras);
+      } else {
+        logger.warn(
+          { mediaId, status },
+          'No activity found for media status update',
+        );
       }
     } catch (error) {
       logger.error(
