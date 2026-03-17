@@ -2,11 +2,19 @@ import { and, eq } from 'drizzle-orm';
 import { db } from '../config/database';
 import { jobService } from '../jobs';
 import { documentMedia, documents, media } from '../models/schema';
+import type {
+  EntityContext,
+  FeaturedEntity,
+  MentionedEntity,
+} from '../types/generationSettings';
+import { GENERATION_SETTINGS_SCHEMA_VERSION } from '../types/generationSettings';
 import { notDeleted } from '../utils/db';
 import { NotFoundError } from '../utils/errors';
 import { logger } from '../utils/logger';
 import { activityService } from './activity.service';
+import { graphService } from './graph/graph.service';
 import { getImageProvider } from './image-generation/factory';
+import { mentionService } from './mentions/mention.service';
 import { redis } from './redis';
 import { runpodClient } from './runpod/client';
 
@@ -91,6 +99,68 @@ export class GenerationsService {
       ? 'augmenting'
       : 'queued';
 
+    // Build entity context from character references and text mentions
+    let entityContext: EntityContext | undefined;
+    const selectedNodeIds =
+      request.promptEnhancement?.characterReferences?.selectedNodeIds;
+
+    if (selectedNodeIds?.length || request.documentId) {
+      const featured: FeaturedEntity[] = [];
+      const mentioned: MentionedEntity[] = [];
+
+      // Build featured entities from explicitly selected character references
+      if (selectedNodeIds?.length) {
+        const nodePromises = selectedNodeIds.map(async (nodeId) => {
+          const node = await graphService.getStoryNodeByIdInternal(nodeId);
+          if (!node) return null;
+          return {
+            nodeId,
+            name: node.name,
+            type: node.type,
+            usedReference: !!node.primaryMediaId,
+            referenceMediaId: node.primaryMediaId || undefined,
+          } as FeaturedEntity;
+        });
+        const nodes = await Promise.all(nodePromises);
+        for (const n of nodes) {
+          if (n) featured.push(n);
+        }
+      }
+
+      // Build mentioned entities from text overlap
+      if (
+        request.documentId &&
+        request.startChar !== undefined &&
+        request.endChar !== undefined
+      ) {
+        const mentionedRaw = await mentionService.getMentionsInRange(
+          request.documentId,
+          request.startChar,
+          request.endChar,
+        );
+        // Exclude entities already in featured
+        const featuredIds = new Set(featured.map((f) => f.nodeId));
+        for (const m of mentionedRaw) {
+          if (!featuredIds.has(m.nodeId)) {
+            mentioned.push({
+              nodeId: m.nodeId,
+              name: m.name,
+              type: m.type,
+              confidence: m.confidence,
+            });
+          }
+        }
+      }
+
+      if (featured.length > 0 || mentioned.length > 0) {
+        entityContext = {
+          featured,
+          mentioned,
+          cursorPosition: request.startChar,
+        };
+      }
+    }
+
     const [newMedia] = await db
       .insert(media)
       .values({
@@ -103,6 +173,12 @@ export class GenerationsService {
         height,
         stylePreset,
         stylePrompt,
+        generationSettings: entityContext
+          ? { type: 'inline', entityContext }
+          : undefined,
+        generationSettingsSchemaVersion: entityContext
+          ? GENERATION_SETTINGS_SCHEMA_VERSION
+          : undefined,
       })
       .returning();
 
@@ -162,6 +238,7 @@ export class GenerationsService {
       await activityService.createFromMedia({
         mediaId: newMedia.id,
         userId,
+        documentId: request.documentId,
         title: 'Generating image',
       });
     } catch (activityError) {

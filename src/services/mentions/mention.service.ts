@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '../../config/database';
 import { mentions } from '../../models/schema';
+import { graphService } from '../graph/graph.service';
 import type { Segment } from '../segments';
 import { segmentService } from '../segments';
 import { fuzzyFindText, fuzzyFindTextInSegment } from './fuzzyMatch';
@@ -640,6 +641,64 @@ export const mentionService = {
       .limit(1);
 
     return row?.updatedAt ?? null;
+  },
+
+  /**
+   * Get mentions overlapping a character range.
+   * Returns deduplicated entities (by nodeId) with the highest confidence.
+   * Confidence is 0-100 scale.
+   */
+  async getMentionsInRange(
+    documentId: string,
+    startChar: number,
+    endChar: number,
+  ): Promise<
+    Array<{
+      nodeId: string;
+      name: string;
+      type: string;
+      confidence: number;
+    }>
+  > {
+    const mentionsWithPos =
+      await this.getByDocumentIdWithAbsolutePositions(documentId);
+
+    const overlapping = mentionsWithPos.filter(
+      (m) => m.absoluteStart < endChar && m.absoluteEnd > startChar,
+    );
+
+    if (overlapping.length === 0) return [];
+
+    const mentionMap = new Map<
+      string,
+      { nodeId: string; confidence: number }
+    >();
+    for (const m of overlapping) {
+      const existing = mentionMap.get(m.nodeId);
+      if (!existing || m.confidence > existing.confidence) {
+        mentionMap.set(m.nodeId, {
+          nodeId: m.nodeId,
+          confidence: m.confidence,
+        });
+      }
+    }
+
+    const uniqueNodeIds = Array.from(mentionMap.keys());
+    const nodeInfoPromises = uniqueNodeIds.map(async (nodeId) => {
+      const node = await graphService.getStoryNodeByIdInternal(nodeId);
+      if (!node) return null;
+      const mentionData = mentionMap.get(nodeId);
+      if (!mentionData) return null;
+      return {
+        nodeId,
+        name: node.name,
+        type: node.type,
+        confidence: mentionData.confidence,
+      };
+    });
+
+    const results = await Promise.all(nodeInfoPromises);
+    return results.filter((r): r is NonNullable<typeof r> => r !== null);
   },
 
   /**

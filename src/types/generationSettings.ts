@@ -3,7 +3,7 @@
  * Versioned for future schema migrations.
  */
 
-export const GENERATION_SETTINGS_SCHEMA_VERSION = 1;
+export const GENERATION_SETTINGS_SCHEMA_VERSION = 2;
 
 export type CharacterFraming = 'portrait' | 'full_body';
 export type PlacePerspective = 'exterior' | 'interior' | 'custom';
@@ -32,7 +32,39 @@ export interface CharacterSheetSettings {
   aspectRatio?: AspectRatio;
 }
 
+export interface FeaturedEntity {
+  nodeId: string;
+  name: string;
+  type: string;
+  usedReference: boolean;
+  referenceMediaId?: string;
+}
+
+export interface MentionedEntity {
+  nodeId: string;
+  name: string;
+  type: string;
+  confidence: number;
+}
+
+export interface FacetInfo {
+  id: string;
+  nodeId: string;
+  type: 'appearance' | 'state' | 'trait' | 'name';
+  content: string;
+}
+
+export interface EntityContext {
+  featured: FeaturedEntity[];
+  mentioned: MentionedEntity[];
+  facets?: FacetInfo[];
+  documentVersionNumber?: number;
+  cursorPosition?: number;
+}
+
 export interface GenerationSettingsRecord {
-  type: 'character_sheet';
-  settings: CharacterSheetSettings;
+  type: 'character_sheet' | 'inline';
+  settings?: CharacterSheetSettings;
+  entityContext?: EntityContext;
+  augmentedPrompt?: string;
 }
