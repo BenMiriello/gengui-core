@@ -12,6 +12,9 @@ import { media, nodeMedia } from '../models/schema';
 import type {
   AspectRatio,
   CharacterSheetSettings,
+  EntityContext,
+  FacetInfo,
+  FeaturedEntity,
 } from '../types/generationSettings';
 import { GENERATION_SETTINGS_SCHEMA_VERSION } from '../types/generationSettings';
 import { extractJson } from '../utils/llmUtils';
@@ -94,6 +97,28 @@ export const characterSheetService = {
       cursorPosition ?? 0,
     );
 
+    // Build entity context for this character sheet
+    const facetInfos: FacetInfo[] = facets.map((f) => ({
+      id: f.id,
+      nodeId: f.entityId,
+      type: f.type as 'appearance' | 'state' | 'trait' | 'name',
+      content: f.content,
+    }));
+
+    const featuredEntity: FeaturedEntity = {
+      nodeId,
+      name: node.name,
+      type: node.type,
+      usedReference: false,
+    };
+
+    const entityContext: EntityContext = {
+      featured: [featuredEntity],
+      mentioned: [],
+      facets: facetInfos.length > 0 ? facetInfos : undefined,
+      cursorPosition,
+    };
+
     // Create media record
     const [newMedia] = await db
       .insert(media)
@@ -110,6 +135,7 @@ export const characterSheetService = {
         generationSettings: {
           type: 'character_sheet',
           settings: { ...settings, aspectRatio: finalAR },
+          entityContext,
         },
         generationSettingsSchemaVersion: GENERATION_SETTINGS_SCHEMA_VERSION,
       })
@@ -174,11 +200,18 @@ export const characterSheetService = {
       parts.push(stylePrompt);
     }
 
-    // Use custom description if manual edit, otherwise use node description
-    const baseDescription =
-      settings.manualEdit && settings.customDescription
-        ? settings.customDescription
-        : node.description || node.name;
+    // Use custom description if manual edit, otherwise generate from name
+    // NOTE: node.description may contain document text, not visual description
+    let baseDescription: string;
+    if (settings.manualEdit && settings.customDescription) {
+      baseDescription = settings.customDescription;
+    } else if (node.type === 'character') {
+      baseDescription = `Portrait of ${node.name}`;
+    } else if (node.type === 'location') {
+      baseDescription = `View of ${node.name}`;
+    } else {
+      baseDescription = node.name;
+    }
 
     parts.push(baseDescription);
 
@@ -348,8 +381,15 @@ export const characterSheetService = {
       // Build from visual attributes
       parts.push(`${node.name}: ${visualAttributes.join(', ')}`);
     } else {
-      // Fall back to node description
-      parts.push(node.description || node.name);
+      // Fall back to node name as subject (description may be document text, not visual)
+      // Use type-appropriate phrasing
+      if (node.type === 'character') {
+        parts.push(`Portrait of ${node.name}`);
+      } else if (node.type === 'location') {
+        parts.push(`View of ${node.name}`);
+      } else {
+        parts.push(node.name);
+      }
     }
 
     // Note: hasExcludedStateFacets is informational only - we could log it
@@ -435,51 +475,63 @@ export const characterSheetService = {
   /**
    * Set the primary media for a node.
    */
-  async setPrimaryMedia(nodeId: string, mediaId: string, userId: string) {
-    // Verify node ownership from FalkorDB
+  async setPrimaryMedia(
+    nodeId: string,
+    mediaId: string | null,
+    userId: string,
+  ) {
     const node = await graphService.getStoryNodeById(nodeId, userId);
 
     if (!node) {
       throw new Error('Node not found');
     }
 
-    // Verify media exists and is associated with node (still in Postgres)
-    const [association] = await db
-      .select()
-      .from(nodeMedia)
-      .where(
-        and(
-          eq(nodeMedia.nodeId, nodeId),
-          eq(nodeMedia.mediaId, mediaId),
-          isNull(nodeMedia.deletedAt),
-        ),
-      )
-      .limit(1);
+    if (mediaId !== null) {
+      const [association] = await db
+        .select()
+        .from(nodeMedia)
+        .where(
+          and(
+            eq(nodeMedia.nodeId, nodeId),
+            eq(nodeMedia.mediaId, mediaId),
+            isNull(nodeMedia.deletedAt),
+          ),
+        )
+        .limit(1);
 
-    if (!association) {
-      throw new Error('Media is not associated with this node');
+      if (!association) {
+        throw new Error('Media is not associated with this node');
+      }
     }
 
-    // Update primary media in FalkorDB
     await graphService.updateStoryNodePrimaryMedia(nodeId, mediaId);
 
-    logger.info({ nodeId, mediaId }, 'Primary media set for node');
+    logger.info({ nodeId, mediaId }, 'Primary media updated for node');
 
-    // Broadcast to document so node graph updates
     await this.broadcastPrimaryMediaUpdate(node.documentId, nodeId, mediaId);
 
     return { success: true };
   },
 
-  /**
-   * Broadcast node primary media update to document SSE channel.
-   */
   async broadcastPrimaryMediaUpdate(
     documentId: string,
     nodeId: string,
-    mediaId: string,
+    mediaId: string | null,
   ): Promise<void> {
     try {
+      if (mediaId === null) {
+        sseService.broadcastToDocument(
+          documentId,
+          'node-primary-media-updated',
+          {
+            nodeId,
+            primaryMediaUrl: null,
+            primaryMediaId: null,
+          },
+        );
+        return;
+      }
+
       const [mediaRecord] = await db
         .select({
           s3KeyThumb: media.s3KeyThumb,
@@ -505,6 +557,7 @@ export const characterSheetService = {
       sseService.broadcastToDocument(documentId, 'node-primary-media-updated', {
         nodeId,
         primaryMediaUrl,
+        primaryMediaId: mediaId,
       });
 
       logger.debug(

@@ -8,6 +8,7 @@ export type StoryNodeType =
   | 'location'
   | 'event'
   | 'concept'
+  | 'object'
   | 'other'
   | 'character_state'
   | 'arc';

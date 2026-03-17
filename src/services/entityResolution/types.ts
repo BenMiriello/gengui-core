@@ -28,6 +28,7 @@ export const WEIGHTS_BY_TYPE: Record<StoryNodeType, SignalWeights> = {
   location: { embedding: 0.4, name: 0.4, type: 0.1, graph: 0.1 },
   event: { embedding: 0.55, name: 0.2, type: 0.1, graph: 0.15 },
   concept: { embedding: 0.6, name: 0.15, type: 0.1, graph: 0.15 },
+  object: { embedding: 0.4, name: 0.4, type: 0.1, graph: 0.1 },
   other: { embedding: 0.5, name: 0.3, type: 0.1, graph: 0.1 },
   character_state: { embedding: 0.5, name: 0.3, type: 0.1, graph: 0.1 },
   arc: { embedding: 0.5, name: 0.3, type: 0.1, graph: 0.1 },
