@@ -41,6 +41,7 @@ export interface CreateActivityFromMediaParams {
   mediaId: string;
   userId: string;
   title: string;
+  documentId?: string;
 }
 
 export interface UpdateActivityStatusParams {

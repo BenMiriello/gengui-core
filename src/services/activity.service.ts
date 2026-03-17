@@ -99,7 +99,7 @@ class ActivityService {
   async createFromMedia(
     params: CreateActivityFromMediaParams,
   ): Promise<Activity> {
-    const { mediaId, userId, title } = params;
+    const { mediaId, userId, title, documentId } = params;
 
     const [activity] = await db
       .insert(activities)
@@ -110,6 +110,7 @@ class ActivityService {
         targetType: 'media',
         targetId: mediaId,
         mediaId,
+        documentId,
         title,
       })
       .returning();

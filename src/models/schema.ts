@@ -1101,6 +1101,9 @@ export const activities = pgTable(
     mediaId: uuid('media_id').references(() => media.id, {
       onDelete: 'set null',
     }),
+    documentId: uuid('document_id').references(() => documents.id, {
+      onDelete: 'set null',
+    }),
     title: varchar('title', { length: 255 }).notNull(),
     progress: jsonb('progress'),
     resultUrl: varchar('result_url', { length: 512 }),
@@ -1122,6 +1125,9 @@ export const activities = pgTable(
     index('idx_activities_media')
       .on(table.mediaId)
       .where(sql`media_id IS NOT NULL`),
+    index('idx_activities_document')
+      .on(table.documentId)
+      .where(sql`document_id IS NOT NULL`),
   ],
 );
 
@@ -1137,5 +1143,9 @@ export const activitiesRelations = relations(activities, ({ one }) => ({
   media: one(media, {
     fields: [activities.mediaId],
     references: [media.id],
+  }),
+  document: one(documents, {
+    fields: [activities.documentId],
+    references: [documents.id],
   }),
 }));
