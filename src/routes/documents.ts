@@ -1,4 +1,4 @@
-import { eq, inArray } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import {
   type NextFunction,
   type Request,
@@ -8,13 +8,7 @@ import {
 import { db } from '../config/database';
 import { jobService } from '../jobs/service';
 import { requireAuth } from '../middleware/auth';
-import {
-  analysisSnapshots,
-  documents,
-  jobs,
-  media,
-  mentions,
-} from '../models/schema';
+import { analysisSnapshots, documents, jobs, mentions } from '../models/schema';
 import { documentsService } from '../services/documents';
 import {
   computeCausalOrder,
@@ -29,7 +23,6 @@ import { mentionService } from '../services/mentions/mention.service';
 import { clearCheckpoint } from '../services/pipeline/checkpoint';
 import { redis } from '../services/redis';
 import { redisStreams } from '../services/redis-streams';
-import { s3 } from '../services/s3';
 import { sseService } from '../services/sse';
 import { stalenessService } from '../services/staleness';
 import { graphStoryNodesRepository } from '../services/storyNodes';
@@ -773,43 +766,7 @@ router.get(
           ? await graphStoryNodesRepository.getConnectionsForDocument(id)
           : [];
 
-      const nodesWithPrimaryMedia = nodes.filter(
-        (n): n is (typeof nodes)[0] & { primaryMediaId: string } =>
-          n.primaryMediaId !== null && n.primaryMediaId !== undefined,
-      );
-      const primaryMediaUrls: Record<string, string> = {};
-
-      if (nodesWithPrimaryMedia.length > 0) {
-        const mediaIds = nodesWithPrimaryMedia.map((n) => n.primaryMediaId);
-        const mediaRecords = await db
-          .select({
-            id: media.id,
-            s3KeyThumb: media.s3KeyThumb,
-            s3Key: media.s3Key,
-          })
-          .from(media)
-          .where(inArray(media.id, mediaIds));
-
-        for (const m of mediaRecords) {
-          const key = m.s3KeyThumb || m.s3Key;
-          if (key) {
-            try {
-              primaryMediaUrls[m.id] = await s3.generateDownloadUrl(key);
-            } catch {
-              // Skip if URL generation fails
-            }
-          }
-        }
-      }
-
-      const nodesWithUrls = nodes.map((n) => ({
-        ...n,
-        primaryMediaUrl: n.primaryMediaId
-          ? primaryMediaUrls[n.primaryMediaId]
-          : null,
-      }));
-
-      res.json({ nodes: nodesWithUrls, connections });
+      res.json({ nodes, connections });
     } catch (error) {
       next(error);
     }

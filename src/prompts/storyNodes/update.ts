@@ -58,7 +58,7 @@ CURRENT DOCUMENT TEXT:
 ${content}
 
 Return a JSON object with:
-- add: Array of new nodes (same format as fresh analysis, including type which can be character/location/event/concept/other, and optional aliases array). For events, include documentOrder.
+- add: Array of new nodes (same format as fresh analysis, including type which can be character/location/event/concept/object/other, and optional aliases array). For events, include documentOrder.
 - update: Array of {id, name?, description?, aliases?, mentions?} - only include fields that changed
 - delete: Array of node IDs to remove
 - connectionUpdates: {add: [], delete: []} - add uses fromId/toId for existing nodes or fromName/toName for new nodes. Each connection must include edgeType and description. Causal edges (CAUSES, ENABLES, PREVENTS) should include strength (0-1).

@@ -33,7 +33,7 @@ const generateCharacterSheetSchema = z.object({
 });
 
 const setPrimaryMediaSchema = z.object({
-  mediaId: z.string().uuid(),
+  mediaId: z.string().uuid().nullable(),
 });
 
 const updateNodeStyleSchema = z.object({

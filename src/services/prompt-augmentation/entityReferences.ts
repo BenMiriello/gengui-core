@@ -1,6 +1,6 @@
 /**
- * Entity reference data fetching and detection for all entity types
- * Supports characters, locations, and objects (type "other" in FalkorDB)
+ * Entity reference data fetching and detection for all entity types.
+ * Supports characters, locations, and objects.
  */
 
 import { inArray } from 'drizzle-orm';

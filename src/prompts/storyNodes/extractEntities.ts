@@ -220,12 +220,12 @@ ${formatSegments(segments, totalSegments)}
   "entities": [
     {
       "name": "Entity Name",
-      "type": "character|location|event|concept|other",
+      "type": "character|location|event|concept|object|other",
       "segmentId": "segment-uuid",
       "documentOrder": 1,
       "existingMatch": {
         "matchedName": "Exact Name From Registry",
-        "matchedType": "character|location|event|concept|other",
+        "matchedType": "character|location|event|concept|object|other",
         "confidence": "high|medium|low",
         "reason": "Why this matches the existing entity"
       }
@@ -295,7 +295,8 @@ existingMatch confidence levels:
   Always set documentOrder to preserve narrative sequence
   Name events as noun phrases describing the action
 - **concept**: Themes, motifs, abstract forces
-- **other**: Objects, artifacts, items of narrative significance
+- **object**: Physical items, artifacts, possessions, tools of narrative significance
+- **other**: Miscellaneous entities that don't fit above categories
 
 ## RULES
 1. Extract ONLY from the SEGMENTS provided (not from overlap context)

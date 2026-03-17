@@ -48,7 +48,7 @@ const nodeSchema = {
   properties: {
     type: {
       type: GeminiType.STRING,
-      enum: ['character', 'location', 'event', 'concept', 'other'],
+      enum: ['character', 'location', 'event', 'concept', 'object', 'other'],
     },
     name: { type: GeminiType.STRING },
     description: { type: GeminiType.STRING },
@@ -109,7 +109,7 @@ const entityBaseSchema = {
     name: { type: GeminiType.STRING },
     type: {
       type: GeminiType.STRING,
-      enum: ['character', 'location', 'event', 'concept', 'other'],
+      enum: ['character', 'location', 'event', 'concept', 'object', 'other'],
     },
     segmentId: { type: GeminiType.STRING },
     documentOrder: { type: GeminiType.INTEGER, nullable: true },
