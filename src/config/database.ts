@@ -37,10 +37,10 @@ export const db = drizzle(queryClient, { schema });
 export async function testConnection() {
   try {
     await queryClient`SELECT 1`;
-    console.log('Database connection successful');
+    logger.info('Database connection successful');
     return true;
   } catch (error) {
-    console.error('Database connection failed:', error);
+    logger.error({ error }, 'Database connection failed');
     return false;
   }
 }

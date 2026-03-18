@@ -50,10 +50,6 @@ export const openaiEmbeddingProvider: EmbeddingProvider = {
     const client = await getClient();
     if (!client) throw new Error('OpenAI client not configured');
 
-    console.log(
-      `[DEBUG] OpenAI embed: model=${MODEL}, dimensions=${DIMENSIONS}, textLength=${text.length}`,
-    );
-
     const response = await client.embeddings.create({
       model: MODEL,
       input: text,
@@ -61,9 +57,6 @@ export const openaiEmbeddingProvider: EmbeddingProvider = {
     });
 
     const embedding = response.data[0].embedding;
-    console.log(
-      `[DEBUG] OpenAI embed result: received ${embedding.length} dimensions`,
-    );
 
     // CRITICAL: OpenAI API intermittently returns wrong dimensions
     // If we get wrong dimensions, throw error to trigger retry at higher level
