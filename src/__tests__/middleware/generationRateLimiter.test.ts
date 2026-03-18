@@ -218,4 +218,84 @@ describe('generationRateLimiter', () => {
       'Generation rate limit exceeded',
     );
   });
+
+  test('returns 401 when req.user is missing', async () => {
+    mockReq.user = undefined;
+
+    await generationRateLimiter(
+      mockReq as Request,
+      mockRes as Response,
+      mockNext as NextFunction,
+    );
+
+    expect(mockNext).not.toHaveBeenCalled();
+    expect(statusMock).toHaveBeenCalledWith(401);
+    expect(jsonMock).toHaveBeenCalledWith({
+      error: { message: 'Authentication required', code: 'UNAUTHORIZED' },
+    });
+    expect(mockZcard).not.toHaveBeenCalled();
+  });
+
+  test('returns 401 when req.user.id is missing', async () => {
+    mockReq.user = { role: 'user' } as Request['user'];
+
+    await generationRateLimiter(
+      mockReq as Request,
+      mockRes as Response,
+      mockNext as NextFunction,
+    );
+
+    expect(mockNext).not.toHaveBeenCalled();
+    expect(statusMock).toHaveBeenCalledWith(401);
+  });
+
+  describe('day boundary handling', () => {
+    test('uses correct date key at 23:59 UTC', async () => {
+      vi.setSystemTime(new Date('2026-03-17T23:59:59.999Z'));
+      mockZcard.mockResolvedValue(0);
+
+      await generationRateLimiter(
+        mockReq as Request,
+        mockRes as Response,
+        mockNext as NextFunction,
+      );
+
+      expect(mockZcard).toHaveBeenCalledWith(
+        'user:test-user-id:generations:2026-03-17',
+      );
+    });
+
+    test('uses new date key at 00:01 UTC', async () => {
+      vi.setSystemTime(new Date('2026-03-18T00:01:00.000Z'));
+      mockZcard.mockResolvedValue(0);
+
+      await generationRateLimiter(
+        mockReq as Request,
+        mockRes as Response,
+        mockNext as NextFunction,
+      );
+
+      expect(mockZcard).toHaveBeenCalledWith(
+        'user:test-user-id:generations:2026-03-18',
+      );
+    });
+
+    test('cleanup uses midnight timestamp for current date', async () => {
+      vi.setSystemTime(new Date('2026-03-17T15:00:00Z'));
+      mockZcard.mockResolvedValue(0);
+
+      await generationRateLimiter(
+        mockReq as Request,
+        mockRes as Response,
+        mockNext as NextFunction,
+      );
+
+      const expectedMidnight = new Date('2026-03-17T00:00:00Z').getTime();
+      expect(mockZremrangebyscore).toHaveBeenCalledWith(
+        'user:test-user-id:generations:2026-03-17',
+        0,
+        expectedMidnight - 1,
+      );
+    });
+  });
 });

@@ -19,6 +19,14 @@ export async function augmentationRateLimiter(
     const userId = req.user?.id;
     const userRole = req.user?.role;
 
+    // Defense-in-depth: auth middleware should have caught this, but verify
+    if (!userId) {
+      res.status(401).json({
+        error: { message: 'Authentication required', code: 'UNAUTHORIZED' },
+      });
+      return;
+    }
+
     // Determine limit based on role
     const dailyLimit =
       userRole === 'admin'
