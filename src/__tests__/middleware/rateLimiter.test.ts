@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'bun:test';
 
 const { mockLoggerWarn } = vi.hoisted(() => ({
   mockLoggerWarn: vi.fn(),
@@ -11,9 +11,9 @@ vi.mock('../../utils/logger', () => ({
   },
 }));
 
+import type { Express } from 'express';
 import express from 'express';
 import rateLimit from 'express-rate-limit';
-import type { Express } from 'express';
 
 describe('Auth Rate Limiters', () => {
   let app: Express;

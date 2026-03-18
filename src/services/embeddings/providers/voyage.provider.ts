@@ -2,22 +2,30 @@ import { logger } from '../../../utils/logger';
 import type { EmbeddingProvider } from '../provider.interface';
 
 type VoyageClient = {
-  embed: (params: { input: string[]; model: string }) => Promise<{
+  embed: (params: {
+    input: string[];
+    model: string;
+    output_dimension?: number;
+  }) => Promise<{
     data: Array<{ embedding: number[]; index: number }>;
   }>;
 };
 
-const MODEL = 'voyage-3-lite';
+const MODEL = 'voyage-4-lite';
 const DIMENSIONS = 1024;
 const BATCH_SIZE = 128;
 
 let initPromise: Promise<VoyageClient | null> | null = null;
 
 async function createClient(): Promise<VoyageClient | null> {
-  const { VoyageAIClient } = await import('voyageai');
+  // Use require() because voyageai's ESM exports have a bug with directory imports
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { VoyageAIClient } = require('voyageai') as {
+    VoyageAIClient: new (opts: { apiKey: string }) => VoyageClient;
+  };
   const apiKey = process.env.VOYAGE_API_KEY;
   if (!apiKey) return null;
-  return new VoyageAIClient({ apiKey }) as unknown as VoyageClient;
+  return new VoyageAIClient({ apiKey });
 }
 
 async function getClient(): Promise<VoyageClient | null> {
@@ -48,6 +56,7 @@ export const voyageEmbeddingProvider: EmbeddingProvider = {
     const response = await client.embed({
       model: MODEL,
       input: [text],
+      output_dimension: DIMENSIONS,
     });
 
     const embedding = response.data[0].embedding;
@@ -84,6 +93,7 @@ export const voyageEmbeddingProvider: EmbeddingProvider = {
       const response = await client.embed({
         model: MODEL,
         input: batch,
+        output_dimension: DIMENSIONS,
       });
 
       const batchEmbeddings = response.data

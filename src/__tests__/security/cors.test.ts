@@ -5,7 +5,7 @@ import {
   describe,
   expect,
   test,
-} from 'vitest';
+} from 'bun:test';
 import { closeDb, resetUserCounter, truncateAll } from '../helpers';
 import {
   clearRedisStore,

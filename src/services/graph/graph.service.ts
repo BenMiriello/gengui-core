@@ -33,10 +33,10 @@ import {
 
 export type {
   NodeProperties,
-  StoredStoryNode,
-  StoredStoryConnection,
-  StoredFacet,
   QueryResult,
+  StoredFacet,
+  StoredStoryConnection,
+  StoredStoryNode,
 };
 
 const GRAPH_NAME = process.env.FALKORDB_GRAPH_NAME || 'gengui';

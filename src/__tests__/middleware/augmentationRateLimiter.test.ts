@@ -1,4 +1,3 @@
-import type { NextFunction, Request, Response } from 'express';
 import {
   afterEach,
   beforeEach,
@@ -7,7 +6,8 @@ import {
   type Mock,
   test,
   vi,
-} from 'vitest';
+} from 'bun:test';
+import type { NextFunction, Request, Response } from 'express';
 
 const { mockZcard, mockZremrangebyscore, mockLoggerWarn, mockLoggerError } =
   vi.hoisted(() => ({

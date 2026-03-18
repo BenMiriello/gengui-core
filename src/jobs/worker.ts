@@ -14,6 +14,7 @@ import { jobs } from '../models/schema';
 import { activityService } from '../services/activity.service';
 import type { Activity, ActivityProgress } from '../services/activity.types';
 import { sseService } from '../services/sse';
+import { getErrorForLogging, sanitizeError } from '../utils/error-sanitizer';
 import { logger } from '../utils/logger';
 import { jobService } from './service';
 import type { Job, JobProgress, JobType } from './types';
@@ -552,30 +553,39 @@ export abstract class JobWorker<
 
   /**
    * Mark job as failed.
+   * Sanitizes error messages for user display while preserving full details for logging.
    */
   protected async failJob(jobId: string, error: unknown): Promise<void> {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    const job = await jobService.updateStatus(jobId, 'failed', errorMessage);
+    const rawError = getErrorForLogging(error);
+    const userMessage = sanitizeError(error);
+
+    // Store sanitized message in DB (visible via admin/debugging)
+    const job = await jobService.updateStatus(
+      jobId,
+      'failed',
+      rawError.message,
+    );
 
     if (job) {
+      // Send sanitized message to user via SSE
       sseService.broadcastToDocument(job.targetId, 'job-failed', {
         jobId,
         jobType: job.type,
         targetId: job.targetId,
-        error: errorMessage,
+        error: userMessage,
         timestamp: new Date().toISOString(),
       });
 
       sseService.clearDocumentBuffer(job.targetId);
 
-      // Update activity status
+      // Update activity with sanitized message (user-visible)
       if (this.currentActivity) {
         try {
           await activityService.updateStatus(
             this.currentActivity.id,
             'failed',
             {
-              errorMessage,
+              errorMessage: userMessage,
             },
           );
         } catch (activityError) {
@@ -590,11 +600,13 @@ export abstract class JobWorker<
         }
       }
 
+      // Log full error details for debugging
       logger.error(
         {
           jobId,
           targetId: job.targetId,
-          error: errorMessage,
+          error: rawError.message,
+          stack: rawError.stack,
           service: this.serviceName,
         },
         'Job failed',

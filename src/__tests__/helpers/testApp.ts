@@ -1,24 +1,13 @@
-import { vi } from 'vitest';
+import { mock } from 'bun:test';
 
 import { getEmailServiceMock } from './mocks';
 
-const {
-  redisStore,
-  mockStorageData,
-  mockStoryNodes,
-  primaryEditors,
-  storageKeyCounter,
-  testServer,
-} = vi.hoisted(() => {
-  return {
-    redisStore: new Map<string, string>(),
-    mockStorageData: new Map<string, Buffer>(),
-    mockStoryNodes: new Map<string, unknown>(),
-    primaryEditors: new Map<string, string>(),
-    storageKeyCounter: { value: 0 },
-    testServer: { server: null as unknown, port: 0 },
-  };
-});
+const redisStore = new Map<string, string>();
+const mockStorageData = new Map<string, Buffer>();
+const mockStoryNodes = new Map<string, unknown>();
+const primaryEditors = new Map<string, string>();
+const storageKeyCounter = { value: 0 };
+const testServer: { server: unknown; port: number } = { server: null, port: 0 };
 
 export function clearRedisStore() {
   redisStore.clear();
@@ -29,7 +18,7 @@ export function clearStorageData() {
   storageKeyCounter.value = 0;
 }
 
-vi.mock('../../services/storage', () => ({
+mock.module('../../services/storage', () => ({
   storageProvider: {
     upload: async (
       userId: string,
@@ -80,14 +69,14 @@ vi.mock('../../services/storage', () => ({
   }),
 }));
 
-vi.mock('../../services/imageProcessor', () => ({
+mock.module('../../services/imageProcessor', () => ({
   imageProcessor: {
     extractDimensions: async (_buffer: Buffer) => ({ width: 100, height: 100 }),
     createThumbnail: async (buffer: Buffer, _size: number) => buffer,
   },
 }));
 
-vi.mock('../../services/cache', () => ({
+mock.module('../../services/cache', () => ({
   cache: {
     getMediaUrl: async () => null,
     setMediaUrl: async () => {},
@@ -151,7 +140,7 @@ const mockRedisClient = {
   quit: async () => {},
 };
 
-vi.mock('../../services/redis', () => ({
+mock.module('../../services/redis', () => ({
   redis: {
     getClient: () => mockRedisClient,
     getSubscriber: () => mockRedisClient,
@@ -184,7 +173,7 @@ vi.mock('../../services/redis', () => ({
   },
 }));
 
-vi.mock('../../middleware/rateLimiter', () => {
+mock.module('../../middleware/rateLimiter', () => {
   const noOpRateLimiter = (_req: unknown, _res: unknown, next: () => void) =>
     next();
   return {
@@ -195,17 +184,17 @@ vi.mock('../../middleware/rateLimiter', () => {
   };
 });
 
-vi.mock('../../middleware/generationRateLimiter', () => ({
+mock.module('../../middleware/generationRateLimiter', () => ({
   generationRateLimiter: (_req: unknown, _res: unknown, next: () => void) =>
     next(),
 }));
 
-vi.mock('../../middleware/augmentationRateLimiter', () => ({
+mock.module('../../middleware/augmentationRateLimiter', () => ({
   augmentationRateLimiter: (_req: unknown, _res: unknown, next: () => void) =>
     next(),
 }));
 
-vi.mock('../../services/runpod/client', () => ({
+mock.module('../../services/runpod/client', () => ({
   runpodClient: {
     isEnabled: () => false,
     getJobStatus: async () => ({ status: 'COMPLETED' }),
@@ -213,8 +202,7 @@ vi.mock('../../services/runpod/client', () => ({
   },
 }));
 
-vi.mock('../../services/emailService', async () => {
-  const { getEmailServiceMock } = await import('./mocks');
+mock.module('../../services/emailService', () => {
   const emailMock = getEmailServiceMock();
   return {
     emailService: emailMock,
@@ -227,7 +215,7 @@ vi.mock('../../services/emailService', async () => {
   };
 });
 
-vi.mock('../../services/image-generation/factory', () => ({
+mock.module('../../services/image-generation/factory', () => ({
   getImageProvider: async () => ({
     name: 'test',
     validateDimensions: () => true,
@@ -252,7 +240,7 @@ export function clearPrimaryEditors() {
   primaryEditors.clear();
 }
 
-vi.mock('../../services/presence', () => ({
+mock.module('../../services/presence', () => ({
   presenceService: {
     isPrimaryEditor: async (documentId: string, sessionId: string) => {
       const primary = primaryEditors.get(documentId);
@@ -272,7 +260,7 @@ vi.mock('../../services/presence', () => ({
   },
 }));
 
-vi.mock('../../services/sse', () => ({
+mock.module('../../services/sse', () => ({
   sseService: {
     addClient: () => {},
     removeClient: () => {},
@@ -281,7 +269,7 @@ vi.mock('../../services/sse', () => ({
   },
 }));
 
-vi.mock('../../services/redis-streams', () => ({
+mock.module('../../services/redis-streams', () => ({
   redisStreams: {
     add: async () => 'mock-stream-id',
   },
@@ -295,9 +283,14 @@ export function setMockStoryNode(nodeId: string, node: unknown) {
   mockStoryNodes.set(nodeId, node);
 }
 
-// Always mock graphService for API tests that use setMockStoryNode helper
-// Graph integration tests (in __tests__/graph/) create their own connection
-vi.mock('../../services/graph/graph.service', () => ({
+interface MockStoryNode {
+  userId: string;
+  documentId: string;
+  stylePreset?: string | null;
+  stylePrompt?: string | null;
+}
+
+mock.module('../../services/graph/graph.service', () => ({
   graphService: {
     __isMocked: true,
     connect: async () => {},
@@ -306,7 +299,7 @@ vi.mock('../../services/graph/graph.service', () => ({
     query: async () => ({ headers: [], data: [], stats: {} }),
     createStoryNode: async () => 'mock-node-id',
     getStoryNodeById: async (nodeId: string, userId: string) => {
-      const node = mockStoryNodes.get(nodeId);
+      const node = mockStoryNodes.get(nodeId) as MockStoryNode | undefined;
       if (!node || node.userId !== userId) return null;
       return node;
     },
@@ -315,7 +308,8 @@ vi.mock('../../services/graph/graph.service', () => ({
     getStoryNodesForDocument: async (documentId: string, userId: string) => {
       const nodes: unknown[] = [];
       for (const node of mockStoryNodes.values()) {
-        if (node.documentId === documentId && node.userId === userId) {
+        const n = node as MockStoryNode;
+        if (n.documentId === documentId && n.userId === userId) {
           nodes.push(node);
         }
       }
@@ -327,7 +321,7 @@ vi.mock('../../services/graph/graph.service', () => ({
       stylePreset: string | null,
       stylePrompt: string | null,
     ) => {
-      const node = mockStoryNodes.get(nodeId);
+      const node = mockStoryNodes.get(nodeId) as MockStoryNode | undefined;
       if (!node) return null;
       node.stylePreset = stylePreset;
       node.stylePrompt = stylePrompt;
@@ -346,7 +340,7 @@ vi.mock('../../services/graph/graph.service', () => ({
   },
 }));
 
-vi.mock('../../services/graph/graph.threads.js', () => ({
+mock.module('../../services/graph/graph.threads.js', () => ({
   graphThreads: {
     getThreadsForDocument: async () => [],
     getThreadById: async () => null,
@@ -357,7 +351,7 @@ vi.mock('../../services/graph/graph.threads.js', () => ({
   },
 }));
 
-vi.mock('../../config/env', () => ({
+mock.module('../../config/env', () => ({
   env: {
     NODE_ENV: 'development',
     PORT: 3000,
@@ -484,9 +478,10 @@ export async function startTestServer(): Promise<{
   const app = await createTestApp();
 
   return new Promise((resolve, reject) => {
-    testServer.server = app.listen(0, () => {
-      const address = testServer.server?.address();
+    const server = app.listen(0, () => {
+      const address = server.address();
       if (typeof address === 'object' && address !== null) {
+        testServer.server = server;
         testServer.port = address.port;
         resolve({
           app,
@@ -498,14 +493,15 @@ export async function startTestServer(): Promise<{
       }
     });
 
-    testServer.server.on('error', reject);
+    server.on('error', reject);
   });
 }
 
 export async function stopTestServer(): Promise<void> {
   if (testServer.server) {
     return new Promise((resolve) => {
-      testServer.server?.close(() => {
+      const server = testServer.server as { close: (cb: () => void) => void };
+      server.close(() => {
         testServer.server = null;
         testServer.port = 0;
         resolve();
@@ -515,4 +511,5 @@ export async function stopTestServer(): Promise<void> {
 }
 
 const emailMock = getEmailServiceMock();
+
 export { emailMock, mockStorageData, mockStoryNodes };

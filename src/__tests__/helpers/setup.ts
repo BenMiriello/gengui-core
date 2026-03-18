@@ -218,11 +218,10 @@ export async function closeDb() {
   }
 }
 
-export { testDb };
-
 export {
   clearGraphData,
   closeGraph,
   connectGraph,
   graphQuery,
 } from './graphSetup';
+export { testDb };

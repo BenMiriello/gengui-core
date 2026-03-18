@@ -28,6 +28,7 @@ import { stalenessService } from '../services/staleness';
 import { graphStoryNodesRepository } from '../services/storyNodes';
 import { UsageQuotaExceededError, usageService } from '../services/usage';
 import { versioningService } from '../services/versioning';
+import { sanitizeError } from '../utils/error-sanitizer';
 import { BadRequestError } from '../utils/errors';
 import { logger } from '../utils/logger';
 
@@ -438,7 +439,9 @@ router.get(
 
         if (recentFailed) {
           analysisStatus = 'failed';
-          errorMessage = recentFailed.errorMessage;
+          errorMessage = recentFailed.errorMessage
+            ? sanitizeError(recentFailed.errorMessage)
+            : null;
           jobId = recentFailed.id;
         }
       }

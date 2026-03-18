@@ -1,16 +1,12 @@
-import { type MockInstance, vi } from 'vitest';
+import { type Mock, mock } from 'bun:test';
 
 interface EmailServiceMock {
-  sendVerificationEmail: MockInstance<
-    (email: string, token: string) => Promise<void>
-  >;
-  sendEmailChangeVerification: MockInstance<
+  sendVerificationEmail: Mock<(email: string, token: string) => Promise<void>>;
+  sendEmailChangeVerification: Mock<
     (newEmail: string, token: string) => Promise<void>
   >;
-  sendPasswordResetEmail: MockInstance<
-    (email: string, token: string) => Promise<void>
-  >;
-  sendPasswordChangedEmail: MockInstance<(email: string) => Promise<void>>;
+  sendPasswordResetEmail: Mock<(email: string, token: string) => Promise<void>>;
+  sendPasswordChangedEmail: Mock<(email: string) => Promise<void>>;
   getLastVerificationToken: () => string | null;
   getLastPasswordResetToken: () => string | null;
   reset: () => void;
@@ -20,23 +16,21 @@ let lastVerificationToken: string | null = null;
 let lastPasswordResetToken: string | null = null;
 
 export function createEmailServiceMock(): EmailServiceMock {
-  const sendVerificationEmail = vi.fn(async (_email: string, token: string) => {
+  const sendVerificationEmail = mock(async (_email: string, token: string) => {
     lastVerificationToken = token;
   });
 
-  const sendEmailChangeVerification = vi.fn(
+  const sendEmailChangeVerification = mock(
     async (_newEmail: string, token: string) => {
       lastVerificationToken = token;
     },
   );
 
-  const sendPasswordResetEmail = vi.fn(
-    async (_email: string, token: string) => {
-      lastPasswordResetToken = token;
-    },
-  );
+  const sendPasswordResetEmail = mock(async (_email: string, token: string) => {
+    lastPasswordResetToken = token;
+  });
 
-  const sendPasswordChangedEmail = vi.fn(async (_email: string) => {});
+  const sendPasswordChangedEmail = mock(async (_email: string) => {});
 
   return {
     sendVerificationEmail,
@@ -76,12 +70,12 @@ export function resetAllMocks() {
 export function mockImageProvider() {
   return {
     name: 'test',
-    validateDimensions: vi.fn(() => true),
-    getSupportedDimensions: vi.fn(() => [
+    validateDimensions: mock(() => true),
+    getSupportedDimensions: mock(() => [
       { width: 1024, height: 1024 },
       { width: 512, height: 512 },
     ]),
-    generateImage: vi.fn(async () => ({
+    generateImage: mock(async () => ({
       success: true,
       imageData: Buffer.from('fake-image'),
     })),

@@ -1,7 +1,0 @@
-{
-  "$comment": "Use nodemon instead of 'bun --watch' to avoid file watcher infinite loops causing 100% CPU (bun issues #27667, #21654). Delay batches multiple file changes into single restart.",
-  "watch": ["src"],
-  "ext": "ts,js,json",
-  "ignore": ["src/**/*.test.ts", "src/**/*.spec.ts", "logs/*", "node_modules"],
-  "delay": 1000
-}
