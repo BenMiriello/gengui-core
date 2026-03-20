@@ -3,8 +3,6 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth';
 import { activityService } from '../services/activity.service';
-import { sseService } from '../services/sse';
-import { logger } from '../utils/logger';
 
 const router = Router();
 
@@ -215,25 +213,6 @@ router.post(
   },
 );
 
-/**
- * GET /sse/activity
- * SSE endpoint for activity updates (user channel)
- */
-router.get('/sse/activity', requireAuth, (req: Request, res: Response) => {
-  if (!req.user) {
-    res.status(401).json({ error: 'Not authenticated' });
-    return;
-  }
-
-  const userId = req.user.id;
-  const clientId = `activity:${userId}:${Date.now()}`;
-  const channel = `user:${userId}`;
-
-  logger.debug({ clientId, channel }, 'Activity SSE client connecting');
-
-  sseService.addClient(clientId, channel, res, () => {
-    logger.debug({ clientId }, 'Activity SSE client disconnected');
-  });
-});
+// SSE endpoint removed - use unified /sse/events with channel subscriptions
 
 export { router as activitiesRouter };

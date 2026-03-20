@@ -57,6 +57,8 @@ class ActivityService {
   /**
    * Create activity from a job (for analysis, exports, etc.)
    * Pass viewedAt to mark as pre-viewed (for exports where user sees immediate feedback)
+   * Uses upsert logic to handle job recovery: if activity already exists for jobId,
+   * reuse it instead of creating a duplicate.
    */
   async createFromJob(params: CreateActivityFromJobParams): Promise<Activity> {
     const {
@@ -68,6 +70,27 @@ class ActivityService {
       title,
       viewedAt,
     } = params;
+
+    const existing = await db
+      .select()
+      .from(activities)
+      .where(eq(activities.jobId, jobId))
+      .limit(1);
+
+    if (existing.length > 0) {
+      const [updated] = await db
+        .update(activities)
+        .set({ status: 'running', errorMessage: null, updatedAt: new Date() })
+        .where(eq(activities.id, existing[0].id))
+        .returning();
+
+      this.broadcast(userId, 'activity-updated', updated);
+      logger.info(
+        { activityId: updated.id, jobId },
+        'Reusing existing activity for resumed job',
+      );
+      return updated;
+    }
 
     const [activity] = await db
       .insert(activities)
