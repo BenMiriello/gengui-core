@@ -111,7 +111,10 @@ export class ThumbnailProcessor {
 
       if (docMedia.length > 0) {
         const documentId = docMedia[0].documentId;
-        sseService.broadcastToDocument(documentId, 'media-update', { mediaId });
+        sseService.broadcastToDocument(documentId, 'media-update', {
+          documentId,
+          mediaId,
+        });
         logger.debug(
           { mediaId, documentId },
           'Broadcasted thumbnail update via SSE',

@@ -95,6 +95,11 @@ class ImageGenerationWorker extends JobWorker<
       await activityService.updateProgress(activity.id, {
         stageName: 'Generating image',
       });
+    } else {
+      logger.warn(
+        { mediaId, userId, jobId: job.id },
+        'No activity found for media at job start',
+      );
     }
 
     // Broadcast status update
@@ -194,9 +199,16 @@ class ImageGenerationWorker extends JobWorker<
         payload: { mediaId, status: 'completed', s3Key },
       });
 
-      // Update activity to completed
-      if (activity) {
-        await activityService.updateStatus(activity.id, 'completed');
+      // Update activity to completed (re-lookup in case created after job started)
+      const completedActivity =
+        activity ?? (await activityService.getByMediaId(mediaId));
+      if (completedActivity) {
+        await activityService.updateStatus(completedActivity.id, 'completed');
+      } else {
+        logger.error(
+          { mediaId, userId, jobId: job.id },
+          'Activity not found - completion status not persisted',
+        );
       }
 
       logger.info(
@@ -230,11 +242,18 @@ class ImageGenerationWorker extends JobWorker<
         },
       });
 
-      // Update activity to failed
-      if (activity) {
-        await activityService.updateStatus(activity.id, 'failed', {
+      // Update activity to failed (re-lookup in case created after job started)
+      const failedActivity =
+        activity ?? (await activityService.getByMediaId(mediaId));
+      if (failedActivity) {
+        await activityService.updateStatus(failedActivity.id, 'failed', {
           errorMessage,
         });
+      } else {
+        logger.error(
+          { mediaId, userId, jobId: job.id },
+          'Activity not found - failure status not persisted',
+        );
       }
 
       // Re-throw to let base class handle job status update

@@ -180,7 +180,10 @@ class MediaStatusWorker extends JobWorker<MediaStatusPayload, JobProgress> {
 
       if (docMedia.length > 0) {
         const documentId = docMedia[0].documentId;
-        sseService.broadcastToDocument(documentId, 'media-update', { mediaId });
+        sseService.broadcastToDocument(documentId, 'media-update', {
+          documentId,
+          mediaId,
+        });
         logger.debug(
           { mediaId, documentId },
           'Broadcasted media update via SSE',
@@ -289,7 +292,9 @@ class MediaStatusWorker extends JobWorker<MediaStatusPayload, JobProgress> {
       const primaryMediaUrl = await s3.generateDownloadUrl(key);
 
       sseService.broadcastToDocument(documentId, 'node-primary-media-updated', {
+        documentId,
         nodeId,
+        primaryMediaId: mediaId,
         primaryMediaUrl,
       });
 
