@@ -10,16 +10,16 @@ export type SSEEventName =
   | 'document-updated'
   | 'document-deleted'
   // Mention events
-  | 'mention-created'
   | 'mention-key-passage-updated'
   // Node events
-  | 'node-created'
   | 'node-updated'
   | 'node-deleted'
-  | 'entities-merged'
+  | 'nodes-updated'
+  | 'node-primary-media-updated'
   // Media events
   | 'media-uploaded'
   | 'media-deleted'
+  | 'media-update'
   // Activity events
   | 'activity-created'
   | 'activity-updated'
@@ -42,24 +42,12 @@ export interface DocumentDeletedEvent {
   documentId: string;
 }
 
-export interface MentionCreatedEvent {
-  documentId: string;
-  mentionId: string;
-  nodeId: string;
-}
-
 export interface MentionKeyPassageUpdatedEvent {
   documentId: string;
   mentionId: string;
   nodeId: string;
   isKeyPassage: boolean;
   timestamp: number;
-}
-
-export interface NodeCreatedEvent {
-  documentId: string;
-  nodeId: string;
-  facetId?: string;
 }
 
 export interface NodeUpdatedEvent {
@@ -70,13 +58,24 @@ export interface NodeUpdatedEvent {
 
 export interface NodeDeletedEvent {
   documentId: string;
-  nodeId: string;
+  nodeIds: string[];
 }
 
-export interface EntitiesMergedEvent {
+export interface NodesUpdatedEvent {
   documentId: string;
-  sourceNodeId: string;
-  targetNodeId: string;
+  nodeIds: string[];
+}
+
+export interface NodePrimaryMediaUpdatedEvent {
+  documentId: string;
+  nodeId: string;
+  primaryMediaId: string | null;
+  primaryMediaUrl: string | null;
+}
+
+export interface MediaUpdateEvent {
+  documentId: string;
+  mediaId: string;
 }
 
 export interface MediaUploadedEvent {
@@ -122,33 +121,29 @@ export const EVENT_INVALIDATION_MAP: Record<
   ],
   'document-deleted': [['documents', ':documentId']],
 
-  'mention-created': [
-    ['documents', ':documentId', 'mentions'],
-    ['documents', ':documentId', 'nodes'],
-  ],
   'mention-key-passage-updated': [
     ['documents', ':documentId', 'mentions'],
     ['documents', ':documentId', 'nodes'],
   ],
 
-  'node-created': [
-    ['documents', ':documentId', 'nodes'],
-    ['documents', ':documentId', 'mentions'],
-  ],
   'node-updated': [
     ['nodes', ':nodeId'],
     ['documents', ':documentId', 'nodes'],
+    ['documents', ':documentId', 'graphAnalysis'],
   ],
   'node-deleted': [
     ['documents', ':documentId', 'nodes'],
     ['documents', ':documentId', 'mentions'],
+    ['documents', ':documentId', 'graphAnalysis'],
     ['nodes', ':nodeId'],
   ],
-  'entities-merged': [
+  'nodes-updated': [
     ['documents', ':documentId', 'nodes'],
-    ['documents', ':documentId', 'mentions'],
-    ['nodes', ':sourceNodeId'],
-    ['nodes', ':targetNodeId'],
+    ['documents', ':documentId', 'graphAnalysis'],
+  ],
+  'node-primary-media-updated': [
+    ['nodes', ':nodeId'],
+    ['nodes', ':nodeId', 'media'],
   ],
 
   'media-uploaded': [
@@ -159,6 +154,7 @@ export const EVENT_INVALIDATION_MAP: Record<
     ['documents', ':documentId', 'media'],
     ['nodes', ':nodeId', 'media'],
   ],
+  'media-update': [['documents', ':documentId', 'media']],
 
   'activity-created': [['activities']],
   'activity-updated': [['activities'], ['activities', ':activityId']],

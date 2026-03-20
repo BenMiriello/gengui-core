@@ -18,6 +18,7 @@ import generationsRoutes from './routes/generations';
 import googleDriveRoutes from './routes/google-drive';
 import mediaRoutes from './routes/media';
 import nodesRoutes from './routes/nodes';
+import { sseRouter } from './routes/sse';
 import tagRoutes from './routes/tags';
 // Logging configured via middleware
 
@@ -102,7 +103,7 @@ export function createApp() {
   app.use('/api', exportRouter);
   app.use('/api', googleDriveRoutes);
   app.use('/api', activitiesRouter);
-  app.use('', activitiesRouter); // SSE endpoint at /sse/activity
+  app.use('', sseRouter); // Unified SSE endpoints at /sse/*
 
   app.use(errorHandler);
 
