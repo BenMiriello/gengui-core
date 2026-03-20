@@ -31,6 +31,7 @@ import { versioningService } from '../services/versioning';
 import { sanitizeError } from '../utils/error-sanitizer';
 import { BadRequestError } from '../utils/errors';
 import { logger } from '../utils/logger';
+import { parseStringParam } from '../utils/validation';
 
 const router = Router();
 
@@ -56,7 +57,7 @@ router.get(
     try {
       if (!req.user) throw new Error('User not authenticated');
       const userId = req.user.id;
-      const { id } = req.params;
+      const id = parseStringParam(req.params.id, 'id');
       const document = await documentsService.get(id, userId);
       res.json({ document });
     } catch (error) {
@@ -107,9 +108,10 @@ router.post(
     try {
       if (!req.user) throw new Error('User not authenticated');
       const userId = req.user.id;
+      const id = parseStringParam(req.params.id, 'id');
       const { title } = req.body;
       const document = await documentsService.copy(
-        req.params.id,
+        id,
         userId,
         title || 'Untitled',
       );
@@ -134,7 +136,7 @@ router.patch(
     try {
       if (!req.user) throw new Error('User not authenticated');
       const userId = req.user.id;
-      const { id } = req.params;
+      const id = parseStringParam(req.params.id, 'id');
       const {
         content,
         yjsState,
@@ -183,7 +185,7 @@ router.get(
     try {
       if (!req.user) throw new Error('User not authenticated');
       const userId = req.user.id;
-      const { id } = req.params;
+      const id = parseStringParam(req.params.id, 'id');
       const limit = parseInt(req.query.limit as string, 10) || 50;
 
       await documentsService.get(id, userId);
@@ -202,7 +204,11 @@ router.get(
     try {
       if (!req.user) throw new Error('User not authenticated');
       const userId = req.user.id;
-      const { id, versionNumber } = req.params;
+      const id = parseStringParam(req.params.id, 'id');
+      const versionNumber = parseStringParam(
+        req.params.versionNumber,
+        'versionNumber',
+      );
 
       await documentsService.get(id, userId);
       const version = await versioningService.getVersion(
@@ -231,7 +237,7 @@ router.patch(
     try {
       if (!req.user) throw new Error('User not authenticated');
       const userId = req.user.id;
-      const { id } = req.params;
+      const id = parseStringParam(req.params.id, 'id');
       const { narrativeModeEnabled, mediaModeEnabled } = req.body;
 
       const document = await documentsService.update(id, userId, {
@@ -252,7 +258,7 @@ router.delete(
     try {
       if (!req.user) throw new Error('User not authenticated');
       const userId = req.user.id;
-      const { id } = req.params;
+      const id = parseStringParam(req.params.id, 'id');
 
       await sseService.broadcastToDocument(id, 'document-deleted', {
         documentId: id,
@@ -273,7 +279,7 @@ router.get(
     try {
       if (!req.user) throw new Error('User not authenticated');
       const userId = req.user.id;
-      const { id } = req.params;
+      const id = parseStringParam(req.params.id, 'id');
       await documentsService.get(id, userId);
       const media = await mediaService.getDocumentMedia(id);
       res.json({ media });
@@ -290,7 +296,7 @@ router.delete(
     try {
       if (!req.user) throw new Error('User not authenticated');
       const userId = req.user.id;
-      const { id } = req.params;
+      const id = parseStringParam(req.params.id, 'id');
       await documentsService.get(id, userId);
       const count = await mediaService.softDeleteDocumentMedia(id, userId);
       res.json({ message: 'Media soft deleted', count });
@@ -307,7 +313,7 @@ router.post(
     try {
       if (!req.user) throw new Error('User not authenticated');
       const userId = req.user.id;
-      const { id } = req.params;
+      const id = parseStringParam(req.params.id, 'id');
       await documentsService.get(id, userId);
       const count = await mediaService.restoreDocumentMedia(id, userId);
       res.json({ message: 'Media restored', count });
@@ -326,7 +332,7 @@ router.get(
     try {
       if (!req.user) throw new Error('User not authenticated');
       const userId = req.user.id;
-      const { id } = req.params;
+      const id = parseStringParam(req.params.id, 'id');
 
       const document = await documentsService.get(id, userId);
       const nodes = await graphStoryNodesRepository.getActiveNodes(id, userId);
@@ -434,7 +440,7 @@ router.get(
     try {
       if (!req.user) throw new Error('User not authenticated');
       const userId = req.user.id;
-      const { id } = req.params;
+      const id = parseStringParam(req.params.id, 'id');
 
       const document = await documentsService.get(id, userId);
       const result = await stalenessService.detectStaleness(
@@ -456,7 +462,7 @@ router.post(
     try {
       if (!req.user) throw new Error('User not authenticated');
       const userId = req.user.id;
-      const { id } = req.params;
+      const id = parseStringParam(req.params.id, 'id');
       const reanalyze = req.query.reanalyze === 'true';
 
       const document = await documentsService.get(id, userId);
@@ -545,7 +551,7 @@ router.post(
     try {
       if (!req.user) throw new Error('User not authenticated');
       const userId = req.user.id;
-      const { id } = req.params;
+      const id = parseStringParam(req.params.id, 'id');
 
       await documentsService.get(id, userId);
 
@@ -600,7 +606,7 @@ router.post(
     try {
       if (!req.user) throw new Error('User not authenticated');
       const userId = req.user.id;
-      const { id } = req.params;
+      const id = parseStringParam(req.params.id, 'id');
 
       await documentsService.get(id, userId);
 
@@ -664,7 +670,7 @@ router.post(
     try {
       if (!req.user) throw new Error('User not authenticated');
       const userId = req.user.id;
-      const { id } = req.params;
+      const id = parseStringParam(req.params.id, 'id');
 
       await documentsService.get(id, userId);
 
@@ -721,7 +727,7 @@ router.get(
     try {
       if (!req.user) throw new Error('User not authenticated');
       const userId = req.user.id;
-      const { id } = req.params;
+      const id = parseStringParam(req.params.id, 'id');
 
       // Fetch active story nodes from FalkorDB
       const nodes = await graphStoryNodesRepository.getActiveNodes(id, userId);
@@ -746,7 +752,7 @@ router.patch(
     try {
       if (!req.user) throw new Error('User not authenticated');
       const userId = req.user.id;
-      const { id } = req.params;
+      const id = parseStringParam(req.params.id, 'id');
 
       // Verify user owns document
       await documentsService.get(id, userId);
@@ -771,7 +777,7 @@ router.delete(
     try {
       if (!req.user) throw new Error('User not authenticated');
       const userId = req.user.id;
-      const { id } = req.params;
+      const id = parseStringParam(req.params.id, 'id');
 
       logger.info({ documentId: id, userId }, 'DELETE story-nodes called');
 
@@ -886,7 +892,7 @@ router.get(
     try {
       if (!req.user) throw new Error('User not authenticated');
       const userId = req.user.id;
-      const { id } = req.params;
+      const id = parseStringParam(req.params.id, 'id');
       const k = parseInt(req.query.k as string, 10) || 10;
       const cutoff = parseFloat(req.query.cutoff as string) || 0.3;
 
@@ -913,7 +919,7 @@ router.get(
     try {
       if (!req.user) throw new Error('User not authenticated');
       const userId = req.user.id;
-      const { id } = req.params;
+      const id = parseStringParam(req.params.id, 'id');
 
       await documentsService.get(id, userId);
 
@@ -960,7 +966,7 @@ router.get(
     try {
       if (!req.user) throw new Error('User not authenticated');
       const userId = req.user.id;
-      const { id } = req.params;
+      const id = parseStringParam(req.params.id, 'id');
 
       await documentsService.get(id, userId);
 
@@ -986,7 +992,8 @@ router.get(
     try {
       if (!req.user) throw new Error('User not authenticated');
       const userId = req.user.id;
-      const { id, entityId } = req.params;
+      const id = parseStringParam(req.params.id, 'id');
+      const entityId = parseStringParam(req.params.entityId, 'entityId');
 
       await documentsService.get(id, userId);
 
@@ -1013,7 +1020,7 @@ router.post(
     try {
       if (!req.user) throw new Error('User not authenticated');
       const userId = req.user.id;
-      const { id } = req.params;
+      const id = parseStringParam(req.params.id, 'id');
       const { name, isPrimary } = req.body;
 
       await documentsService.get(id, userId);
@@ -1036,7 +1043,7 @@ router.patch(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { id } = req.params;
+      const id = parseStringParam(req.params.id, 'id');
       const { name } = req.body;
 
       const thread = await graphThreads.getThreadById(id);
@@ -1060,7 +1067,7 @@ router.delete(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { id } = req.params;
+      const id = parseStringParam(req.params.id, 'id');
 
       const thread = await graphThreads.getThreadById(id);
       if (!thread) {
@@ -1083,7 +1090,7 @@ router.post(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { id } = req.params;
+      const id = parseStringParam(req.params.id, 'id');
       const { nodeId, order } = req.body;
 
       await graphThreads.addEventToThread(nodeId, id, order ?? 0);
@@ -1099,7 +1106,8 @@ router.delete(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { id, nodeId } = req.params;
+      const id = parseStringParam(req.params.id, 'id');
+      const nodeId = parseStringParam(req.params.nodeId, 'nodeId');
 
       await graphThreads.removeEventFromThread(nodeId, id);
       res.json({ success: true });
@@ -1116,7 +1124,7 @@ router.post(
     try {
       if (!req.user) throw new Error('User not authenticated');
       const userId = req.user.id;
-      const { id } = req.params;
+      const id = parseStringParam(req.params.id, 'id');
 
       await documentsService.get(id, userId);
       const threads = await detectThreads(id, userId);

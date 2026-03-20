@@ -17,6 +17,7 @@ import {
   UsageQuotaExceededError,
   usageService,
 } from '../services/usage';
+import { parseStringParam } from '../utils/validation';
 
 const router = Router();
 
@@ -187,8 +188,9 @@ router.get('/', requireAuth, async (req, res, next) => {
 
 router.get('/:id', requireAuth, async (req, res, next) => {
   try {
+    const id = parseStringParam(req.params.id, 'id');
     const generation = await generationsService.getById(
-      req.params.id,
+      id,
       req.user?.id as string,
     );
 
@@ -200,10 +202,8 @@ router.get('/:id', requireAuth, async (req, res, next) => {
 
 router.post('/:id/cancel', requireAuth, async (req, res, next) => {
   try {
-    const result = await generationsService.cancel(
-      req.params.id,
-      req.user?.id as string,
-    );
+    const id = parseStringParam(req.params.id, 'id');
+    const result = await generationsService.cancel(id, req.user?.id as string);
     res.json(result);
   } catch (error) {
     // Job already completed - return 409 Conflict

@@ -4,6 +4,7 @@ import { PRESIGNED_S3_URL_EXPIRATION } from '../config/constants';
 import { requireAuth } from '../middleware/auth';
 import { mediaService } from '../services/mediaService';
 import { sseService } from '../services/sse';
+import { parseStringParam } from '../utils/validation';
 
 const router = Router();
 const upload = multer({
@@ -57,7 +58,8 @@ router.get('/', requireAuth, async (req, res, next) => {
 router.get('/:id', requireAuth, async (req, res, next) => {
   try {
     if (!req.user) throw new Error('User not authenticated');
-    const mediaItem = await mediaService.getById(req.params.id, req.user.id);
+    const id = parseStringParam(req.params.id, 'id');
+    const mediaItem = await mediaService.getById(id, req.user.id);
 
     res.json(mediaItem);
   } catch (error) {
@@ -67,13 +69,14 @@ router.get('/:id', requireAuth, async (req, res, next) => {
 
 router.get('/:id/url', requireAuth, async (req, res, next) => {
   try {
+    const id = parseStringParam(req.params.id, 'id');
     const expiresIn =
       parseInt(req.query.expiresIn as string, 10) ||
       PRESIGNED_S3_URL_EXPIRATION;
     const type = (req.query.type as string) === 'thumb' ? 'thumb' : 'full';
     if (!req.user) throw new Error('User not authenticated');
     const url = await mediaService.getSignedUrl(
-      req.params.id,
+      id,
       req.user.id,
       expiresIn,
       type,
@@ -89,7 +92,7 @@ router.get('/:id/documents', requireAuth, async (req, res, next) => {
   try {
     if (!req.user) throw new Error('User not authenticated');
     const userId = req.user.id;
-    const { id } = req.params;
+    const id = parseStringParam(req.params.id, 'id');
 
     const fields = req.query.fields
       ? (req.query.fields as string).split(',')
@@ -110,7 +113,7 @@ router.get('/:id/node', requireAuth, async (req, res, next) => {
   try {
     if (!req.user) throw new Error('User not authenticated');
     const userId = req.user.id;
-    const { id } = req.params;
+    const id = parseStringParam(req.params.id, 'id');
 
     const node = await mediaService.getNodeByMediaId(id, userId);
     res.json({ node });
@@ -121,7 +124,7 @@ router.get('/:id/node', requireAuth, async (req, res, next) => {
 
 router.delete('/:id', requireAuth, async (req, res, next) => {
   try {
-    const mediaId = req.params.id;
+    const mediaId = parseStringParam(req.params.id, 'id');
     const userId = req.user?.id as string;
 
     const documents = await mediaService.getDocumentsByMediaId(

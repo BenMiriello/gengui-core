@@ -10,6 +10,7 @@ import {
 } from '../config/constants';
 import { requireAuth } from '../middleware/auth';
 import { customStylePromptsService } from '../services/customStylePrompts';
+import { parseStringParam } from '../utils/validation';
 
 const router = Router();
 
@@ -84,7 +85,7 @@ router.patch(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const userId = req.user?.id as string;
-      const { id } = req.params;
+      const id = parseStringParam(req.params.id, 'id');
       const { name, prompt } = req.body;
 
       if (prompt && prompt.length > MAX_CUSTOM_STYLE_PROMPT_LENGTH) {
@@ -116,7 +117,7 @@ router.delete(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const userId = req.user?.id as string;
-      const { id } = req.params;
+      const id = parseStringParam(req.params.id, 'id');
 
       await customStylePromptsService.softDelete(id, userId);
       res.json({ success: true });

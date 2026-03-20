@@ -10,6 +10,7 @@ import { graphService } from '../services/graph/graph.service';
 import { mentionService } from '../services/mentions';
 import { segmentService } from '../services/segments';
 import { sseService } from '../services/sse';
+import { parseStringParam } from '../utils/validation';
 
 const router = Router();
 
@@ -53,9 +54,10 @@ router.post(
   requireEmailVerified('Email verification required to generate images'),
   async (req, res, next) => {
     try {
+      const id = parseStringParam(req.params.id, 'id');
       const validatedData = generateCharacterSheetSchema.parse(req.body);
       const result = await characterSheetService.generate({
-        nodeId: req.params.id,
+        nodeId: id,
         userId: req.user?.id as string,
         settings: validatedData.settings,
         aspectRatio: validatedData.aspectRatio,
@@ -65,7 +67,7 @@ router.post(
       });
 
       const node = await graphService.getStoryNodeById(
-        req.params.id,
+        id,
         req.user?.id as string,
       );
       if (node) {
@@ -114,9 +116,10 @@ router.patch(
   requireAuth,
   async (req, res, next) => {
     try {
+      const id = parseStringParam(req.params.id, 'id');
       const validatedData = setPrimaryMediaSchema.parse(req.body);
       await characterSheetService.setPrimaryMedia(
-        req.params.id,
+        id,
         validatedData.mediaId,
         req.user?.id as string,
       );
@@ -153,8 +156,9 @@ router.patch(
 // Get node with associated media
 router.get('/nodes/:id', requireAuth, async (req, res, next) => {
   try {
+    const id = parseStringParam(req.params.id, 'id');
     const result = await characterSheetService.getNodeMedia(
-      req.params.id,
+      id,
       req.user?.id as string,
     );
     res.json(result);
@@ -174,7 +178,7 @@ router.get('/nodes/:id', requireAuth, async (req, res, next) => {
 // Update node style
 router.patch('/nodes/:id/style', requireAuth, async (req, res, next) => {
   try {
-    const { id } = req.params;
+    const id = parseStringParam(req.params.id, 'id');
     const validatedData = updateNodeStyleSchema.parse(req.body);
 
     // Verify ownership and update in FalkorDB
@@ -219,7 +223,7 @@ router.patch('/nodes/:id/style', requireAuth, async (req, res, next) => {
 // Update node properties (name, description, aliases)
 router.patch('/nodes/:id', requireAuth, async (req, res, next) => {
   try {
-    const { id } = req.params;
+    const id = parseStringParam(req.params.id, 'id');
     const validatedData = updateNodeSchema.parse(req.body);
 
     const existing = await graphService.getStoryNodeById(
@@ -328,7 +332,7 @@ function findChapterForPosition(
 // Get a single mention by ID
 router.get('/mentions/:id', requireAuth, async (req, res, next) => {
   try {
-    const { id } = req.params;
+    const id = parseStringParam(req.params.id, 'id');
     const mention = await mentionService.getMentionById(id);
 
     if (!mention) {
@@ -347,7 +351,7 @@ router.get('/mentions/:id', requireAuth, async (req, res, next) => {
 // Get mentions for a node with absolute positions
 router.get('/nodes/:id/mentions', requireAuth, async (req, res, next) => {
   try {
-    const { id } = req.params;
+    const id = parseStringParam(req.params.id, 'id');
     const { documentId, limit: limitParam, offset: offsetParam } = req.query;
 
     if (!documentId || typeof documentId !== 'string') {
@@ -512,7 +516,7 @@ router.patch(
   requireAuth,
   async (req, res, next) => {
     try {
-      const { mentionId } = req.params;
+      const mentionId = parseStringParam(req.params.mentionId, 'mentionId');
       const { isKeyPassage } = z
         .object({ isKeyPassage: z.boolean() })
         .parse(req.body);
@@ -554,7 +558,7 @@ router.patch(
 // Get all mentions for a document with absolute positions
 router.get('/documents/:id/mentions', requireAuth, async (req, res, next) => {
   try {
-    const { id } = req.params;
+    const id = parseStringParam(req.params.id, 'id');
 
     const mentions =
       await mentionService.getByDocumentIdWithAbsolutePositions(id);
@@ -582,7 +586,7 @@ router.get('/documents/:id/mentions', requireAuth, async (req, res, next) => {
 // Get facets for a node
 router.get('/nodes/:id/facets', requireAuth, async (req, res, next) => {
   try {
-    const { id } = req.params;
+    const id = parseStringParam(req.params.id, 'id');
 
     // Verify node exists and user has access
     const node = await graphService.getStoryNodeById(
@@ -607,7 +611,7 @@ router.get('/nodes/:id/facets', requireAuth, async (req, res, next) => {
 // Get entity graph data for visualization
 router.get('/nodes/:id/graph', requireAuth, async (req, res, next) => {
   try {
-    const { id } = req.params;
+    const id = parseStringParam(req.params.id, 'id');
 
     const graphData = await graphService.getEntityGraph(
       id,
@@ -630,7 +634,7 @@ router.get('/nodes/:id/graph', requireAuth, async (req, res, next) => {
 // Get character arc data for visualization
 router.get('/nodes/:id/arc', requireAuth, async (req, res, next) => {
   try {
-    const { id } = req.params;
+    const id = parseStringParam(req.params.id, 'id');
 
     // Verify node exists and is a character
     const node = await graphService.getStoryNodeById(
@@ -689,7 +693,7 @@ router.get('/nodes/:id/arc', requireAuth, async (req, res, next) => {
 // Get changelog entries for a node
 router.get('/nodes/:id/changelog', requireAuth, async (req, res, next) => {
   try {
-    const { id } = req.params;
+    const id = parseStringParam(req.params.id, 'id');
     const limit = Math.min(parseInt(req.query.limit as string, 10) || 10, 100);
     const offset = parseInt(req.query.offset as string, 10) || 0;
 

@@ -8,6 +8,7 @@ import { generateDocx } from '../services/export/docx';
 import { generatePdf } from '../services/export/pdf';
 import { puppeteerPool } from '../services/puppeteerPool';
 import { logger } from '../utils/logger';
+import { parseStringParam } from '../utils/validation';
 
 const router = Router();
 
@@ -35,7 +36,7 @@ router.post(
     try {
       if (!req.user) throw new Error('User not authenticated');
       const userId = req.user.id;
-      const { id } = req.params;
+      const id = parseStringParam(req.params.id, 'id');
 
       const bodyResult = ExportRequestSchema.safeParse(req.body);
       if (!bodyResult.success) {
@@ -111,7 +112,7 @@ router.post(
     try {
       if (!req.user) throw new Error('User not authenticated');
       const userId = req.user.id;
-      const { id } = req.params;
+      const id = parseStringParam(req.params.id, 'id');
 
       const bodyResult = ExportRequestSchema.safeParse(req.body);
       if (!bodyResult.success) {

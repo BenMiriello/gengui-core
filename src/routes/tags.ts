@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { devAuth } from '../middleware/devAuth';
 import { tagService } from '../services/tagService';
+import { parseStringParam } from '../utils/validation';
 
 const router = Router();
 
@@ -35,6 +36,7 @@ router.get('/tags', devAuth, async (req, res, next) => {
 
 router.post('/media/:id/tags', devAuth, async (req, res, next) => {
   try {
+    const id = parseStringParam(req.params.id, 'id');
     const { tagId } = req.body;
 
     if (!tagId || typeof tagId !== 'string') {
@@ -45,7 +47,7 @@ router.post('/media/:id/tags', devAuth, async (req, res, next) => {
     }
 
     const result = await tagService.addToMedia(
-      req.params.id,
+      id,
       tagId,
       req.user?.id as string,
     );
@@ -58,9 +60,11 @@ router.post('/media/:id/tags', devAuth, async (req, res, next) => {
 
 router.delete('/media/:id/tags/:tagId', devAuth, async (req, res, next) => {
   try {
+    const id = parseStringParam(req.params.id, 'id');
+    const tagId = parseStringParam(req.params.tagId, 'tagId');
     const result = await tagService.removeFromMedia(
-      req.params.id,
-      req.params.tagId,
+      id,
+      tagId,
       req.user?.id as string,
     );
 

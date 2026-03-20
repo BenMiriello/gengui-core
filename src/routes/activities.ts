@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth';
 import { activityService } from '../services/activity.service';
+import { parseStringParam } from '../utils/validation';
 
 const router = Router();
 
@@ -115,7 +116,7 @@ router.post(
     try {
       if (!req.user) throw new Error('User not authenticated');
 
-      const { id } = req.params;
+      const id = parseStringParam(req.params.id, 'id');
       const activity = await activityService.retry(id, req.user.id);
 
       if (!activity) {
@@ -160,7 +161,7 @@ router.post(
     try {
       if (!req.user) throw new Error('User not authenticated');
 
-      const { id } = req.params;
+      const id = parseStringParam(req.params.id, 'id');
       const activity = await activityService.cancel(id, req.user.id);
 
       if (!activity) {

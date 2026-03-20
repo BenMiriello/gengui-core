@@ -102,11 +102,11 @@ async function runMigrations(): Promise<void> {
         // Execute regular migrations in a transaction
         await sql.begin(async (tx) => {
           await tx.unsafe(content);
-          await tx`
+          await tx.unsafe(`
             INSERT INTO schema_migrations (version)
-            VALUES (${version})
+            VALUES ('${version}')
             ON CONFLICT DO NOTHING
-          `;
+          `);
         });
       }
 

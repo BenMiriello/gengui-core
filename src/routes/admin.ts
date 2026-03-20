@@ -7,6 +7,7 @@ import {
 import { requireAdmin } from '../middleware/auth';
 import { adminService } from '../services/adminService';
 import { contactService } from '../services/contact';
+import { parseStringParam } from '../utils/validation';
 
 const router = Router();
 
@@ -76,15 +77,7 @@ router.get(
   requireAdmin,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { id } = req.params;
-
-      if (!id) {
-        res.status(400).json({
-          error: { message: 'User ID is required', code: 'INVALID_INPUT' },
-        });
-        return;
-      }
-
+      const id = parseStringParam(req.params.id, 'id');
       const result = await adminService.getUserDetails(id);
       res.json(result);
     } catch (error) {
@@ -102,15 +95,8 @@ router.patch(
   requireAdmin,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { id } = req.params;
+      const id = parseStringParam(req.params.id, 'id');
       const { dailyLimit } = req.body;
-
-      if (!id) {
-        res.status(400).json({
-          error: { message: 'User ID is required', code: 'INVALID_INPUT' },
-        });
-        return;
-      }
 
       if (dailyLimit === undefined || typeof dailyLimit !== 'number') {
         res.status(400).json({
@@ -139,15 +125,7 @@ router.get(
   requireAdmin,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { id } = req.params;
-
-      if (!id) {
-        res.status(400).json({
-          error: { message: 'User ID is required', code: 'INVALID_INPUT' },
-        });
-        return;
-      }
-
+      const id = parseStringParam(req.params.id, 'id');
       const dailyLimit = await adminService.getUserLimit(id);
       res.json({ userId: id, dailyLimit });
     } catch (error) {
@@ -259,7 +237,7 @@ router.get(
   requireAdmin,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { userId } = req.params;
+      const userId = parseStringParam(req.params.userId, 'userId');
       const { startDate, endDate } = req.query;
 
       const stats = await adminService.getUserUsage(userId, {
@@ -330,7 +308,7 @@ router.get(
   requireAdmin,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { userId } = req.params;
+      const userId = parseStringParam(req.params.userId, 'userId');
 
       const now = new Date();
       const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
@@ -369,7 +347,7 @@ router.patch(
   requireAdmin,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { id } = req.params;
+      const id = parseStringParam(req.params.id, 'id');
       const { status, notes } = req.body;
 
       await contactService.markStatus(

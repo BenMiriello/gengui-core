@@ -1,4 +1,22 @@
-import { ForbiddenError } from './errors';
+import { BadRequestError, ForbiddenError } from './errors';
+
+/**
+ * Extract a route parameter as a string, throwing if it's an array or missing.
+ * Express 5 types params as `string | string[]` to support wildcard routes.
+ * This helper validates we got a single string value.
+ */
+export function parseStringParam(
+  value: string | string[] | undefined,
+  paramName: string = 'parameter',
+): string {
+  if (value === undefined) {
+    throw new BadRequestError(`Missing required parameter: ${paramName}`);
+  }
+  if (Array.isArray(value)) {
+    throw new BadRequestError(`Invalid parameter format: ${paramName}`);
+  }
+  return value;
+}
 
 export function validateOwnership(
   resource: { userId: string } | null | undefined,

@@ -4,6 +4,7 @@ import { Router } from 'express';
 import { db } from '../config/database';
 import { requireAuth } from '../middleware/auth';
 import { reviewQueue } from '../models/schema';
+import { parseStringParam } from '../utils/validation';
 
 const router = Router();
 
@@ -12,7 +13,7 @@ router.get(
   requireAuth,
   async (req: Request, res: Response) => {
     try {
-      const { nodeId } = req.params;
+      const nodeId = parseStringParam(req.params.nodeId, 'nodeId');
       const { status = 'pending' } = req.query;
 
       const whereClause =
@@ -68,7 +69,7 @@ router.patch(
   requireAuth,
   async (req: Request, res: Response) => {
     try {
-      const { conflictId } = req.params;
+      const conflictId = parseStringParam(req.params.conflictId, 'conflictId');
       const { resolution: userResolution, notes } = req.body;
       const userId = req.user?.id as string;
 
