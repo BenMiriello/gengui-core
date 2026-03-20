@@ -33,7 +33,7 @@ export const sentenceService = {
 
   /**
    * Process a segment: extract sentences and generate/cache embeddings.
-   * Returns sentences with embeddings.
+   * Returns sentences with embeddings. Throws on any failure.
    * @param analysisVersion - The analysis version to use for embeddings
    */
   async processSegment(
@@ -46,7 +46,21 @@ export const sentenceService = {
     const versionConfig = getVersionConfig(version);
     const embeddingModel = versionConfig.embeddingModel;
 
+    logger.info(
+      {
+        documentId,
+        segmentId,
+        textLength: segmentText.length,
+        textPreview: segmentText.slice(0, 100),
+      },
+      'processSegment: starting',
+    );
+
     const sentences = this.extractSentences(segmentText);
+    logger.info(
+      { documentId, segmentId, sentenceCount: sentences.length },
+      'processSegment: extracted sentences',
+    );
 
     if (sentences.length === 0) {
       return [];
@@ -59,19 +73,52 @@ export const sentenceService = {
     const results: SentenceWithEmbedding[] = [];
     const toEmbed: Sentence[] = [];
 
+    const toStoreFromCache: Array<{ sentence: Sentence; embedding: number[] }> =
+      [];
+
     for (const sentence of sentences) {
       const cachedEmbedding = cachedMap.get(sentence.contentHash);
       if (cachedEmbedding) {
         results.push({ ...sentence, embedding: cachedEmbedding });
+        toStoreFromCache.push({ sentence, embedding: cachedEmbedding });
       } else {
         toEmbed.push(sentence);
       }
     }
 
-    if (toEmbed.length > 0) {
-      const embeddings = await this.generateBatchEmbeddings(
-        toEmbed.map((s) => s.text),
+    // Store cached embeddings for this document (they exist for other docs but not this one)
+    for (const { sentence, embedding } of toStoreFromCache) {
+      await this.store(
+        documentId,
+        segmentId,
+        sentence,
+        embedding,
         embeddingModel,
+        versionConfig.embeddingColumn,
+      );
+    }
+
+    if (toEmbed.length > 0) {
+      logger.info(
+        { documentId, segmentId, toEmbedCount: toEmbed.length },
+        'processSegment: generating embeddings',
+      );
+      let embeddings: number[][];
+      try {
+        embeddings = await this.generateBatchEmbeddings(
+          toEmbed.map((s) => s.text),
+          embeddingModel,
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        throw new Error(
+          `Embedding generation failed for segment ${segmentId}: ${msg}`,
+        );
+      }
+
+      logger.info(
+        { documentId, segmentId, embeddingsGenerated: embeddings.length },
+        'processSegment: storing embeddings',
       );
 
       for (let i = 0; i < toEmbed.length; i++) {
@@ -91,6 +138,11 @@ export const sentenceService = {
       }
     }
 
+    logger.info(
+      { documentId, segmentId, resultCount: results.length },
+      'processSegment: complete',
+    );
+
     results.sort((a, b) => a.start - b.start);
     return results;
   },
@@ -98,6 +150,7 @@ export const sentenceService = {
   /**
    * Process all segments of a document.
    * Returns map of segmentId -> sentences with embeddings.
+   * Throws on any failure.
    * @param analysisVersion - The analysis version to use for embeddings
    */
   async processDocument(
@@ -128,7 +181,8 @@ export const sentenceService = {
   },
 
   /**
-   * Store a sentence embedding.
+   * Store a sentence embedding using UPSERT.
+   * Throws on failure (errors propagate to worker which sanitizes them).
    */
   async store(
     documentId: string,
@@ -138,29 +192,67 @@ export const sentenceService = {
     embeddingModel: string,
     embeddingColumn: EmbeddingColumn,
   ): Promise<void> {
-    try {
-      const embeddingStr = `[${embedding.join(',')}]`;
+    const embeddingStr = `[${embedding.join(',')}]`;
+    const maxRetries = 2;
 
-      if (embeddingColumn === 'embedding_1536') {
-        await db.execute(sql`
-          INSERT INTO sentence_embeddings
-            (document_id, segment_id, sentence_start, sentence_end, content_hash, embedding_model, embedding_1536)
-          VALUES
-            (${documentId}, ${segmentId}, ${sentence.start}, ${sentence.end}, ${sentence.contentHash}, ${embeddingModel}, ${embeddingStr}::vector)
-        `);
-      } else {
-        await db.execute(sql`
-          INSERT INTO sentence_embeddings
-            (document_id, segment_id, sentence_start, sentence_end, content_hash, embedding_model, embedding_1024)
-          VALUES
-            (${documentId}, ${segmentId}, ${sentence.start}, ${sentence.end}, ${sentence.contentHash}, ${embeddingModel}, ${embeddingStr}::vector)
-        `);
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        if (embeddingColumn === 'embedding_1536') {
+          await db.execute(sql`
+            INSERT INTO sentence_embeddings
+              (document_id, segment_id, sentence_start, sentence_end, content_hash, embedding_model, embedding_1536)
+            VALUES
+              (${documentId}, ${segmentId}, ${sentence.start}, ${sentence.end}, ${sentence.contentHash}, ${embeddingModel}, ${embeddingStr}::vector)
+            ON CONFLICT (document_id, segment_id, sentence_start, sentence_end, embedding_model)
+            DO UPDATE SET
+              embedding_1536 = EXCLUDED.embedding_1536,
+              content_hash = EXCLUDED.content_hash,
+              updated_at = NOW()
+          `);
+        } else {
+          await db.execute(sql`
+            INSERT INTO sentence_embeddings
+              (document_id, segment_id, sentence_start, sentence_end, content_hash, embedding_model, embedding_1024)
+            VALUES
+              (${documentId}, ${segmentId}, ${sentence.start}, ${sentence.end}, ${sentence.contentHash}, ${embeddingModel}, ${embeddingStr}::vector)
+            ON CONFLICT (document_id, segment_id, sentence_start, sentence_end, embedding_model)
+            DO UPDATE SET
+              embedding_1024 = EXCLUDED.embedding_1024,
+              content_hash = EXCLUDED.content_hash,
+              updated_at = NOW()
+          `);
+        }
+
+        if (attempt > 0) {
+          logger.info(
+            { documentId, segmentId, attempts: attempt + 1 },
+            'Sentence embedding storage succeeded after retry',
+          );
+        }
+        return;
+      } catch (err) {
+        const isTransient =
+          err instanceof Error &&
+          (err.message.includes('ECONNREFUSED') ||
+            err.message.includes('ECONNRESET') ||
+            err.message.includes('timeout') ||
+            err.message.includes('connection') ||
+            err.message.includes('deadlock') ||
+            err.message.includes('could not serialize') ||
+            err.message.includes('lock') ||
+            err.message.includes('EPIPE'));
+
+        if (isTransient && attempt < maxRetries) {
+          logger.warn(
+            { documentId, segmentId, attempt: attempt + 1, maxRetries },
+            'Retrying sentence embedding storage after transient error',
+          );
+          await new Promise((r) => setTimeout(r, 500 * 2 ** attempt));
+          continue;
+        }
+
+        throw err;
       }
-    } catch (err) {
-      logger.warn(
-        { documentId, segmentId, error: err },
-        'Failed to store sentence embedding',
-      );
     }
   },
 

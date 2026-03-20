@@ -5,7 +5,7 @@ type VoyageClient = {
   embed: (params: {
     input: string[];
     model: string;
-    output_dimension?: number;
+    outputDimension?: number;
   }) => Promise<{
     data: Array<{ embedding: number[]; index: number }>;
   }>;
@@ -56,7 +56,7 @@ export const voyageEmbeddingProvider: EmbeddingProvider = {
     const response = await client.embed({
       model: MODEL,
       input: [text],
-      output_dimension: DIMENSIONS,
+      outputDimension: DIMENSIONS,
     });
 
     const embedding = response.data[0].embedding;
@@ -93,12 +93,24 @@ export const voyageEmbeddingProvider: EmbeddingProvider = {
       const response = await client.embed({
         model: MODEL,
         input: batch,
-        output_dimension: DIMENSIONS,
+        outputDimension: DIMENSIONS,
       });
 
       const batchEmbeddings = response.data
         .sort((a, b) => a.index - b.index)
         .map((d) => d.embedding);
+
+      for (const embedding of batchEmbeddings) {
+        if (embedding.length !== DIMENSIONS) {
+          logger.error(
+            { expected: DIMENSIONS, received: embedding.length, model: MODEL },
+            'Voyage API returned wrong embedding dimensions in batch',
+          );
+          throw new Error(
+            `Voyage API returned ${embedding.length} dimensions, expected ${DIMENSIONS}`,
+          );
+        }
+      }
 
       results.push(...batchEmbeddings);
 

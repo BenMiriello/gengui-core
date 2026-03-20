@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import type { StoredStoryNode } from '../graph/graph.service';
 import {
   getEmbeddingProvider,
@@ -31,8 +32,13 @@ export async function generateEmbedding(
         error instanceof Error &&
         error.message?.includes('wrong embedding dimensions');
       if (isWrongDimension && attempt < maxRetries - 1) {
-        console.log(
-          `[WARN] Retrying embedding generation (attempt ${attempt + 2}/${maxRetries}) for text: ${text.substring(0, 50)}`,
+        logger.warn(
+          {
+            attempt: attempt + 1,
+            maxRetries,
+            textPreview: text.substring(0, 50),
+          },
+          'Retrying embedding generation due to dimension mismatch',
         );
         await new Promise((resolve) =>
           setTimeout(resolve, 500 * (attempt + 1)),
