@@ -1478,7 +1478,7 @@ class GraphService {
         predict: (
           data: number[][],
           options: { nComponents: number },
-        ) => { data: number[][] };
+        ) => { to2DArray: () => number[][] };
       }
     )(embeddings);
     const projected = pca.predict(embeddings, { nComponents: 2 });
@@ -1488,7 +1488,7 @@ class GraphService {
       '[projection] PCA complete',
     );
 
-    const projectedArray = projected.data;
+    const projectedArray = projected.to2DArray();
 
     let minX = Infinity;
     let maxX = -Infinity;

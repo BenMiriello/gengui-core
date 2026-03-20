@@ -3859,6 +3859,18 @@ async function generateEntityDescriptions(
       }
     }
 
+    // Emit nodes-updated for clients to refresh node data
+    const updatedNodeIds = results
+      .filter((r) => r.method !== 'no_change' && r.description)
+      .map((r) => r.entityId);
+
+    if (updatedNodeIds.length > 0) {
+      sseService.broadcastToDocument(documentId, 'nodes-updated', {
+        documentId,
+        nodeIds: updatedNodeIds,
+      });
+    }
+
     logger.info(
       {
         documentId,

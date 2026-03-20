@@ -524,9 +524,10 @@ export const characterSheetService = {
           documentId,
           'node-primary-media-updated',
           {
+            documentId,
             nodeId,
-            primaryMediaUrl: null,
             primaryMediaId: null,
+            primaryMediaUrl: null,
           },
         );
         return;
@@ -555,9 +556,10 @@ export const characterSheetService = {
       const primaryMediaUrl = await s3.generateDownloadUrl(key);
 
       sseService.broadcastToDocument(documentId, 'node-primary-media-updated', {
+        documentId,
         nodeId,
-        primaryMediaUrl,
         primaryMediaId: mediaId,
+        primaryMediaUrl,
       });
 
       logger.debug(

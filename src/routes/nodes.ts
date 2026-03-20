@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { Router } from 'express';
 import { z } from 'zod';
@@ -170,25 +169,7 @@ router.get('/nodes/:id', requireAuth, async (req, res, next) => {
   }
 });
 
-// SSE stream for node media updates
-router.get('/nodes/:id/stream', requireAuth, async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    // Verify node exists and user has access
-    await characterSheetService.getNodeMedia(id, req.user?.id as string);
-
-    const clientId = randomUUID();
-    sseService.addClient(clientId, `node:${id}`, res);
-  } catch (error) {
-    if (error instanceof Error && error.message === 'Node not found') {
-      res
-        .status(404)
-        .json({ error: { message: 'Node not found', code: 'NOT_FOUND' } });
-      return;
-    }
-    next(error);
-  }
-});
+// SSE stream endpoint removed - use unified /sse/events with channel subscriptions
 
 // Update node style
 router.patch('/nodes/:id/style', requireAuth, async (req, res, next) => {
@@ -209,6 +190,11 @@ router.patch('/nodes/:id/style', requireAuth, async (req, res, next) => {
         .json({ error: { message: 'Node not found', code: 'NOT_FOUND' } });
       return;
     }
+
+    sseService.broadcastToDocument(updated.documentId, 'node-updated', {
+      documentId: updated.documentId,
+      nodeId: updated.id,
+    });
 
     res.json({
       id: updated.id,

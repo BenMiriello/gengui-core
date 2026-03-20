@@ -317,44 +317,7 @@ router.post(
   },
 );
 
-router.get(
-  '/documents/:id/media/stream',
-  requireAuth,
-  async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      if (!req.user) throw new Error('User not authenticated');
-      const userId = req.user.id;
-      const { id } = req.params;
-      await documentsService.get(id, userId);
-
-      const clientId = `${userId}-${id}-${Date.now()}`;
-      sseService.addClient(clientId, `document:${id}`, res);
-    } catch (error) {
-      next(error);
-    }
-  },
-);
-
-router.get(
-  '/documents/:id/stream',
-  requireAuth,
-  async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      if (!req.user) throw new Error('User not authenticated');
-      const userId = req.user.id;
-      const { id } = req.params;
-      await documentsService.get(id, userId);
-
-      const sessionId =
-        (req.query.sessionId as string) || `${userId}-${Date.now()}`;
-      const clientId = `doc-${id}-${sessionId}`;
-
-      sseService.addClient(clientId, `document:${id}`, res);
-    } catch (error) {
-      next(error);
-    }
-  },
-);
+// SSE endpoints removed - use unified /sse/events endpoint with channel subscriptions
 
 router.get(
   '/documents/:id/analysis-status',
@@ -1007,6 +970,34 @@ router.get(
       );
 
       res.json({ projection });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+// Entity similarity endpoint
+import { entityDocumentSimilarityService } from '../services/semantics/entityDocumentSimilarity.service';
+
+router.get(
+  '/documents/:id/entity-similarity/:entityId',
+  requireAuth,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
+      const { id, entityId } = req.params;
+
+      await documentsService.get(id, userId);
+
+      const result =
+        await entityDocumentSimilarityService.computeEntitySimilarityForDocument(
+          id,
+          entityId,
+          userId,
+        );
+
+      res.json(result);
     } catch (error) {
       next(error);
     }

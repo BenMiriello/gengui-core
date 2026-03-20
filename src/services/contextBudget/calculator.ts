@@ -277,14 +277,26 @@ export function calculateAllBatches<TItem>(
         rebalancedBatch.nextStartIndex = currentIndex + balanced[0];
         rebalancedBatch.isLastBatch = false;
         batches.push(rebalancedBatch);
-        currentIndex = currentIndex + balanced[0] - overlapSize;
+        // Guard: ensure we advance by at least 1 to avoid infinite loop
+        const rebalanceOverlap = balanced[0] > overlapSize ? overlapSize : 0;
+        const newIndex = currentIndex + balanced[0] - rebalanceOverlap;
+        currentIndex = newIndex > currentIndex ? newIndex : currentIndex + 1;
         continue;
       }
     }
 
     // Move to next batch with overlap
-    currentIndex = batch.nextStartIndex - overlapSize;
+    // Guard: if includedCount <= overlapSize, we'd never advance (infinite loop)
+    // In this case, skip overlap to ensure progress
+    const effectiveOverlap =
+      batch.includedCount > overlapSize ? overlapSize : 0;
+    const prevIndex = currentIndex;
+    currentIndex = batch.nextStartIndex - effectiveOverlap;
     if (currentIndex < 0) currentIndex = 0;
+    // Safety: ensure we always advance by at least 1
+    if (currentIndex <= prevIndex) {
+      currentIndex = prevIndex + 1;
+    }
     if (batch.isLastBatch) break;
   }
 
