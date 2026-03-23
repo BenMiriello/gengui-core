@@ -1387,17 +1387,15 @@ function findMatchingFacet(
 }
 
 /**
- * Run name matching and link mentions to a specific facet.
- */
-/**
  * Recompute entity embedding weighted by mention counts.
  * Call this AFTER all mentions are created for accurate weighting.
  */
 export async function recomputeEntityEmbeddingWithMentionWeights(
   nodeId: string,
+  analysisVersion?: string,
 ): Promise<void> {
   // Get all facets for this entity
-  const facets = await graphService.getFacetsForEntity(nodeId);
+  const facets = await graphService.getFacetsForEntity(nodeId, analysisVersion);
 
   if (facets.length === 0) {
     logger.warn(

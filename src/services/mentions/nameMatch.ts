@@ -4,8 +4,23 @@
  * Creates mentions with source: 'name_match' and lower confidence.
  */
 
+import type { StoredFacet } from '../graph/graph.service';
 import { type Segment, segmentService } from '../segments';
 import type { CreateMentionInput } from './mention.types';
+
+/**
+ * Build a map from lowercased facet content to facet ID for name-type facets.
+ * Used to link name_match mentions to their corresponding facets.
+ */
+export function buildNameFacetMap(facets: StoredFacet[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const f of facets) {
+    if (f.type === 'name') {
+      map.set(f.content.toLowerCase(), f.id);
+    }
+  }
+  return map;
+}
 
 export interface NameMatchConfig {
   caseSensitive?: boolean;
@@ -70,6 +85,7 @@ export function findNameOccurrences(
 
 /**
  * Convert name match results to mention inputs.
+ * If facetContentToId is provided, attempts to link each mention to a facet.
  */
 export function nameMatchesToMentionInputs(
   nodeId: string,
@@ -77,6 +93,7 @@ export function nameMatchesToMentionInputs(
   matches: NameMatchResult[],
   segments: Segment[],
   versionNumber: number,
+  facetContentToId?: Map<string, string>,
 ): CreateMentionInput[] {
   const inputs: CreateMentionInput[] = [];
 
@@ -89,10 +106,15 @@ export function nameMatchesToMentionInputs(
 
     if (!relative) continue;
 
+    const facetId = facetContentToId
+      ? findMatchingFacet(match.matchedText, facetContentToId)
+      : null;
+
     inputs.push({
       nodeId,
       documentId,
       segmentId: relative.segmentId,
+      facetId,
       relativeStart: relative.relativeStart,
       relativeEnd: relative.relativeEnd,
       originalText: match.matchedText,
@@ -103,6 +125,18 @@ export function nameMatchesToMentionInputs(
   }
 
   return inputs;
+}
+
+/**
+ * Find matching name facet for a mention by exact text comparison.
+ * Case-insensitive. Facets already include name variations, so exact match is appropriate.
+ */
+function findMatchingFacet(
+  mentionText: string,
+  facetContentToId: Map<string, string>,
+): string | null {
+  const normalized = mentionText.toLowerCase().trim();
+  return facetContentToId.get(normalized) ?? null;
 }
 
 function findAllMatches(

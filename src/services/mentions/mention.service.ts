@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '../../config/database';
 import { mentions } from '../../models/schema';
+import { logger } from '../../utils/logger';
 import { graphService } from '../graph/graph.service';
 import type { Segment } from '../segments';
 import { segmentService } from '../segments';
@@ -16,7 +17,11 @@ import type {
   Mention,
   MentionWithAbsolutePosition,
 } from './mention.types';
-import { findNameOccurrences, nameMatchesToMentionInputs } from './nameMatch';
+import {
+  buildNameFacetMap,
+  findNameOccurrences,
+  nameMatchesToMentionInputs,
+} from './nameMatch';
 
 export const mentionService = {
   /**
@@ -704,6 +709,7 @@ export const mentionService = {
   /**
    * Run name matching for a node and create mentions.
    * Excludes spans that already have extraction-source mentions.
+   * Fetches facets internally and links mentions to their matching facets.
    */
   async runNameMatchingForNode(
     nodeId: string,
@@ -714,6 +720,10 @@ export const mentionService = {
     name: string,
     aliases: string[] = [],
   ): Promise<number> {
+    // Fetch facets internally - fail fast on error for data integrity
+    const facets = await graphService.getFacetsForEntity(nodeId);
+    const facetContentToId = buildNameFacetMap(facets);
+
     // Get existing mentions to exclude their spans
     const existingMentions = await this.getByNodeIdWithAbsolutePositions(
       nodeId,
@@ -739,9 +749,23 @@ export const mentionService = {
       matches,
       segments,
       versionNumber,
+      facetContentToId,
     );
 
     await this.createBatch(inputs);
+
+    // Aggregate debug logging
+    const withFacet = inputs.filter((i) => i.facetId).length;
+    logger.debug(
+      {
+        nodeId,
+        totalMatches: inputs.length,
+        withFacet,
+        withoutFacet: inputs.length - withFacet,
+      },
+      'Name matching complete',
+    );
+
     return inputs.length;
   },
 };
