@@ -1,10 +1,14 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import {
   type NextFunction,
   type Request,
   type Response,
   Router,
 } from 'express';
+import {
+  getCurrentAnalysisVersion,
+  getVersionDiff,
+} from '../config/analysis-versions';
 import { db } from '../config/database';
 import { jobService } from '../jobs/service';
 import { requireAuth } from '../middleware/auth';
@@ -43,6 +47,23 @@ router.get(
       if (!req.user) throw new Error('User not authenticated');
       const userId = req.user.id;
       const documents = await documentsService.list(userId);
+      res.json({ documents });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+// IMPORTANT: /documents/trash must come BEFORE /documents/:id
+// Otherwise Express matches "trash" as an :id parameter
+router.get(
+  '/documents/trash',
+  requireAuth,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
+      const documents = await documentsService.listDeleted(userId);
       res.json({ documents });
     } catch (error) {
       next(error);
@@ -272,6 +293,71 @@ router.delete(
   },
 );
 
+router.post(
+  '/documents/:id/restore',
+  requireAuth,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
+      const id = parseStringParam(req.params.id, 'id');
+      const document = await documentsService.restore(id, userId);
+      res.json({ document });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.get(
+  '/documents/:id/info',
+  requireAuth,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
+      const id = parseStringParam(req.params.id, 'id');
+      const info = await documentsService.getDeletedInfo(id, userId);
+      res.json(info);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.delete(
+  '/documents/:id/permanent',
+  requireAuth,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
+      const id = parseStringParam(req.params.id, 'id');
+      const { deleteMedia } = req.body || {};
+      await documentsService.permanentDelete(id, userId, { deleteMedia });
+      res.json({ success: true });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.get(
+  '/documents/:id/media/deleted',
+  requireAuth,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
+      const id = parseStringParam(req.params.id, 'id');
+      const media = await mediaService.getDeletedDocumentMedia(id, userId);
+      res.json({ media });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
 router.get(
   '/documents/:id/media',
   requireAuth,
@@ -426,6 +512,8 @@ router.get(
         currentStage,
         jobId,
         errorMessage,
+        analysisVersion: document.analysisVersion ?? null,
+        latestAnalysisVersion: getCurrentAnalysisVersion(),
       });
     } catch (error) {
       next(error);
@@ -1130,6 +1218,103 @@ router.post(
       const threads = await detectThreads(id, userId);
 
       res.json({ threads });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.post(
+  '/documents/:id/upgrade-analysis-version',
+  requireAuth,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
+      const id = parseStringParam(req.params.id, 'id');
+
+      const document = await documentsService.get(id, userId);
+
+      const fromVersion = document.analysisVersion ?? '0.0.1';
+      const toVersion = getCurrentAnalysisVersion();
+
+      // Check if upgrade needed
+      const diff = getVersionDiff(fromVersion, toVersion);
+      if (!diff.requiresReanalysis) {
+        res.status(400).json({
+          error: {
+            code: 'NO_UPGRADE_NEEDED',
+            message: `Document already at version ${toVersion}`,
+          },
+        });
+        return;
+      }
+
+      // Check for active jobs on this document
+      const activeJobs = await jobService.getJobsForTarget('document', id, [
+        'queued',
+        'processing',
+        'paused',
+      ]);
+      if (activeJobs.length > 0) {
+        res.status(409).json({
+          error: {
+            code: 'OPERATION_IN_PROGRESS',
+            message: 'Cannot upgrade: another operation is in progress',
+          },
+        });
+        return;
+      }
+
+      // Atomically set status to upgrading (only if null)
+      const updateResult = await db
+        .update(documents)
+        .set({ analysisStatus: 'upgrading' })
+        .where(and(eq(documents.id, id), isNull(documents.analysisStatus)))
+        .returning({ id: documents.id });
+
+      if (updateResult.length === 0) {
+        // Status was not null, another operation is in progress
+        res.status(409).json({
+          error: {
+            code: 'OPERATION_IN_PROGRESS',
+            message: 'Cannot upgrade: another operation is in progress',
+          },
+        });
+        return;
+      }
+
+      // Create upgrade job
+      const job = await jobService.create({
+        type: 'analysis_version_upgrade',
+        targetType: 'document',
+        targetId: id,
+        userId,
+        payload: { fromVersion, toVersion, documentTitle: document.title },
+      });
+
+      if (!job) {
+        // Race condition - clear status and return error
+        await db
+          .update(documents)
+          .set({ analysisStatus: null })
+          .where(eq(documents.id, id));
+
+        res.status(409).json({
+          error: {
+            code: 'OPERATION_IN_PROGRESS',
+            message: 'Upgrade job could not be created',
+          },
+        });
+        return;
+      }
+
+      res.status(202).json({
+        jobId: job.id,
+        fromVersion,
+        toVersion,
+        message: 'Upgrade queued',
+      });
     } catch (error) {
       next(error);
     }

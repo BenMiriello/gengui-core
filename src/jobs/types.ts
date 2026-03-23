@@ -20,7 +20,8 @@ export type JobType =
   | 'prompt_augmentation'
   | 'thumbnail_generation'
   | 'media_status_update'
-  | 'image_generation';
+  | 'image_generation'
+  | 'analysis_version_upgrade';
 
 export type TargetType = 'document' | 'media';
 
@@ -64,6 +65,27 @@ export interface AnalysisCheckpoint {
   };
   failedAtStage?: number;
   failureReason?: string;
+}
+
+export interface VersionUpgradeProgress extends JobProgress {
+  stage: number;
+  totalStages: number;
+  stageName: string;
+  facetsProcessed: number;
+  totalFacets: number;
+  entitiesProcessed: number;
+  totalEntities: number;
+}
+
+export interface VersionUpgradeCheckpoint {
+  fromVersion: string;
+  toVersion: string;
+  lastStageCompleted: number;
+  facetIds: string[];
+  entityIds: string[];
+  processedFacetIds: string[];
+  processedEntityIds: string[];
+  [key: string]: unknown;
 }
 
 /**

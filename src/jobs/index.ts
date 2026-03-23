@@ -13,11 +13,14 @@ export type {
   JobStatus,
   JobType,
   TargetType,
+  VersionUpgradeCheckpoint,
+  VersionUpgradeProgress,
 } from './types';
 export { JobCancelledError, JobPausedError } from './types';
 export { JobWorker } from './worker';
 
 // Workers
+export { analysisVersionUpgradeWorker } from './workers/analysis-version-upgrade';
 export { documentAnalysisWorker } from './workers/document-analysis';
 export { imageGenerationWorker } from './workers/image-generation';
 export { mediaStatusWorker } from './workers/media-status';
@@ -29,6 +32,9 @@ export { thumbnailWorker } from './workers/thumbnail';
  * Call this from index.ts after server starts.
  */
 export async function startJobWorkers(): Promise<void> {
+  const { analysisVersionUpgradeWorker } = await import(
+    './workers/analysis-version-upgrade.js'
+  );
   const { documentAnalysisWorker } = await import(
     './workers/document-analysis.js'
   );
@@ -46,6 +52,7 @@ export async function startJobWorkers(): Promise<void> {
   await activityService.syncOrphanedActivities();
 
   await Promise.all([
+    analysisVersionUpgradeWorker.start(),
     documentAnalysisWorker.start(),
     imageGenerationWorker.start(),
     promptAugmentationWorker.start(),
@@ -59,6 +66,9 @@ export async function startJobWorkers(): Promise<void> {
  * Call this during shutdown.
  */
 export async function stopJobWorkers(): Promise<void> {
+  const { analysisVersionUpgradeWorker } = await import(
+    './workers/analysis-version-upgrade.js'
+  );
   const { documentAnalysisWorker } = await import(
     './workers/document-analysis.js'
   );
@@ -72,6 +82,7 @@ export async function stopJobWorkers(): Promise<void> {
   const { thumbnailWorker } = await import('./workers/thumbnail.js');
 
   await Promise.all([
+    analysisVersionUpgradeWorker.stop(),
     documentAnalysisWorker.stop(),
     imageGenerationWorker.stop(),
     promptAugmentationWorker.stop(),
