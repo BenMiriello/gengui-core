@@ -378,6 +378,10 @@ export function segmentText(
 ): SegmentationResult {
   const { MIN_DOCUMENT_LENGTH } = SEGMENTATION_CONFIG;
 
+  if (text.length === 0) {
+    return { segments: [], boundaries: [] };
+  }
+
   // Short documents get a single segment
   if (text.length < MIN_DOCUMENT_LENGTH) {
     const existingId = existingSegments?.[0]?.id;
