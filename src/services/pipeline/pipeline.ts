@@ -806,9 +806,9 @@ export const multiStagePipeline = {
           if (runtimeRegistry.entries.has(node.id)) continue;
 
           const [facets, mentionCount, embedding] = await Promise.all([
-            graphService.getFacetsForEntity(node.id),
+            graphService.getFacetsForEntity(node.id, analysisVersion),
             mentionService.getMentionCount(node.id),
-            graphService.getNodeEmbedding(node.id),
+            graphService.getNodeEmbedding(node.id, analysisVersion),
           ]);
 
           runtimeRegistry.entries.set(node.id, {
@@ -1416,6 +1416,9 @@ export const multiStagePipeline = {
           });
         }
 
+        // Map to track name facet content -> facetId for linking mentions
+        const nameFacetContentToId = new Map<string, string>();
+
         if (!isExistingEntity) {
           // Create new entity
           const { created } = await createTrackedEntity(
@@ -1451,11 +1454,19 @@ export const multiStagePipeline = {
                 },
                 'Generated facet embedding',
               );
-              await createTrackedFacet(entityId, facet, facetEmbedding, {
-                batchId: stage4BatchId,
-                entityName: primaryName,
-                analysisVersion,
-              });
+              const facetId = await createTrackedFacet(
+                entityId,
+                facet,
+                facetEmbedding,
+                {
+                  batchId: stage4BatchId,
+                  entityName: primaryName,
+                  analysisVersion,
+                },
+              );
+              if (facet.type === 'name') {
+                nameFacetContentToId.set(facet.content.toLowerCase(), facetId);
+              }
             }
 
             // Ensure at least one name facet exists (auto-create from primary name)
@@ -1477,11 +1488,20 @@ export const multiStagePipeline = {
                 },
                 'Generated name facet embedding (auto-created)',
               );
-              await createTrackedFacet(entityId, nameFacet, facetEmbedding, {
-                batchId: stage4BatchId,
-                entityName: primaryName,
-                analysisVersion,
-              });
+              const autoFacetId = await createTrackedFacet(
+                entityId,
+                nameFacet,
+                facetEmbedding,
+                {
+                  batchId: stage4BatchId,
+                  entityName: primaryName,
+                  analysisVersion,
+                },
+              );
+              nameFacetContentToId.set(
+                nameFacet.content.toLowerCase(),
+                autoFacetId,
+              );
               logger.debug(
                 { entityId, entityName: primaryName },
                 'Auto-created name facet from primary name',
@@ -1505,11 +1525,20 @@ export const multiStagePipeline = {
           }
         } else {
           // Add new facets to existing entity
-          const existingFacets =
-            await graphService.getFacetsForEntity(entityId);
+          const existingFacets = await graphService.getFacetsForEntity(
+            entityId,
+            analysisVersion,
+          );
           const existingFacetKeys = new Set(
             existingFacets.map((f) => `${f.type}:${f.content}`),
           );
+
+          // Add existing name facets to the map for mention linking
+          for (const f of existingFacets) {
+            if (f.type === 'name') {
+              nameFacetContentToId.set(f.content.toLowerCase(), f.id);
+            }
+          }
 
           let addedNameFacet = false;
           for (const facet of uniqueFacets) {
@@ -1528,13 +1557,22 @@ export const multiStagePipeline = {
                 },
                 'Generated facet embedding for existing entity',
               );
-              await createTrackedFacet(entityId, facet, facetEmbedding, {
-                batchId: stage4BatchId,
-                entityName: primaryName,
-                analysisVersion,
-              });
+              const newFacetId = await createTrackedFacet(
+                entityId,
+                facet,
+                facetEmbedding,
+                {
+                  batchId: stage4BatchId,
+                  entityName: primaryName,
+                  analysisVersion,
+                },
+              );
               if (facet.type === 'name') {
                 addedNameFacet = true;
+                nameFacetContentToId.set(
+                  facet.content.toLowerCase(),
+                  newFacetId,
+                );
               }
             }
           }
@@ -1556,6 +1594,21 @@ export const multiStagePipeline = {
             const relativeIndex = segmentText.indexOf(mention.text);
             if (relativeIndex !== -1) {
               const absoluteStart = segment.start + relativeIndex;
+              // Find matching name facet for this mention
+              const facetId = findMatchingNameFacet(
+                mention.text,
+                nameFacetContentToId,
+              );
+              if (!facetId && nameFacetContentToId.size > 0) {
+                logger.debug(
+                  {
+                    entityId,
+                    mentionText: mention.text,
+                    availableFacets: Array.from(nameFacetContentToId.keys()),
+                  },
+                  'No matching name facet found for mention',
+                );
+              }
               // Use idempotent create to avoid duplicates on pause/resume
               await mentionService.createFromAbsolutePositionIdempotent(
                 entityId,
@@ -1567,6 +1620,7 @@ export const multiStagePipeline = {
                 segments,
                 'extraction',
                 100,
+                facetId,
               );
             }
           }
@@ -1574,7 +1628,10 @@ export const multiStagePipeline = {
 
         // Recompute entity embedding with mention weights
         if (createdEntityIds.has(entityId) || isExistingEntity) {
-          await recomputeEntityEmbeddingWithMentionWeights(entityId);
+          await recomputeEntityEmbeddingWithMentionWeights(
+            entityId,
+            analysisVersion,
+          );
         }
       }
 
@@ -2102,6 +2159,23 @@ export const multiStagePipeline = {
             stage7BatchId,
             analysisVersion,
           );
+
+          const arcCharacterIds = [
+            ...new Set(
+              higherOrderResult.arcPhases.map((p) => {
+                const resolved = entityIdByName.get(p.characterId);
+                return resolved ?? p.characterId;
+              }),
+            ),
+          ].filter(Boolean);
+
+          if (arcCharacterIds.length > 0) {
+            sseService.broadcastToDocument(
+              documentId,
+              'character-arc-updated',
+              { documentId, characterIds: arcCharacterIds },
+            );
+          }
         }
       }
 
@@ -2301,12 +2375,12 @@ async function processCharacterArcs(
   arcPhases: Stage5HigherOrderResult['arcPhases'],
   documentId: string,
   userId: string,
-  _entityIdByName: Map<string, string>,
+  entityIdByName: Map<string, string>,
   events: Array<{ id: string; documentOrder: number }>,
   batchId: string,
   analysisVersion: string,
 ): Promise<void> {
-  // Group phases by characterId
+  // Group phases by characterId (name from LLM)
   const phasesByCharacter = new Map<string, typeof arcPhases>();
   for (const phase of arcPhases) {
     const existing = phasesByCharacter.get(phase.characterId) || [];
@@ -2314,8 +2388,26 @@ async function processCharacterArcs(
     phasesByCharacter.set(phase.characterId, existing);
   }
 
+  // Build reverse map (id → id) for direct UUID lookups
+  const knownIds = new Set(entityIdByName.values());
+
   // Process each character's arc
-  for (const [characterId, phases] of phasesByCharacter) {
+  for (const [rawCharacterId, phases] of phasesByCharacter) {
+    // LLM may return either a name or a UUID — resolve to the actual node ID
+    let characterId: string;
+    if (knownIds.has(rawCharacterId)) {
+      characterId = rawCharacterId;
+    } else {
+      const resolved = entityIdByName.get(rawCharacterId);
+      if (!resolved) {
+        logger.warn(
+          { rawCharacterId, documentId },
+          'Character identifier from arc phase not resolved, skipping arc',
+        );
+        continue;
+      }
+      characterId = resolved;
+    }
     // Sort phases by phaseIndex
     phases.sort((a, b) => a.phaseIndex - b.phaseIndex);
 
@@ -2375,7 +2467,10 @@ async function processCharacterArcs(
 
       // Link state to facets mentioned in stateFacets
       // Find matching facets from the entity's existing facets
-      const entityFacets = await graphService.getFacetsForEntity(characterId);
+      const entityFacets = await graphService.getFacetsForEntity(
+        characterId,
+        analysisVersion,
+      );
       for (const facetContent of phase.stateFacets) {
         const matchingFacet = entityFacets.find(
           (f) =>
@@ -3900,6 +3995,38 @@ function cosineSimilarity(a: number[], b: number[]): number {
   if (magnitude === 0) return 0;
 
   return dotProduct / magnitude;
+}
+
+/**
+ * Find matching name facet for a mention by text comparison.
+ * Uses case-insensitive exact match first, then longest substring match.
+ */
+function findMatchingNameFacet(
+  mentionText: string,
+  facetContentToId: Map<string, string>,
+): string | null {
+  const mentionLower = mentionText.toLowerCase();
+
+  // Exact match first
+  if (facetContentToId.has(mentionLower)) {
+    return facetContentToId.get(mentionLower) ?? null;
+  }
+
+  // Find all substring matches, pick longest (most specific)
+  let bestMatch: { facetContent: string; facetId: string } | null = null;
+
+  for (const [facetContent, facetId] of facetContentToId) {
+    if (
+      mentionLower.includes(facetContent) ||
+      facetContent.includes(mentionLower)
+    ) {
+      if (!bestMatch || facetContent.length > bestMatch.facetContent.length) {
+        bestMatch = { facetContent, facetId };
+      }
+    }
+  }
+
+  return bestMatch?.facetId ?? null;
 }
 
 /**

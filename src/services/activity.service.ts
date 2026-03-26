@@ -518,6 +518,7 @@ class ActivityService {
       pdf_export: 'pdf_export',
       docx_export: 'docx_export',
       image_generation: 'image_generation',
+      analysis_version_upgrade: 'analysis_version_upgrade',
     };
 
     return mapping[jobType] ?? null;

@@ -11,7 +11,8 @@ export type ActivityType =
   | 'txt_export'
   | 'md_export'
   | 'drive_import'
-  | 'drive_export';
+  | 'drive_export'
+  | 'analysis_version_upgrade';
 
 export type ActivityStatus =
   | 'pending'
