@@ -17,11 +17,6 @@ import {
   varchar,
 } from 'drizzle-orm/pg-core';
 
-export const modelTypeEnum = pgEnum('model_type', [
-  'lora',
-  'checkpoint',
-  'other',
-]);
 export const sourceTypeEnum = pgEnum('source_type', ['upload', 'generation']);
 export const mediaStatusEnum = pgEnum('media_status', [
   'queued',
@@ -218,47 +213,6 @@ export const mediaTags = pgTable(
   ],
 );
 
-export const models = pgTable(
-  'models',
-  {
-    id: uuid('id').defaultRandom().primaryKey(),
-    userId: uuid('user_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
-    name: varchar('name', { length: 255 }).notNull(),
-    type: modelTypeEnum('type').notNull(),
-    filePath: varchar('file_path', { length: 512 }).notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .defaultNow()
-      .notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
-      .defaultNow()
-      .notNull(),
-    deletedAt: timestamp('deleted_at', { withTimezone: true }),
-  },
-  (table) => [
-    index('models_user_active_idx')
-      .on(table.userId)
-      .where(sql`deleted_at IS NULL`),
-  ],
-);
-
-export const modelInputs = pgTable(
-  'model_inputs',
-  {
-    modelId: uuid('model_id')
-      .notNull()
-      .references(() => models.id, { onDelete: 'cascade' }),
-    mediaId: uuid('media_id')
-      .notNull()
-      .references(() => media.id, { onDelete: 'cascade' }),
-  },
-  (table) => [
-    primaryKey({ columns: [table.modelId, table.mediaId] }),
-    index('model_inputs_model_id_idx').on(table.modelId),
-  ],
-);
-
 export const documents = pgTable(
   'documents',
   {
@@ -419,7 +373,6 @@ export const mentions = pgTable(
 export const usersRelations = relations(users, ({ many }) => ({
   media: many(media),
   tags: many(tags),
-  models: many(models),
   sessions: many(sessions),
   passwordResetTokens: many(passwordResetTokens),
   emailVerificationTokens: many(emailVerificationTokens),
@@ -460,7 +413,6 @@ export const mediaRelations = relations(media, ({ one, many }) => ({
     references: [users.id],
   }),
   mediaTags: many(mediaTags),
-  modelInputs: many(modelInputs),
   documentMedia: many(documentMedia),
   nodeMedia: many(nodeMedia),
 }));
@@ -481,25 +433,6 @@ export const mediaTagsRelations = relations(mediaTags, ({ one }) => ({
   tag: one(tags, {
     fields: [mediaTags.tagId],
     references: [tags.id],
-  }),
-}));
-
-export const modelsRelations = relations(models, ({ one, many }) => ({
-  user: one(users, {
-    fields: [models.userId],
-    references: [users.id],
-  }),
-  modelInputs: many(modelInputs),
-}));
-
-export const modelInputsRelations = relations(modelInputs, ({ one }) => ({
-  model: one(models, {
-    fields: [modelInputs.modelId],
-    references: [models.id],
-  }),
-  media: one(media, {
-    fields: [modelInputs.mediaId],
-    references: [media.id],
   }),
 }));
 
@@ -1020,6 +953,7 @@ export const jobTypeEnum = pgEnum('job_type', [
   'pdf_export',
   'docx_export',
   'image_generation',
+  'analysis_version_upgrade',
 ]);
 
 export const jobs = pgTable(
@@ -1076,6 +1010,7 @@ export const activityTypeEnum = pgEnum('activity_type', [
   'md_export',
   'drive_import',
   'drive_export',
+  'analysis_version_upgrade',
 ]);
 
 export const activityStatusEnum = pgEnum('activity_status', [
