@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray, lt } from 'drizzle-orm';
 import { db } from '../config/database';
 import type { Job } from '../jobs/types';
-import { activities, jobs, media } from '../models/schema';
+import { activities, documents, jobs, media } from '../models/schema';
 import { logger } from '../utils/logger';
 import type {
   Activity,
@@ -400,6 +400,15 @@ class ActivityService {
     if (activity.jobId) {
       const { jobService } = await import('../jobs/service.js');
       await jobService.updateStatus(activity.jobId, 'cancelled');
+
+      // For document analysis: also update documents.analysisStatus
+      // so the pipeline's checkForInterruption sees the cancellation
+      if (activity.activityType === 'document_analysis') {
+        await db
+          .update(documents)
+          .set({ analysisStatus: 'cancelled', analysisStartedAt: null })
+          .where(eq(documents.id, activity.targetId));
+      }
     } else if (activity.mediaId) {
       await db
         .update(media)

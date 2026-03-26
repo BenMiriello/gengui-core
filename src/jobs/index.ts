@@ -51,6 +51,17 @@ export async function startJobWorkers(): Promise<void> {
   // Sync any orphaned activities from previous runs
   await activityService.syncOrphanedActivities();
 
+  // Periodic safety net: sync activities whose jobs reached terminal state
+  // outside the normal worker flow (e.g., recoverStaleJobs, route-level cancel)
+  const { logger } = await import('../utils/logger.js');
+  setInterval(async () => {
+    try {
+      await activityService.syncOrphanedActivities();
+    } catch (error) {
+      logger.error({ error }, 'Periodic activity sync failed');
+    }
+  }, 30_000);
+
   await Promise.all([
     analysisVersionUpgradeWorker.start(),
     documentAnalysisWorker.start(),

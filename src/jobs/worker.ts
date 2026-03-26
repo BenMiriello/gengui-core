@@ -17,9 +17,9 @@ import { sseService } from '../services/sse';
 import { getErrorForLogging, sanitizeError } from '../utils/error-sanitizer';
 import { logger } from '../utils/logger';
 import {
+  jobService,
   STALE_PROGRESS_THRESHOLD_MS,
   STALE_STARTED_THRESHOLD_MS,
-  jobService,
 } from './service';
 import type { Job, JobProgress, JobType } from './types';
 import { JobCancelledError, JobPausedError } from './types';
@@ -381,6 +381,18 @@ export abstract class JobWorker<
         });
 
         sseService.clearDocumentBuffer(row.target_id);
+
+        // Sync orphaned activity — recoverStaleJobs updates jobs but not activities
+        const activity = await activityService.getByJobId(row.id);
+        if (
+          activity &&
+          (activity.status === 'running' || activity.status === 'pending')
+        ) {
+          await activityService.updateStatus(activity.id, 'failed', {
+            errorMessage:
+              'Analysis failed after multiple attempts. Please try again.',
+          });
+        }
       }
 
       if (exhaustedRows.length > 0) {
