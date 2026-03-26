@@ -16,6 +16,10 @@ import type {
   JobType,
 } from './types';
 
+// Stale job detection thresholds — shared with worker.ts
+export const STALE_STARTED_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes since started
+export const STALE_PROGRESS_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes since last progress
+
 export const jobService = {
   /**
    * Create a new job. Returns null if a job already exists for the target.
@@ -257,5 +261,25 @@ export const jobService = {
       .limit(1);
 
     return job ?? null;
+  },
+
+  /**
+   * Check if a job is stale (stuck in processing with no recent progress).
+   * Uses the same thresholds as recoverStaleJobs in worker.ts.
+   */
+  isJobStale(job: Job): boolean {
+    if (job.status !== 'processing') return false;
+    if (!job.startedAt) return false;
+
+    const now = Date.now();
+    const startedAge = now - new Date(job.startedAt).getTime();
+    if (startedAge < STALE_STARTED_THRESHOLD_MS) return false;
+
+    const lastProgress = job.progressUpdatedAt
+      ? new Date(job.progressUpdatedAt).getTime()
+      : 0;
+    const progressAge = lastProgress ? now - lastProgress : Infinity;
+
+    return progressAge >= STALE_PROGRESS_THRESHOLD_MS;
   },
 };

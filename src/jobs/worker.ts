@@ -10,19 +10,19 @@
 import { eq, sql } from 'drizzle-orm';
 import Redis from 'ioredis';
 import { db } from '../config/database';
-import { jobs } from '../models/schema';
+import { documents, jobs } from '../models/schema';
 import { activityService } from '../services/activity.service';
 import type { Activity, ActivityProgress } from '../services/activity.types';
 import { sseService } from '../services/sse';
 import { getErrorForLogging, sanitizeError } from '../utils/error-sanitizer';
 import { logger } from '../utils/logger';
-import { jobService } from './service';
+import {
+  STALE_PROGRESS_THRESHOLD_MS,
+  STALE_STARTED_THRESHOLD_MS,
+  jobService,
+} from './service';
 import type { Job, JobProgress, JobType } from './types';
 import { JobCancelledError, JobPausedError } from './types';
-
-// Stale job detection thresholds
-const STALE_STARTED_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes since started
-const STALE_PROGRESS_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes since last progress
 
 // Poll interval for checking jobs (fallback when no pub/sub notification)
 const POLL_INTERVAL_MS = 30_000;
@@ -342,6 +342,55 @@ export abstract class JobWorker<
             service: this.serviceName,
           },
           'Recovered stale jobs',
+        );
+      }
+
+      // Fail jobs that have exhausted retries — they'd otherwise stay stuck in
+      // 'processing' forever, permanently blocking new jobs via idx_jobs_active
+      const exhaustedResult = await db.execute(sql`
+        UPDATE jobs
+        SET status = 'failed',
+            completed_at = NOW(),
+            error_message = 'Job exceeded maximum retries and was terminated',
+            worker_id = NULL
+        WHERE type = ${this.jobType}
+          AND status = 'processing'
+          AND started_at < ${startedThreshold}
+          AND (progress_updated_at IS NULL OR progress_updated_at < ${progressThreshold})
+          AND retry_count >= max_retries
+        RETURNING id, target_id
+      `);
+
+      const exhaustedRows = exhaustedResult as unknown as {
+        id: string;
+        target_id: string;
+      }[];
+
+      for (const row of exhaustedRows) {
+        await db
+          .update(documents)
+          .set({ analysisStatus: null, analysisStartedAt: null })
+          .where(eq(documents.id, row.target_id));
+
+        sseService.broadcastToDocument(row.target_id, 'job-failed', {
+          jobId: row.id,
+          jobType: this.jobType,
+          targetId: row.target_id,
+          error: 'Analysis failed after multiple attempts. Please try again.',
+          timestamp: new Date().toISOString(),
+        });
+
+        sseService.clearDocumentBuffer(row.target_id);
+      }
+
+      if (exhaustedRows.length > 0) {
+        logger.warn(
+          {
+            jobIds: exhaustedRows.map((r) => r.id),
+            count: exhaustedRows.length,
+            service: this.serviceName,
+          },
+          'Failed stale jobs that exceeded max retries',
         );
       }
     } catch (error) {

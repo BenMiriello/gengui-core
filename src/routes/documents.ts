@@ -583,7 +583,7 @@ router.post(
       });
 
       // Create job (fails if one already exists due to unique constraint)
-      const job = await jobService.create({
+      let job = await jobService.create({
         type: 'document_analysis',
         targetType: 'document',
         targetId: id,
@@ -595,22 +595,65 @@ router.post(
       });
 
       if (!job) {
-        // Job already exists for this document - release quota reservation
-        if (operationId) {
-          await usageService.finalizeReservation({
-            operationId,
+        // Constraint violation — check if the blocking job is stale
+        const activeJob = await jobService.getActiveForTarget(
+          'document_analysis',
+          id,
+        );
+
+        if (activeJob && jobService.isJobStale(activeJob)) {
+          logger.info(
+            { staleJobId: activeJob.id, documentId: id },
+            'Superseding stale analysis job',
+          );
+          await jobService.updateStatus(
+            activeJob.id,
+            'failed',
+            'Superseded by new analysis request',
+          );
+          await db
+            .update(documents)
+            .set({ analysisStatus: null, analysisStartedAt: null })
+            .where(eq(documents.id, id));
+          sseService.broadcastToDocument(id, 'job-failed', {
+            jobId: activeJob.id,
+            jobType: 'document_analysis',
+            targetId: id,
+            error: 'Previous analysis was stale and has been replaced.',
+            timestamp: new Date().toISOString(),
+          });
+
+          // Retry creation now that the stale job is cleared
+          job = await jobService.create({
+            type: 'document_analysis',
+            targetType: 'document',
+            targetId: id,
             userId,
-            success: false,
+            payload: {
+              reanalyze,
+              operationId: operationId || undefined,
+            },
           });
         }
 
-        res.status(409).json({
-          error: {
-            code: 'ANALYSIS_IN_PROGRESS',
-            message: 'Analysis is already in progress for this document',
-          },
-        });
-        return;
+        if (!job) {
+          // Legitimately active job — release quota and return 409
+          if (operationId) {
+            await usageService.finalizeReservation({
+              operationId,
+              userId,
+              success: false,
+            });
+          }
+
+          res.status(409).json({
+            error: {
+              code: 'ANALYSIS_IN_PROGRESS',
+              message: 'Analysis is already in progress for this document',
+            },
+          });
+          return;
+        }
       }
 
       res.status(202).json({
@@ -868,6 +911,34 @@ router.delete(
       const id = parseStringParam(req.params.id, 'id');
 
       logger.info({ documentId: id, userId }, 'DELETE story-nodes called');
+
+      // Cancel any active analysis job before deleting data
+      const activeJob = await jobService.getActiveForTarget(
+        'document_analysis',
+        id,
+      );
+      if (activeJob) {
+        await jobService.updateStatus(
+          activeJob.id,
+          'cancelled',
+          'Analysis deleted by user',
+        );
+        await db
+          .update(documents)
+          .set({ analysisStatus: null, analysisStartedAt: null })
+          .where(eq(documents.id, id));
+        sseService.broadcastToDocument(id, 'job-cancelled', {
+          jobId: activeJob.id,
+          jobType: 'document_analysis',
+          documentId: id,
+          timestamp: new Date().toISOString(),
+        });
+        sseService.clearDocumentBuffer(id);
+        logger.info(
+          { jobId: activeJob.id, documentId: id },
+          'Cancelled active analysis job before deletion',
+        );
+      }
 
       // Get node IDs before deletion for SSE event
       const nodes = await graphStoryNodesRepository.getActiveNodes(id, userId);
