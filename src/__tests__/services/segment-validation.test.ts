@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import {
   hasValidSegments,
   validateSegmentsForContent,
-} from '../../services/segments';
+} from '../../services/segments/segment.validation';
 
 describe('segment validation', () => {
   describe('validateSegmentsForContent', () => {

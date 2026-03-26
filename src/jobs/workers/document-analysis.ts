@@ -241,6 +241,7 @@ class DocumentAnalysisWorker extends JobWorker<
     ) {
       return existing;
     }
+
     return segmentService.updateDocumentSegments(documentId);
   }
 }

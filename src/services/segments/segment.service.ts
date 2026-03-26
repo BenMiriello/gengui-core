@@ -7,16 +7,29 @@ import { createHash } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { db } from '../../config/database';
 import { documents } from '../../models/schema';
+import { logger } from '../../utils/logger';
 import { segmentText } from './segment.detector';
 import type { Segment, SegmentMatch } from './segment.types';
+import { validateSegmentsForContent } from './segment.validation';
 
 export const segmentService = {
   /**
    * Compute segments for document content.
    * Reuses existing segment IDs where positions match.
+   * Validates segments before returning - throws if invalid.
    */
   computeSegments(content: string, existingSegments?: Segment[]): Segment[] {
     const { segments } = segmentText(content, existingSegments);
+
+    const validation = validateSegmentsForContent(segments, content.length);
+    if (!validation.valid) {
+      logger.error(
+        { errors: validation.errors, contentLength: content.length },
+        'computeSegments produced invalid segments',
+      );
+      throw new Error(`Invalid segments: ${validation.errors.join('; ')}`);
+    }
+
     return segments;
   },
 

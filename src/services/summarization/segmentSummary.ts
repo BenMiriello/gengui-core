@@ -95,7 +95,7 @@ export async function generateSegmentSummaryWithRetry(
         'Summary generation failed after max retries, using fallback',
       );
 
-      // Fallback: truncated segment text as "summary"
+      // Fallback for transient failures only (truncated segment text)
       const fallback = segmentText.slice(0, 500);
       return fallback + (segmentText.length > 500 ? '...' : '');
     }
