@@ -1099,6 +1099,86 @@ router.get(
   },
 );
 
+// Character arc endpoint
+router.get(
+  '/documents/:id/character-arc/:characterId',
+  requireAuth,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
+      const id = parseStringParam(req.params.id, 'id');
+      const characterId = parseStringParam(
+        req.params.characterId,
+        'characterId',
+      );
+
+      // Verify user has access to document
+      await documentsService.get(id, userId);
+
+      // Get arcs, states, and transitions for the character
+      const [arcs, states, transitions] = await Promise.all([
+        graphService.getCharacterArcs(characterId),
+        graphService.getCharacterStates(characterId),
+        graphService.getStateTransitions(characterId),
+      ]);
+
+      // For each arc, get its states via INCLUDES_STATE
+      const arcsWithStates = await Promise.all(
+        arcs.map(async (arc) => {
+          const arcStates = await graphService.getArcStates(arc.id);
+          return {
+            id: arc.id,
+            name: arc.name,
+            arcType: arc.arcType,
+            states: arcStates.map((s) => ({
+              id: s.id,
+              name: s.name,
+              description: '', // States don't have description, use name
+              documentOrder: s.documentOrder,
+            })),
+            transitions: transitions
+              .filter((t) => arcStates.some((s) => s.id === t.fromStateId))
+              .map((t) => ({
+                fromStateId: t.fromStateId,
+                toStateId: t.toStateId,
+                gapDetected: t.gapDetected,
+                triggerEventId: t.triggerEventId,
+              })),
+          };
+        }),
+      );
+
+      // If no arcs exist but states do, create a default arc from all states
+      if (arcsWithStates.length === 0 && states.length > 0) {
+        arcsWithStates.push({
+          id: 'default',
+          name: 'Arc',
+          arcType: 'growth',
+          states: states.map((s) => ({
+            id: s.id,
+            name: s.name,
+            description: '',
+            documentOrder: s.documentOrder,
+          })),
+          transitions: transitions
+            .filter((t) => states.some((s) => s.id === t.fromStateId))
+            .map((t) => ({
+              fromStateId: t.fromStateId,
+              toStateId: t.toStateId,
+              gapDetected: t.gapDetected,
+              triggerEventId: t.triggerEventId,
+            })),
+        });
+      }
+
+      res.json({ characterId, arcs: arcsWithStates });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
 // Thread management endpoints
 
 router.post(

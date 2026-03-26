@@ -1172,6 +1172,27 @@ class GraphService {
   }
 
   /**
+   * Delete all nodes and connections for a specific document.
+   * Used for permanent document deletion.
+   */
+  async deleteDocumentNodes(documentId: string): Promise<number> {
+    const result = await this.query(
+      `
+      MATCH (n:StoryNode {documentId: $documentId})
+      DETACH DELETE n
+      RETURN count(n) as deleted
+      `,
+      { documentId },
+    );
+    const count = (result.data[0]?.[0] as number) || 0;
+    logger.info(
+      { documentId, nodesDeleted: count },
+      'Deleted document graph nodes',
+    );
+    return count;
+  }
+
+  /**
    * Cleanup soft-deleted nodes and connections older than the given date.
    * Returns count of deleted nodes.
    */
@@ -1617,11 +1638,17 @@ class GraphService {
     });
   }
 
-  async getFacetsForEntity(entityId: string): Promise<StoredFacet[]> {
+  async getFacetsForEntity(
+    entityId: string,
+    analysisVersion?: string,
+  ): Promise<StoredFacet[]> {
+    const version = analysisVersion ?? getCurrentAnalysisVersion();
+    const embeddingColumn = getVersionConfig(version).embeddingColumn;
+
     const cypher = `
       MATCH (e:StoryNode)-[:HAS_FACET]->(f:Facet)
       WHERE e.id = $entityId AND f.deletedAt IS NULL
-      RETURN f.id, f.entityId, f.facetType, f.content, f.embedding, f.createdAt, f.updatedAt, f.deletedAt
+      RETURN f.id, f.entityId, f.facetType, f.content, f.${embeddingColumn}, f.createdAt, f.updatedAt, f.deletedAt
       ORDER BY f.facetType, f.createdAt
     `;
     const result = await this.query(cypher, { entityId });
@@ -1922,18 +1949,36 @@ class GraphService {
       throw new Error('Failed to create arc');
     }
 
-    // Create HAS_ARC edge from character to arc
+    // Verify the StoryNode exists before creating edge
+    const checkCypher = `MATCH (c:StoryNode) WHERE c.id = $characterId RETURN c.id`;
+    const checkResult = await this.query(checkCypher, { characterId });
+    if (checkResult.data.length === 0) {
+      logger.error(
+        { characterId, arcId },
+        'HAS_ARC edge FAILED: StoryNode not found for characterId',
+      );
+      return arcId;
+    }
+
     const edgeCypher = `
       MATCH (c:StoryNode), (a:Arc)
       WHERE c.id = $characterId AND a.id = $arcId
       CREATE (c)-[:HAS_ARC {createdAt: $now}]->(a)
     `;
-    await this.query(edgeCypher, { characterId, arcId, now });
+    const edgeResult = await this.query(edgeCypher, { characterId, arcId, now });
 
-    logger.info(
-      { arcId, characterId, arcType: input.arcType },
-      'Arc created in FalkorDB',
-    );
+    const relCreated = Number(edgeResult.stats?.['Relationships created'] ?? 0);
+    if (relCreated === 0) {
+      logger.error(
+        { characterId, arcId, stats: edgeResult.stats },
+        'HAS_ARC edge FAILED: MATCH succeeded but CREATE produced 0 relationships',
+      );
+    } else {
+      logger.info(
+        { arcId, characterId, arcType: input.arcType },
+        'Arc created with HAS_ARC edge in FalkorDB',
+      );
+    }
     return arcId;
   }
 

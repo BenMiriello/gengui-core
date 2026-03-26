@@ -1,13 +1,23 @@
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, gt, isNotNull, isNull, sql } from 'drizzle-orm';
 import { db } from '../config/database';
-import { documents, users } from '../models/schema';
+import { documentMedia, documents, media, users } from '../models/schema';
 import { ConflictError, ForbiddenError, NotFoundError } from '../utils/errors';
 import { logger } from '../utils/logger';
+import { graphService } from './graph/graph.service';
 import { getImageProvider } from './image-generation/factory';
+import { mediaService } from './mediaService';
 import { segmentService } from './segments';
 import { sseService } from './sse';
 import { summaryService } from './summarization';
 import { versioningService } from './versioning';
+
+const RETENTION_DAYS = 31;
+
+function getDaysAgo(days: number): Date {
+  const date = new Date();
+  date.setDate(date.getDate() - days);
+  return date;
+}
 
 export class DocumentsService {
   async list(userId: string) {
@@ -257,6 +267,114 @@ export class DocumentsService {
       .where(eq(documents.id, documentId));
 
     logger.info({ userId, documentId }, 'Document deleted');
+  }
+
+  private async getDeleted(documentId: string, userId: string) {
+    const [document] = await db
+      .select()
+      .from(documents)
+      .where(and(eq(documents.id, documentId), isNotNull(documents.deletedAt)))
+      .limit(1);
+
+    if (!document) {
+      throw new NotFoundError('Deleted document not found');
+    }
+    if (document.userId !== userId) {
+      throw new ForbiddenError('Not authorized to access this document');
+    }
+    return document;
+  }
+
+  async listDeleted(userId: string) {
+    const threshold = getDaysAgo(RETENTION_DAYS);
+    return db
+      .select({
+        id: documents.id,
+        title: documents.title,
+        deletedAt: documents.deletedAt,
+        createdAt: documents.createdAt,
+      })
+      .from(documents)
+      .where(
+        and(
+          eq(documents.userId, userId),
+          isNotNull(documents.deletedAt),
+          gt(documents.deletedAt, threshold),
+        ),
+      )
+      .orderBy(desc(documents.deletedAt));
+  }
+
+  async restore(documentId: string, userId: string) {
+    await this.getDeleted(documentId, userId);
+    const [updated] = await db
+      .update(documents)
+      .set({ deletedAt: null })
+      .where(eq(documents.id, documentId))
+      .returning();
+    logger.info({ userId, documentId }, 'Document restored');
+    return updated;
+  }
+
+  async getDeletedInfo(documentId: string, userId: string) {
+    const doc = await this.getDeleted(documentId, userId);
+
+    // Count media linked to this document
+    const mediaResult = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(documentMedia)
+      .innerJoin(media, eq(documentMedia.mediaId, media.id))
+      .where(
+        and(eq(documentMedia.documentId, documentId), eq(media.userId, userId)),
+      );
+    const mediaCount = Number(mediaResult[0]?.count ?? 0);
+
+    // Count entities from FalkorDB
+    let entityCount = 0;
+    const hasAnalysis =
+      doc.narrativeModeEnabled && doc.lastAnalyzedVersion !== null;
+    if (hasAnalysis) {
+      const result = await graphService.query(
+        `MATCH (n:StoryNode {documentId: $documentId}) RETURN count(n) as count`,
+        { documentId },
+      );
+      entityCount = (result.data[0]?.[0] as number) || 0;
+    }
+
+    return {
+      id: doc.id,
+      title: doc.title,
+      hasAnalysis,
+      entityCount,
+      mediaCount,
+    };
+  }
+
+  async permanentDelete(
+    documentId: string,
+    userId: string,
+    options?: { deleteMedia?: boolean },
+  ) {
+    const doc = await this.getDeleted(documentId, userId);
+
+    // Delete FalkorDB nodes for this document
+    const hasAnalysis =
+      doc.narrativeModeEnabled && doc.lastAnalyzedVersion !== null;
+    if (hasAnalysis) {
+      await graphService.deleteDocumentNodes(documentId);
+    }
+
+    // Optionally delete media files (not just links)
+    if (options?.deleteMedia) {
+      await mediaService.permanentDeleteDocumentMedia(documentId, userId);
+    }
+
+    // Hard delete document (cascades to documentMedia, mentions, versions via FK)
+    await db.delete(documents).where(eq(documents.id, documentId));
+    logger.info(
+      { userId, documentId, deletedMedia: options?.deleteMedia },
+      'Document permanently deleted',
+    );
   }
 
   private generateTitle(content: string): string {

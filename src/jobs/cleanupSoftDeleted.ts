@@ -1,7 +1,13 @@
 import { and, gt, isNotNull, lt, lte } from 'drizzle-orm';
 import cron, { type ScheduledTask } from 'node-cron';
 import { db } from '../config/database';
-import { nodeMedia, users } from '../models/schema';
+import {
+  documentMedia,
+  documents,
+  media,
+  nodeMedia,
+  users,
+} from '../models/schema';
 import { authService } from '../services/auth';
 import { customStylePromptsService } from '../services/customStylePrompts';
 import { emailService } from '../services/emailService';
@@ -48,6 +54,29 @@ export function startCleanupJob(): ScheduledTask {
       if (graphCleanup.nodes > 0) results.nodes = graphCleanup.nodes;
       if (graphCleanup.connections > 0)
         results.connections = graphCleanup.connections;
+
+      // Clean up media
+      const deletedMedia = await db
+        .delete(media)
+        .where(lt(media.deletedAt, threshold))
+        .returning({ id: media.id });
+      if (deletedMedia.length > 0) results.media = deletedMedia.length;
+
+      // Clean up documents (cascades to related tables via FK)
+      const deletedDocuments = await db
+        .delete(documents)
+        .where(lt(documents.deletedAt, threshold))
+        .returning({ id: documents.id });
+      if (deletedDocuments.length > 0)
+        results.documents = deletedDocuments.length;
+
+      // Clean up orphaned documentMedia links
+      const deletedDocumentMedia = await db
+        .delete(documentMedia)
+        .where(lt(documentMedia.deletedAt, threshold))
+        .returning({ id: documentMedia.id });
+      if (deletedDocumentMedia.length > 0)
+        results.documentMedia = deletedDocumentMedia.length;
 
       // Permanently delete users past their scheduled deletion date
       const now = new Date();

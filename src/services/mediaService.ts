@@ -4,7 +4,9 @@ import {
   desc,
   eq,
   getTableColumns,
+  gt,
   inArray,
+  isNotNull,
   isNull,
   notInArray,
   or,
@@ -412,6 +414,66 @@ export class MediaService {
     logger.info(
       { documentId, count: mediaIds.length },
       'Soft deleted document media',
+    );
+    return mediaIds.length;
+  }
+
+  async getDeletedDocumentMedia(documentId: string, userId: string) {
+    const RETENTION_DAYS = 31;
+    const threshold = new Date();
+    threshold.setDate(threshold.getDate() - RETENTION_DAYS);
+
+    return db
+      .select({
+        id: media.id,
+        s3KeyThumb: media.s3KeyThumb,
+        s3Key: media.s3Key,
+        prompt: media.prompt,
+        deletedAt: documentMedia.deletedAt,
+        createdAt: media.createdAt,
+      })
+      .from(documentMedia)
+      .innerJoin(media, eq(documentMedia.mediaId, media.id))
+      .where(
+        and(
+          eq(documentMedia.documentId, documentId),
+          eq(media.userId, userId),
+          isNotNull(documentMedia.deletedAt),
+          gt(documentMedia.deletedAt, threshold),
+        ),
+      )
+      .orderBy(desc(documentMedia.deletedAt));
+  }
+
+  async permanentDeleteDocumentMedia(
+    documentId: string,
+    userId: string,
+  ): Promise<number> {
+    // Get all media IDs linked to this document (owned by user)
+    const mediaItems = await db
+      .select({ mediaId: documentMedia.mediaId })
+      .from(documentMedia)
+      .innerJoin(media, eq(documentMedia.mediaId, media.id))
+      .where(
+        and(eq(documentMedia.documentId, documentId), eq(media.userId, userId)),
+      );
+
+    if (mediaItems.length === 0) return 0;
+
+    const mediaIds = mediaItems.map((m) => m.mediaId);
+
+    // Hard delete media files
+    await db.delete(media).where(inArray(media.id, mediaIds));
+
+    // Clear cache
+    for (const id of mediaIds) {
+      await cache.delMediaUrl(id);
+      await cache.delMetadata(id);
+    }
+
+    logger.info(
+      { documentId, count: mediaIds.length },
+      'Permanently deleted document media',
     );
     return mediaIds.length;
   }
