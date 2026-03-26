@@ -74,24 +74,18 @@ export interface RelationshipEntity {
  * SINGLE SOURCE OF TRUTH for extraction output estimation.
  * Used by both the batch calculator and the client.
  *
- * Returns CONSERVATIVE estimate with built-in safety margins:
- * - Conservative baseline (more entities in dense narrative)
- * - Token costs closer to max than average
- * - JSON overhead (brackets, keys, quotes, commas)
- * - Safety margin for variance
+ * Uses a direct empirical ratio (output tokens per input token) derived from
+ * 39 batches of actual extraction data. This is more robust than the previous
+ * compound formula (entity density × per-entity cost) which had 6 independently-
+ * estimated parameters that happened to produce offsetting errors.
+ *
+ * Two-component model: base overhead + linear scaling.
+ * Small documents have disproportionately high output/input ratios because
+ * the model extracts exhaustively (high entity density per word) and there's
+ * fixed JSON structure overhead regardless of input size. A pure linear formula
+ * underestimates for small inputs.
  *
  * Can optionally use adaptive calibration based on actual batch results.
- *
- * Output JSON has THREE separate arrays: entities, facets, mentions
- * Based on actual extraction data (Dracula ch1-4, 69 entities from 55K chars):
- * - Entities array: ~1 entity per 400-500 input chars (was 500, now 400 for dense text)
- * - Entity tokens: ~150 tokens each (was 120, now closer to max observed)
- * - Facets array: ~6 facets per entity (was 8 - fewer but longer)
- * - Facet tokens: ~80 tokens each (was 60 - closer to max)
- * - Mentions array: ~5 mentions per entity (was 4 - conservative)
- * - Mention tokens: ~45 tokens each (was 35 - accounts for verbatim quotes)
- * - JSON overhead: 1.3x multiplier (brackets, keys, quotes, commas)
- * - Safety margin: 1.15x multiplier (15% buffer for variance)
  */
 export function estimateExtractionOutputTokens(
   totalInputChars: number,
@@ -101,23 +95,13 @@ export function estimateExtractionOutputTokens(
     return batchCalibrator.getAdjustedEstimate(totalInputChars);
   }
 
-  const estimatedEntities = Math.ceil(totalInputChars / 400);
-  const tokensPerEntity = 150;
-  const facetsPerEntity = 6;
-  const tokensPerFacet = 80;
-  const mentionsPerEntity = 5;
-  const tokensPerMention = 45;
-
-  const entityTokens = estimatedEntities * tokensPerEntity;
-  const facetTokens = estimatedEntities * facetsPerEntity * tokensPerFacet;
-  const mentionTokens =
-    estimatedEntities * mentionsPerEntity * tokensPerMention;
-  const baseEstimate = entityTokens + facetTokens + mentionTokens;
-
-  const jsonOverhead = 1.3;
+  const charsPerToken = 3.3;
+  const inputTokens = totalInputChars / charsPerToken;
+  const baseOverhead = 4000;
+  const marginalRatio = 4.0;
   const safetyMargin = 1.15;
 
-  return Math.ceil(baseEstimate * jsonOverhead * safetyMargin);
+  return Math.ceil((baseOverhead + inputTokens * marginalRatio) * safetyMargin);
 }
 
 /**

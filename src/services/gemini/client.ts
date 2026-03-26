@@ -45,6 +45,16 @@ import {
 const MAX_RETRIES = 3;
 const RETRY_DELAYS = [1000, 2000, 4000];
 
+export class MaxTokensError extends Error {
+  constructor(
+    message: string,
+    public readonly outputTokens: number,
+  ) {
+    super(message);
+    this.name = 'MaxTokensError';
+  }
+}
+
 /**
  * Analyze document for incremental changes to existing nodes.
  * Uses retry logic with progressive backoff.
@@ -167,15 +177,30 @@ function parseResponse<T>(result: unknown, operation: string): T {
     throw new Error('Empty response text');
   }
 
+  const finishReason = typedResult.candidates?.[0]?.finishReason;
+
+  if (finishReason === 'MAX_TOKENS') {
+    logger.error(
+      {
+        operation,
+        responseLength: text.length,
+        finishReason,
+      },
+      `${operation} hit MAX_TOKENS — response truncated`,
+    );
+    throw new MaxTokensError(
+      `${operation} hit MAX_TOKENS limit. Response truncated at ${text.length} chars.`,
+      0,
+    );
+  }
+
   // Check for potential truncation indicators
   const trimmed = text.trim();
   const looksComplete = trimmed.endsWith('}') || trimmed.endsWith(']');
-  const finishReason = typedResult.candidates?.[0]?.finishReason;
 
   try {
     return JSON.parse(text) as T;
   } catch (parseError: unknown) {
-    // Log detailed diagnostics for debugging
     logger.error(
       {
         operation,
@@ -190,7 +215,6 @@ function parseResponse<T>(result: unknown, operation: string): T {
       `JSON parse failed for ${operation}`,
     );
 
-    // Try to identify the specific issue
     let hint = '';
     if (!looksComplete) {
       hint = ' Response appears truncated (does not end with } or ]).';
@@ -407,6 +431,12 @@ export async function extractEntitiesFromBatch(
     'Stage 3: Starting batch extraction',
   );
 
+  const effectiveMaxOutput = Math.min(
+    Math.ceil(estimatedOutputTokens * 2.5),
+    maxOutputTokens,
+  );
+  let lastCandidatesTokenCount: number | undefined;
+
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     const startTime = Date.now();
     try {
@@ -424,13 +454,14 @@ export async function extractEntitiesFromBatch(
             config: {
               responseMimeType: 'application/json',
               responseJsonSchema: stage1ExtractEntitiesSchema,
-              maxOutputTokens,
+              maxOutputTokens: effectiveMaxOutput,
               temperature: 0,
               httpOptions: { timeout: 300000 },
               thinkingConfig: { thinkingBudget: 0 },
             },
           }),
       });
+      lastCandidatesTokenCount = result.usageMetadata?.candidatesTokenCount;
       const elapsed = Date.now() - startTime;
 
       const responseLength = result.text?.length ?? 0;
@@ -509,7 +540,7 @@ export async function extractEntitiesFromBatch(
         actualEntities,
         actualFacets,
         actualMentions,
-        hitMaxTokens: result.candidates?.[0]?.finishReason === 'MAX_TOKENS',
+        hitMaxTokens: false,
       });
 
       const validation = validateEstimationAccuracy(
@@ -530,6 +561,22 @@ export async function extractEntitiesFromBatch(
 
       return parsed;
     } catch (error: unknown) {
+      if (error instanceof MaxTokensError) {
+        batchCalibrator.recordBatch({
+          batchId: randomUUID(),
+          timestamp: Date.now(),
+          totalInputChars,
+          estimatedEntities: projectedExtractedEntities,
+          estimatedOutputTokens,
+          actualOutputTokens: lastCandidatesTokenCount ?? 0,
+          actualEntities: 0,
+          actualFacets: 0,
+          actualMentions: 0,
+          hitMaxTokens: true,
+        });
+        throw error;
+      }
+
       lastError = error instanceof Error ? error : new Error(String(error));
       logger.warn(
         {
@@ -982,16 +1029,16 @@ EDGE TYPES:
 - CONNECTED_TO: Social/professional connection between agents
 - OPPOSES: Conflict, antagonism, opposition
 - ABOUT: Entity relates to abstract concept/theme
-- RELATED_TO: Fallback (use sparingly, <5% of edges)
+- RELATED_TO: Fallback when no specific type fits
 
 RULES:
 1. Use entity IDs from the lists above - not names
 2. Only extract relationships EVIDENCED in each segment text
 3. For causal edges (CAUSES, ENABLES, PREVENTS), include strength 0-1
 4. Prefer specific edge types over RELATED_TO
-5. Description should be 3-10 words explaining the relationship
+5. Description: a concise phrase explaining the relationship
 6. IMPORTANT: Set segmentId to the segment where the relationship is evidenced
-7. Extract ALL relationships evidenced in each segment`;
+7. Extract relationships evidenced in each segment`;
 
   const modelConfig = getTextModelConfig('gemini-2.5-flash-lite');
   const maxOutputTokens = modelConfig.maxOutputTokens;
@@ -1000,6 +1047,17 @@ RULES:
       `Model ${modelConfig} missing maxOutputTokens configuration`,
     );
   }
+
+  const totalEntities = segments.reduce((sum, s) => sum + s.entities.length, 0);
+  const estimatedRelationships = Math.min(
+    totalEntities * 2,
+    (totalEntities * (totalEntities - 1)) / 2,
+  );
+  const estimatedOutputTokens = estimatedRelationships * 100;
+  const effectiveMaxOutput = Math.min(
+    Math.ceil(Math.max(estimatedOutputTokens, 4000) * 2.5),
+    maxOutputTokens,
+  );
 
   try {
     const result = await trackedAI.callLLM({
@@ -1016,7 +1074,7 @@ RULES:
           config: {
             responseMimeType: 'application/json',
             responseJsonSchema: stage4ExtractRelationshipsSchema,
-            maxOutputTokens,
+            maxOutputTokens: effectiveMaxOutput,
             thinkingConfig: { thinkingBudget: 0 },
           },
         }),
@@ -1070,6 +1128,9 @@ RULES:
 
     return { relationships };
   } catch (error) {
+    if (error instanceof MaxTokensError) {
+      throw error;
+    }
     throw handleApiError(error, 'Stage 6 batched relationship extraction');
   }
 }
@@ -1117,6 +1178,16 @@ export async function extractCrossSegmentRelationships(
     );
   }
 
+  const estimatedRelationships = Math.min(
+    allEntities.length * 2,
+    (allEntities.length * (allEntities.length - 1)) / 2,
+  );
+  const estimatedOutputTokens = estimatedRelationships * 120;
+  const effectiveMaxOutput = Math.min(
+    Math.ceil(Math.max(estimatedOutputTokens, 4000) * 2.5),
+    maxOutputTokens,
+  );
+
   try {
     const result = await trackedAI.callLLM({
       operation: 'extractCrossSegmentRelationships',
@@ -1132,7 +1203,7 @@ export async function extractCrossSegmentRelationships(
           config: {
             responseMimeType: 'application/json',
             responseJsonSchema: stage4ExtractRelationshipsSchema,
-            maxOutputTokens,
+            maxOutputTokens: effectiveMaxOutput,
             thinkingConfig: { thinkingBudget: 0 },
           },
         }),
@@ -1153,6 +1224,9 @@ export async function extractCrossSegmentRelationships(
 
     return parsed;
   } catch (error) {
+    if (error instanceof MaxTokensError) {
+      throw error;
+    }
     throw handleApiError(error, 'Stage 4b cross-segment relationships');
   }
 }

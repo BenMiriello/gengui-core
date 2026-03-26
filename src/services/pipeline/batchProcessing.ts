@@ -26,7 +26,7 @@ export async function processBatchesInParallel<
   const allBatchResults = await Promise.all(
     batches.map(async (batch, batchIdx) => {
       broadcast(
-        (stageNumber + 1) as AnalysisStage,
+        stageNumber,
         totalCount,
         `Processing batch ${batchIdx + 1}/${batches.length}...`,
       );

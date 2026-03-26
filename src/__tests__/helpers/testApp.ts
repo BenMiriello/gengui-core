@@ -368,9 +368,8 @@ mock.module('../../config/env', () => ({
     MINIO_BUCKET: 'media',
     TEXT_INFERENCE_PROVIDER: 'gemini',
     IMAGE_INFERENCE_PROVIDER: 'local',
-    EMBEDDING_PROVIDER: 'openai',
     GEMINI_API_KEY: 'test-key',
-    OPENAI_API_KEY: 'test-key',
+    VOYAGE_API_KEY: 'test-key',
   },
 }));
 

@@ -59,6 +59,7 @@ import {
   type ExistingMatch,
   extractCrossSegmentRelationships,
   extractEntitiesFromBatch,
+  MaxTokensError,
   type MergeSignal,
   type SegmentInput,
   type Stage4RelationshipsResult,
@@ -94,11 +95,10 @@ import {
 } from './checkpoint';
 import { AnalysisCancelledError, AnalysisPausedError } from './errors';
 import {
-  type AnalysisStage,
-  getStageInfo,
-  getStageLabel,
-  TOTAL_STAGES,
-} from './stages';
+  buildEntityRegistrySummary,
+  disambiguateMergeSignals,
+} from './mergeReview';
+import { type AnalysisStage, getStageInfo, TOTAL_STAGES } from './stages';
 
 /**
  * Check if the analysis has been paused or cancelled.
@@ -118,6 +118,31 @@ async function checkForInterruption(documentId: string): Promise<void> {
   if (doc?.analysisStatus === 'paused') {
     throw new AnalysisPausedError('Analysis paused by user');
   }
+}
+
+/**
+ * Find the nearest sentence boundary to a target position in text.
+ * Searches for sentence-ending punctuation (. ? !) followed by whitespace.
+ * Returns the position after the punctuation+whitespace, or the target if no boundary found.
+ */
+function findSentenceBoundary(text: string, target: number): number {
+  const sentenceEnders = /[.!?]\s/g;
+  let bestPos = target;
+  let bestDist = Infinity;
+
+  for (;;) {
+    const match = sentenceEnders.exec(text);
+    if (!match) break;
+    const pos = match.index + match[0].length;
+    const dist = Math.abs(pos - target);
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestPos = pos;
+    }
+    if (pos > target + target * 0.3) break;
+  }
+
+  return bestPos;
 }
 
 export interface PipelineProgressInfo {
@@ -447,8 +472,7 @@ export const multiStagePipeline = {
       const stageInfo = getStageInfo(stage);
       const stageName = stageInfo?.name || `Stage ${stage}`;
       const stageDescription = stageInfo?.description;
-      const hint =
-        statusHint || stageInfo?.genericLabel || getStageLabel(stage);
+      const hint = statusHint || stageInfo?.genericLabel || '';
 
       if (broadcastProgress) {
         sseService.broadcastToDocument(documentId, 'analysis-progress', {
@@ -960,16 +984,96 @@ export const multiStagePipeline = {
                 summary: seg.summary,
               }));
 
-            const result = await extractEntitiesFromBatch(
-              segmentInputs,
-              segments.length,
-              userId,
-              documentId,
-              entityRegistry,
-              overlapText,
-              segmentSummariesForPrompt,
-              documentSummary ?? undefined,
-            );
+            let result: Awaited<ReturnType<typeof extractEntitiesFromBatch>>;
+            try {
+              result = await extractEntitiesFromBatch(
+                segmentInputs,
+                segments.length,
+                userId,
+                documentId,
+                entityRegistry,
+                overlapText,
+                segmentSummariesForPrompt,
+                documentSummary ?? undefined,
+              );
+            } catch (error) {
+              if (error instanceof MaxTokensError && segmentInputs.length > 1) {
+                childLogger.warn(
+                  { segmentIndices, segmentCount: segmentInputs.length },
+                  'Stage 3: MAX_TOKENS hit, splitting batch and retrying individually',
+                );
+                const subResults: Array<
+                  Awaited<ReturnType<typeof extractEntitiesFromBatch>>
+                > = [];
+                for (const segInput of segmentInputs) {
+                  subResults.push(
+                    await extractEntitiesFromBatch(
+                      [segInput],
+                      segments.length,
+                      userId,
+                      documentId,
+                      entityRegistry,
+                      overlapText,
+                      segmentSummariesForPrompt,
+                      documentSummary ?? undefined,
+                    ),
+                  );
+                }
+                result = {
+                  entities: subResults.flatMap((r) => r.entities),
+                  facets: subResults.flatMap((r) => r.facets),
+                  mentions: subResults.flatMap((r) => r.mentions),
+                  mergeSignals: subResults.flatMap((r) => r.mergeSignals || []),
+                };
+              } else if (
+                error instanceof MaxTokensError &&
+                segmentInputs.length === 1
+              ) {
+                childLogger.warn(
+                  { segmentIndex: segmentInputs[0].index },
+                  'Stage 3: MAX_TOKENS hit on single segment, splitting text and retrying',
+                );
+                const seg = segmentInputs[0];
+                const midpoint = findSentenceBoundary(
+                  seg.text,
+                  Math.floor(seg.text.length / 2),
+                );
+                const firstHalf = {
+                  ...seg,
+                  text: seg.text.slice(0, midpoint),
+                };
+                const secondHalf = {
+                  ...seg,
+                  text: seg.text.slice(midpoint),
+                };
+
+                const subResults: Array<
+                  Awaited<ReturnType<typeof extractEntitiesFromBatch>>
+                > = [];
+                for (const halfSeg of [firstHalf, secondHalf]) {
+                  subResults.push(
+                    await extractEntitiesFromBatch(
+                      [halfSeg],
+                      segments.length,
+                      userId,
+                      documentId,
+                      entityRegistry,
+                      overlapText,
+                      segmentSummariesForPrompt,
+                      documentSummary ?? undefined,
+                    ),
+                  );
+                }
+                result = {
+                  entities: subResults.flatMap((r) => r.entities),
+                  facets: subResults.flatMap((r) => r.facets),
+                  mentions: subResults.flatMap((r) => r.mentions),
+                  mergeSignals: subResults.flatMap((r) => r.mergeSignals || []),
+                };
+              } else {
+                throw error;
+              }
+            }
 
             // Check if cancelled/paused after LLM call
             await checkForInterruption(documentId);
@@ -1247,27 +1351,6 @@ export const multiStagePipeline = {
         embeddingByName.set(e.name, entityEmbeddings[i]);
       });
 
-      // Process accumulated merge signals
-      if (accumulatedMergeSignals.length > 0) {
-        logger.info(
-          { documentId, signalCount: accumulatedMergeSignals.length },
-          'Processing accumulated merge signals',
-        );
-        // For now, log signals for analysis (future: LLM review pass)
-        for (const signal of accumulatedMergeSignals) {
-          logger.debug(
-            {
-              extractedName: signal.extractedEntityName,
-              registryName: signal.registryName,
-              registryType: signal.registryType,
-              confidence: signal.confidence,
-              evidence: signal.evidence,
-            },
-            'Merge signal for future review',
-          );
-        }
-      }
-
       // Create entities and facets in the database
       const uniqueEntityIds = new Set(entityIdByName.values());
       const createdEntityIds = new Set<string>();
@@ -1495,6 +1578,21 @@ export const multiStagePipeline = {
         }
       }
 
+      // Disambiguate accumulated merge signals now that all entity IDs are stable.
+      if (accumulatedMergeSignals.length > 0) {
+        const entityRegistryById = buildEntityRegistrySummary(
+          extractedEntities,
+          entityIdByName,
+        );
+        await disambiguateMergeSignals({
+          documentId,
+          userId,
+          mergeSignals: accumulatedMergeSignals,
+          entityIdByName,
+          entityRegistryById,
+        });
+      }
+
       const stage4DurationMs = Date.now() - stage4StartTime;
       logStageComplete(childLogger, 4, 'Entity Resolution', stage4DurationMs, {
         resolvedCount: resolvedEntities.length,
@@ -1643,27 +1741,38 @@ export const multiStagePipeline = {
             );
 
             // Process all batches using reusable helper
-            const relationships = await processBatchesInParallel(
-              batches,
-              (items) =>
-                extractRelationshipsFromBatch(
-                  items,
-                  userId,
-                  documentId,
-                  doc?.summary ?? undefined,
-                ),
-              broadcast,
-              5,
-              entityIdByName.size,
-            );
+            try {
+              const relationships = await processBatchesInParallel(
+                batches,
+                (items) =>
+                  extractRelationshipsFromBatch(
+                    items,
+                    userId,
+                    documentId,
+                    doc?.summary ?? undefined,
+                  ),
+                broadcast,
+                5,
+                entityIdByName.size,
+              );
 
-            intraSegmentRels.push(...relationships);
+              intraSegmentRels.push(...relationships);
+            } catch (error) {
+              if (error instanceof MaxTokensError) {
+                childLogger.warn(
+                  { error: error.message },
+                  'Stage 5: MAX_TOKENS hit during relationship extraction, continuing with partial results',
+                );
+              } else {
+                throw error;
+              }
+            }
           }
 
           const stage5DurationMs = Date.now() - stage5StartTime;
           logStageComplete(
             childLogger,
-            6,
+            5,
             'Intra-Segment Relationships',
             stage5DurationMs,
             {
@@ -1671,7 +1780,6 @@ export const multiStagePipeline = {
             },
           );
 
-          await saveCheckpoint(documentId, { lastStageCompleted: 5 });
           return intraSegmentRels;
         })(),
 
@@ -1757,33 +1865,44 @@ export const multiStagePipeline = {
               .limit(1);
 
             // Process all batches using reusable helper
-            const relationships = await processBatchesInParallel(
-              batches,
-              (items) =>
-                extractCrossSegmentRelationships(
-                  (doc?.summary ?? documentTitle)
-                    ? `Document: "${documentTitle}"`
-                    : undefined,
-                  items.map((item) => ({
-                    ...item,
-                    segmentIds: item.segmentIds ?? [],
-                  })),
-                  [],
-                  userId,
-                  documentId,
-                ),
-              broadcast,
-              6,
-              entityIdByName.size,
-            );
+            try {
+              const relationships = await processBatchesInParallel(
+                batches,
+                (items) =>
+                  extractCrossSegmentRelationships(
+                    (doc?.summary ?? documentTitle)
+                      ? `Document: "${documentTitle}"`
+                      : undefined,
+                    items.map((item) => ({
+                      ...item,
+                      segmentIds: item.segmentIds ?? [],
+                    })),
+                    [],
+                    userId,
+                    documentId,
+                  ),
+                broadcast,
+                6,
+                entityIdByName.size,
+              );
 
-            crossSegmentRels.push(...relationships);
+              crossSegmentRels.push(...relationships);
+            } catch (error) {
+              if (error instanceof MaxTokensError) {
+                childLogger.warn(
+                  { error: error.message },
+                  'Stage 6: MAX_TOKENS hit during cross-segment relationship extraction, continuing with partial results',
+                );
+              } else {
+                throw error;
+              }
+            }
           }
 
           const stage6DurationMs = Date.now() - stage6StartTime;
           logStageComplete(
             childLogger,
-            7,
+            6,
             'Cross-Segment Relationships',
             stage6DurationMs,
             {
@@ -1791,7 +1910,6 @@ export const multiStagePipeline = {
             },
           );
 
-          await saveCheckpoint(documentId, { lastStageCompleted: 6 });
           return crossSegmentRels;
         })(),
       ]);
@@ -1830,6 +1948,8 @@ export const multiStagePipeline = {
         },
         'Relationship extraction complete (parallel execution)',
       );
+
+      await saveCheckpoint(documentId, { lastStageCompleted: 6 });
     }
 
     // Stage 7: Higher-Order Analysis
@@ -1988,7 +2108,7 @@ export const multiStagePipeline = {
       const stage7DurationMs = Date.now() - stage7StartTime;
       logStageComplete(
         childLogger,
-        8,
+        7,
         'Higher-Order Analysis',
         stage7DurationMs,
         {
@@ -2025,7 +2145,7 @@ export const multiStagePipeline = {
       const stage8DurationMs = Date.now() - stage8StartTime;
       logStageComplete(
         childLogger,
-        9,
+        8,
         'CharacterState Facet Attachment',
         stage8DurationMs,
         {},
@@ -2050,7 +2170,7 @@ export const multiStagePipeline = {
       const stage9DurationMs = Date.now() - stage9StartTime;
       logStageComplete(
         childLogger,
-        10,
+        9,
         'Conflict Detection',
         stage9DurationMs,
         {},
@@ -2061,7 +2181,15 @@ export const multiStagePipeline = {
       childLogger.info('Skipping Stage 9 (already completed)');
     }
 
-    await generateEntityDescriptions(documentId, userId, entityIdByName);
+    broadcast(9, entityIdByName.size, 'Generating entity descriptions...');
+    try {
+      await generateEntityDescriptions(documentId, userId, entityIdByName);
+    } catch (error) {
+      childLogger.error(
+        { documentId, error },
+        'Entity description generation failed (non-fatal)',
+      );
+    }
 
     // Clear checkpoint on successful completion
     await clearCheckpoint(documentId);
@@ -3523,7 +3651,7 @@ async function detectContradictionsWithContext(
 
   logger.info(
     {
-      stage: 10,
+      stage: 9,
       operation: 'detectContradictions',
       entityId: context.entityId,
       promptTokens,
@@ -3675,7 +3803,7 @@ async function detectFacetConflicts(
     for (const conflict of conflicts) {
       logger.info(
         {
-          stage: 10,
+          stage: 9,
           type: 'conflict_detected',
           documentId,
           entityId: conflict.entityId,
@@ -3694,7 +3822,7 @@ async function detectFacetConflicts(
     if (plotHoles.length > 0) {
       logger.warn(
         {
-          stage: 10,
+          stage: 9,
           documentId,
           plotHoles: plotHoles.map((c) => ({
             entity: c.entityName,
@@ -3708,7 +3836,7 @@ async function detectFacetConflicts(
     if (weakCausation.length > 0) {
       logger.warn(
         {
-          stage: 10,
+          stage: 9,
           documentId,
           weakCausation: weakCausation.map((c) => ({
             entity: c.entityName,
@@ -3864,12 +3992,10 @@ async function generateEntityDescriptions(
       .filter((r) => r.method !== 'no_change' && r.description)
       .map((r) => r.entityId);
 
-    if (updatedNodeIds.length > 0) {
-      sseService.broadcastToDocument(documentId, 'nodes-updated', {
-        documentId,
-        nodeIds: updatedNodeIds,
-      });
-    }
+    sseService.broadcastToDocument(documentId, 'nodes-updated', {
+      documentId,
+      nodeIds: updatedNodeIds,
+    });
 
     logger.info(
       {

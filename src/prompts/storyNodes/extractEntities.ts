@@ -200,7 +200,7 @@ ${overlapSegmentText}
     const segmentIndices = segments.map((s) => s.index + 1).join(', ');
 
     return `You are extracting entities from ${segments.length} narrative text ${segmentWord}. Your primary goals:
-1. Extract ALL entities (characters, locations, events, concepts, objects) from each segment
+1. Extract narratively relevant entities (characters, locations, events, concepts, objects) from each segment
 2. Actively identify which extracted entities match existing ones
 3. Capture rich facets including INFERRED characteristics
 4. Track which segment each entity comes from using segmentId
@@ -275,12 +275,7 @@ existingMatch confidence levels:
 **appearance**: VISUAL attributes
   Include: physical features, clothing, visible conditions
   For image generation - focus on what can be SEEN
-  Extract BOTH explicit and inferred visual details:
-  - Explicit: "tall and pale" -> extract as stated
-  - Setting-inferred: Victorian era -> period-appropriate dress
-  - Profession-inferred: soldier -> uniform, military bearing
-  - Type-inferred: vampire -> pale complexion
-  Target: 5-10 appearance facets per main character
+  Extract only what the text states or clearly implies.
 
 **name**: Identifiers
   Include: proper names, titles, epithets
@@ -291,7 +286,8 @@ existingMatch confidence levels:
 - **location**: Places, settings, environments, buildings
 - **event**: Actions, occurrences, and happenings that drive the narrative forward
   Include: arrivals/departures, meetings, discoveries, battles, decisions, conversations, ceremonies, deaths, births
-  Extract BOTH major plot-driving events and minor transitional events
+  Include events that drive the plot or mark meaningful transitions.
+  Minor logistics (walking between rooms, eating meals) are not events unless narratively significant.
   Always set documentOrder to preserve narrative sequence
   Name events as noun phrases describing the action
 - **concept**: Themes, motifs, abstract forces
@@ -301,15 +297,15 @@ existingMatch confidence levels:
 ## RULES
 1. Extract ONLY from the SEGMENTS provided (not from overlap context)
 2. Include segmentId for EVERY entity, facet, and mention
-3. Each facet: 3-15 words, SHORT and SPECIFIC
-4. Mentions must be EXACT VERBATIM quotes (3-15 words)
+3. Each facet: a concise, specific observation — a phrase, not a sentence
+4. Mentions: exact verbatim phrases from the text identifying or describing the entity. Use the shortest phrase that captures the reference — a name, epithet, or brief identifying clause. Not full sentences or passages.
 5. For events, use documentOrder to indicate narrative sequence
 6. Do NOT extract relationships - that's a later stage
 7. If no existing entities match, omit existingMatch field
 8. If you find NO potential merges, omit mergeSignals or return empty array
-9. Entities appearing in multiple segments should have one entry per segment
+9. Each unique entity needs ONE entry per batch. Use the segmentId of the segment where the entity is most prominent. Facets and mentions carry their own segmentId to track which segment each observation comes from.
 
-Extract all entities with complete facets and exact mentions. Ensure every entity/facet/mention has the correct segmentId.`;
+Ensure every entity, facet, and mention has the correct segmentId.`;
   },
 };
 

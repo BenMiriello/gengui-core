@@ -12,6 +12,7 @@ import {
   multiStagePipeline,
 } from '../../services/pipeline';
 import { type Segment, segmentService } from '../../services/segments';
+import { hasValidSegments } from '../../services/segments/segment.validation';
 import { splitIntoSentences } from '../../services/sentences/sentence.detector';
 import { sseService } from '../../services/sse';
 import { stalenessService } from '../../services/staleness';
@@ -234,7 +235,10 @@ class DocumentAnalysisWorker extends JobWorker<
     document: { content: string; segmentSequence: unknown },
   ): Promise<Segment[]> {
     const existing = parseSegmentSequence(document.segmentSequence);
-    if (existing.length > 0) {
+    if (
+      existing.length > 0 &&
+      hasValidSegments(existing, document.content.length)
+    ) {
       return existing;
     }
     return segmentService.updateDocumentSegments(documentId);

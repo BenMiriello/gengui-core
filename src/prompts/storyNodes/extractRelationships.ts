@@ -86,7 +86,7 @@ EDGE TYPES:
 - CONNECTED_TO: Social/professional connection between agents
 - OPPOSES: Conflict, antagonism, opposition
 - ABOUT: Entity relates to abstract concept/theme
-- RELATED_TO: Fallback (use sparingly, <5% of edges)
+- RELATED_TO: Fallback when no specific type fits
 
 RULES:
 1. Use entity IDs from the list above - not names
@@ -94,7 +94,7 @@ RULES:
 3. For causal edges (CAUSES, ENABLES, PREVENTS), include strength 0-1
 4. Prefer specific edge types over RELATED_TO
 5. Do NOT create edges between entities not in the segment
-6. Description should be 3-10 words explaining the relationship
+6. Description: a concise phrase explaining the relationship
 
 QUALITY CHECKLIST:
 - Character interactions -> CONNECTED_TO or OPPOSES

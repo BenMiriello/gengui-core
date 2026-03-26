@@ -33,12 +33,8 @@ class SSEService {
   private readonly DEFAULT_TTL_MS = 30_000;
 
   private readonly EVENT_CONFIG: Record<string, EventBufferConfig> = {
-    'analysis-status-changed': { buffer: true, ttlMs: 30_000 },
-    'analysis-paused': { buffer: true, ttlMs: 30_000 },
     'analysis-progress': { buffer: true, ttlMs: 10_000 },
     'analysis-complete': { buffer: false, ttlMs: 0 },
-    'analysis-cancelled': { buffer: false, ttlMs: 0 },
-    'analysis-failed': { buffer: false, ttlMs: 0 },
 
     'job-status-changed': { buffer: true, ttlMs: 30_000 },
     'job-progress': { buffer: true, ttlMs: 10_000 },

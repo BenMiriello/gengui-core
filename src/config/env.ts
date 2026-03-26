@@ -1,5 +1,9 @@
 import { config } from 'dotenv';
 import { z } from 'zod';
+import {
+  getCurrentAnalysisVersion,
+  getVersionConfig,
+} from './analysis-versions';
 
 config();
 
@@ -38,11 +42,11 @@ const envSchema = z
     IMAGE_INFERENCE_PROVIDER: z
       .enum(['local', 'runpod', 'gemini'])
       .default('gemini'),
-    EMBEDDING_PROVIDER: z.enum(['openai']).default('openai'),
 
     // Provider API Keys
     GEMINI_API_KEY: z.string().optional(),
     OPENAI_API_KEY: z.string().optional(),
+    VOYAGE_API_KEY: z.string().optional(),
     RUNPOD_API_KEY: z.string().optional(),
     RUNPOD_ENDPOINT_ID: z.string().optional(),
 
@@ -95,7 +99,13 @@ const envSchema = z
       if (data.IMAGE_INFERENCE_PROVIDER === 'runpod') {
         return !!(data.RUNPOD_API_KEY && data.RUNPOD_ENDPOINT_ID);
       }
-      if (data.EMBEDDING_PROVIDER === 'openai' && !data.OPENAI_API_KEY) {
+      const currentModel = getVersionConfig(
+        getCurrentAnalysisVersion(),
+      ).embeddingModel;
+      if (currentModel === 'openai-3-small' && !data.OPENAI_API_KEY) {
+        return false;
+      }
+      if (currentModel === 'voyage-4-lite' && !data.VOYAGE_API_KEY) {
         return false;
       }
       return true;

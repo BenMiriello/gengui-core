@@ -1,228 +1,601 @@
 /**
- * Global Merge Review Pass
+ * Merge Signal Disambiguation Pass
  *
- * After extraction completes, this module reviews all accumulated merge signals
- * and performs a final LLM pass to catch cross-segment aliases that were missed
- * during incremental extraction.
+ * After Stage 3 extraction completes, accumulated merge signals are reviewed here.
+ * Signals where the LLM was uncertain whether an extracted entity matches an existing
+ * registry entity are grouped, classified, and acted on:
  *
- * This is the second phase of LLM-first merge detection:
- * 1. Stage 2: Per-segment extraction with merge detection
- * 2. Post-extraction: Global review of uncertain merges
+ *   high-confidence (3+ independent segments agree): auto-merge logged, queued for execution
+ *   medium-confidence: LLM disambiguation call with both entities' facets and evidence
+ *   uncertain LLM result: routed to review queue as merge_suggestion
+ *   low-confidence: skipped (not worth LLM cost)
+ *
+ * True graph merges (moving mentions + facets) are not yet implemented in graph.service.
+ * High-confidence decisions are recorded in MergeAction with applied=false until that
+ * infrastructure exists.
  */
 
-import { cpuPool } from '../../lib/cpu-pool';
 import { logger } from '../../utils/logger';
-import { graphService } from '../graph/graph.service';
-import { mentionService } from '../mentions';
+import { trackedAI } from '../ai';
+import type { MergeSignal } from '../gemini/client';
+import { GeminiType, getGeminiClient } from '../gemini/core';
 
-export interface MergeReviewInput {
-  documentId: string;
-  userId: string;
-  entityIdByName: Map<string, string>;
-  mergeSignals: MergeSignalWithContext[];
-  entityRegistry: EntityForReview[];
-}
+// ─── Public types ────────────────────────────────────────────────────────────
 
-export interface MergeSignalWithContext {
-  extractedEntityName: string;
-  registryIndex: number;
-  confidence: 'high' | 'medium' | 'low';
-  evidence: string;
+export interface AccumulatedMergeSignalWithContext extends MergeSignal {
   segmentIndex: number;
   extractedEntityId?: string;
 }
 
-export interface EntityForReview {
+export interface MergeDisambiguationInput {
+  documentId: string;
+  userId: string;
+  /** All signals accumulated during Stage 3 */
+  mergeSignals: AccumulatedMergeSignalWithContext[];
+  /** Maps entity name → entity ID, built during Stage 3 */
+  entityIdByName: Map<string, string>;
+  /** Maps entity ID → runtime registry entry (name, facets, aliases, etc.) */
+  entityRegistryById: Map<string, RuntimeEntitySummary>;
+}
+
+export interface RuntimeEntitySummary {
   id: string;
   name: string;
   type: string;
   aliases: string[];
   facets: Array<{ type: string; content: string }>;
   mentionCount: number;
-  embedding?: number[];
 }
 
-export interface MergeReviewResult {
-  reviewedCount: number;
-  autoMerged: number;
-  deferredForUserReview: number;
-  noActionNeeded: number;
-  mergeActions: MergeAction[];
+export interface MergeDisambiguationResult {
+  signalCount: number;
+  groupCount: number;
+  autoMergeQueued: number;
+  llmDisambiguated: number;
+  routedToReviewQueue: number;
+  skipped: number;
+  actions: MergeAction[];
 }
 
 export interface MergeAction {
   sourceEntityId: string;
+  sourceEntityName: string;
   targetEntityId: string;
+  targetEntityName: string;
+  decision: 'auto_merge' | 'keep_separate' | 'review_queue' | 'skipped';
   confidence: 'high' | 'medium' | 'low';
+  segmentCount: number;
   reason: string;
+  /** False until graph merge infrastructure (move mentions + facets) is implemented */
   applied: boolean;
 }
 
-/**
- * Find potential merge candidates using embedding similarity.
- * Returns entity pairs with high similarity that might be the same entity.
- * Runs in worker thread to prevent blocking event loop.
- */
-export async function findMergeCandidates(
-  entities: EntityForReview[],
-  similarityThreshold = 0.85,
-): Promise<
-  Array<{
-    entity1: EntityForReview;
-    entity2: EntityForReview;
-    similarity: number;
-  }>
-> {
-  const embeddings = entities.map((e) => e.embedding || null);
-  const types = entities.map((e) => e.type);
+// ─── LLM response schema ─────────────────────────────────────────────────────
 
-  const candidates = await cpuPool.findMergeCandidates(
-    embeddings,
-    types,
-    similarityThreshold,
-  );
-
-  return candidates.map((c) => ({
-    entity1: entities[c.index1],
-    entity2: entities[c.index2],
-    similarity: c.similarity,
-  }));
+interface LLMDisambiguationResponse {
+  decision: 'merge' | 'keep_separate' | 'uncertain';
+  confidence: 'high' | 'medium' | 'low';
+  reasoning: string;
 }
 
-/**
- * Process accumulated merge signals from extraction.
- * Applies high-confidence merges automatically, defers medium/low for review.
- */
-export async function processMergeSignals(
-  input: MergeReviewInput,
-): Promise<MergeReviewResult> {
-  const { mergeSignals, entityRegistry, entityIdByName } = input;
+const disambiguationSchema = {
+  type: GeminiType.OBJECT,
+  properties: {
+    decision: {
+      type: GeminiType.STRING,
+      enum: ['merge', 'keep_separate', 'uncertain'],
+      description:
+        'merge = they are the same entity; keep_separate = distinct entities; uncertain = cannot determine',
+    },
+    confidence: {
+      type: GeminiType.STRING,
+      enum: ['high', 'medium', 'low'],
+    },
+    reasoning: {
+      type: GeminiType.STRING,
+      description: 'One sentence explaining the decision',
+    },
+  },
+  required: ['decision', 'confidence', 'reasoning'],
+};
 
-  const result: MergeReviewResult = {
-    reviewedCount: mergeSignals.length,
-    autoMerged: 0,
-    deferredForUserReview: 0,
-    noActionNeeded: 0,
-    mergeActions: [],
+// ─── Main entry point ────────────────────────────────────────────────────────
+
+/**
+ * Run the merge signal disambiguation pass at the end of Stage 4.
+ *
+ * Call this after all entity creation is complete so that entity IDs are stable.
+ */
+export async function disambiguateMergeSignals(
+  input: MergeDisambiguationInput,
+): Promise<MergeDisambiguationResult> {
+  const {
+    documentId,
+    userId,
+    mergeSignals,
+    entityIdByName,
+    entityRegistryById,
+  } = input;
+
+  const result: MergeDisambiguationResult = {
+    signalCount: mergeSignals.length,
+    groupCount: 0,
+    autoMergeQueued: 0,
+    llmDisambiguated: 0,
+    routedToReviewQueue: 0,
+    skipped: 0,
+    actions: [],
   };
 
   if (mergeSignals.length === 0) {
-    logger.info({ documentId: input.documentId }, 'No merge signals to review');
+    logger.info({ documentId }, 'No merge signals to disambiguate');
     return result;
   }
 
-  // Group signals by target entity
-  const signalsByTarget = new Map<number, MergeSignalWithContext[]>();
-  for (const signal of mergeSignals) {
-    const existing = signalsByTarget.get(signal.registryIndex) || [];
-    existing.push(signal);
-    signalsByTarget.set(signal.registryIndex, existing);
-  }
+  // Group signals by (extractedEntityName, registryName) pair so multiple segment
+  // attestations of the same potential merge are counted together.
+  const groups = groupSignals(mergeSignals);
+  result.groupCount = groups.size;
 
-  for (const [registryIndex, signals] of signalsByTarget) {
-    const targetEntity = entityRegistry[registryIndex];
-    if (!targetEntity) {
-      logger.warn({ registryIndex }, 'Invalid registry index in merge signal');
-      continue;
-    }
+  logger.info(
+    { documentId, signalCount: mergeSignals.length, groupCount: groups.size },
+    'Disambiguating merge signals',
+  );
 
-    for (const signal of signals) {
-      const sourceEntityId = entityIdByName.get(signal.extractedEntityName);
-      if (!sourceEntityId) {
-        result.noActionNeeded++;
-        continue;
-      }
+  for (const [_key, group] of groups) {
+    const action = await processSignalGroup(group, {
+      documentId,
+      userId,
+      entityIdByName,
+      entityRegistryById,
+    });
 
-      // Skip if already merged (same ID)
-      if (sourceEntityId === targetEntity.id) {
-        result.noActionNeeded++;
-        continue;
-      }
+    if (!action) continue;
 
-      const action: MergeAction = {
-        sourceEntityId,
-        targetEntityId: targetEntity.id,
-        confidence: signal.confidence,
-        reason: signal.evidence,
-        applied: false,
-      };
+    result.actions.push(action);
 
-      if (signal.confidence === 'high') {
-        // Auto-apply high confidence merges
-        // In future: actually merge the entities
-        logger.info(
-          {
-            sourceId: sourceEntityId,
-            sourceName: signal.extractedEntityName,
-            targetId: targetEntity.id,
-            targetName: targetEntity.name,
-            evidence: signal.evidence,
-          },
-          'High confidence merge detected (auto-merge deferred for future implementation)',
-        );
-        action.applied = false; // Will be true when merge is implemented
-        result.autoMerged++;
-      } else {
-        // Defer medium/low confidence for user review
-        logger.info(
-          {
-            sourceId: sourceEntityId,
-            sourceName: signal.extractedEntityName,
-            targetId: targetEntity.id,
-            targetName: targetEntity.name,
-            confidence: signal.confidence,
-            evidence: signal.evidence,
-          },
-          'Merge candidate deferred for user review',
-        );
-        result.deferredForUserReview++;
-      }
-
-      result.mergeActions.push(action);
+    switch (action.decision) {
+      case 'auto_merge':
+        result.autoMergeQueued++;
+        break;
+      case 'review_queue':
+        result.routedToReviewQueue++;
+        break;
+      case 'keep_separate':
+        result.llmDisambiguated++;
+        break;
+      case 'skipped':
+        result.skipped++;
+        break;
     }
   }
 
   logger.info(
     {
-      documentId: input.documentId,
-      reviewedCount: result.reviewedCount,
-      autoMerged: result.autoMerged,
-      deferredForUserReview: result.deferredForUserReview,
-      noActionNeeded: result.noActionNeeded,
+      documentId,
+      ...result,
+      actions: undefined, // omit verbose array from summary log
     },
-    'Merge review complete',
+    'Merge disambiguation complete',
   );
 
   return result;
 }
 
-/**
- * Build entity registry for merge review from graph.
- */
-export async function buildReviewRegistry(
-  documentId: string,
-  userId: string,
-): Promise<EntityForReview[]> {
-  const nodes = await graphService.getStoryNodesForDocument(documentId, userId);
-  const registry: EntityForReview[] = [];
+// ─── Grouping ─────────────────────────────────────────────────────────────────
 
-  for (const node of nodes) {
-    const [facets, mentionCount, embedding] = await Promise.all([
-      graphService.getFacetsForEntity(node.id),
-      mentionService.getMentionCount(node.id),
-      graphService.getNodeEmbedding(node.id),
-    ]);
+interface SignalGroup {
+  extractedEntityName: string;
+  registryName: string;
+  registryType: string;
+  signals: AccumulatedMergeSignalWithContext[];
+  /** Number of distinct segment indices that produced this signal pair */
+  segmentCount: number;
+  /** Highest confidence level seen across all signals in this group */
+  maxConfidence: 'high' | 'medium' | 'low';
+}
 
-    registry.push({
-      id: node.id,
-      name: node.name,
-      type: node.type,
-      aliases: node.aliases || [],
-      facets: facets.map((f) => ({ type: f.type, content: f.content })),
-      mentionCount,
-      embedding: embedding || undefined,
-    });
+function groupSignals(
+  signals: AccumulatedMergeSignalWithContext[],
+): Map<string, SignalGroup> {
+  const groups = new Map<string, SignalGroup>();
+
+  for (const signal of signals) {
+    const key = `${signal.extractedEntityName.toLowerCase()}||${signal.registryName.toLowerCase()}`;
+    const existing = groups.get(key);
+
+    if (existing) {
+      existing.signals.push(signal);
+      existing.segmentCount = new Set(
+        existing.signals.map((s) => s.segmentIndex),
+      ).size;
+      existing.maxConfidence = higherConfidence(
+        existing.maxConfidence,
+        signal.confidence,
+      );
+    } else {
+      groups.set(key, {
+        extractedEntityName: signal.extractedEntityName,
+        registryName: signal.registryName,
+        registryType: signal.registryType,
+        signals: [signal],
+        segmentCount: 1,
+        maxConfidence: signal.confidence,
+      });
+    }
   }
 
-  return registry;
+  return groups;
+}
+
+function higherConfidence(
+  a: 'high' | 'medium' | 'low',
+  b: 'high' | 'medium' | 'low',
+): 'high' | 'medium' | 'low' {
+  const rank = { high: 2, medium: 1, low: 0 };
+  return rank[a] >= rank[b] ? a : b;
+}
+
+// ─── Per-group processing ────────────────────────────────────────────────────
+
+async function processSignalGroup(
+  group: SignalGroup,
+  context: {
+    documentId: string;
+    userId: string;
+    entityIdByName: Map<string, string>;
+    entityRegistryById: Map<string, RuntimeEntitySummary>;
+  },
+): Promise<MergeAction | null> {
+  const { documentId, userId, entityIdByName, entityRegistryById } = context;
+
+  const sourceEntityId = entityIdByName.get(group.extractedEntityName);
+  // registryName belongs to an entity that was in the registry when the signal fired.
+  // It may be under the exact name or an alias — try both.
+  const targetEntityId =
+    entityIdByName.get(group.registryName) ??
+    findByRegistryName(group.registryName, entityRegistryById);
+
+  if (!sourceEntityId || !targetEntityId) {
+    logger.debug(
+      {
+        extractedEntityName: group.extractedEntityName,
+        registryName: group.registryName,
+        hasSource: !!sourceEntityId,
+        hasTarget: !!targetEntityId,
+      },
+      'Skipping merge signal — entity ID not resolvable',
+    );
+    return null;
+  }
+
+  if (sourceEntityId === targetEntityId) {
+    // Already merged during extraction
+    return null;
+  }
+
+  const baseAction: Omit<MergeAction, 'decision' | 'reason' | 'applied'> = {
+    sourceEntityId,
+    sourceEntityName: group.extractedEntityName,
+    targetEntityId,
+    targetEntityName: group.registryName,
+    confidence: group.maxConfidence,
+    segmentCount: group.segmentCount,
+  };
+
+  // Low-confidence signals are not worth LLM cost — skip them.
+  if (group.maxConfidence === 'low') {
+    logger.debug(
+      { sourceEntityId, targetEntityId },
+      'Skipping low-confidence merge signal',
+    );
+    return {
+      ...baseAction,
+      decision: 'skipped',
+      reason: 'low confidence',
+      applied: false,
+    };
+  }
+
+  // High-confidence with 3+ segment attestations: auto-merge.
+  if (group.maxConfidence === 'high' && group.segmentCount >= 3) {
+    logger.info(
+      {
+        sourceEntityId,
+        sourceEntityName: group.extractedEntityName,
+        targetEntityId,
+        targetEntityName: group.registryName,
+        segmentCount: group.segmentCount,
+      },
+      'Auto-merge queued (high confidence, 3+ segments) — awaiting graph merge infrastructure',
+    );
+    return {
+      ...baseAction,
+      decision: 'auto_merge',
+      reason: `${group.segmentCount} independent segments agree with high confidence`,
+      applied: false,
+    };
+  }
+
+  // Medium-confidence or high-confidence with <3 segments: run LLM disambiguation.
+  return await runLLMDisambiguation(group, baseAction, {
+    documentId,
+    userId,
+    entityRegistryById,
+  });
+}
+
+function findByRegistryName(
+  name: string,
+  registryById: Map<string, RuntimeEntitySummary>,
+): string | undefined {
+  const normalized = name.toLowerCase().trim();
+  for (const entry of registryById.values()) {
+    if (
+      entry.name.toLowerCase().trim() === normalized ||
+      entry.aliases.some((a) => a.toLowerCase().trim() === normalized)
+    ) {
+      return entry.id;
+    }
+  }
+  return undefined;
+}
+
+// ─── LLM disambiguation ───────────────────────────────────────────────────────
+
+async function runLLMDisambiguation(
+  group: SignalGroup,
+  baseAction: Omit<MergeAction, 'decision' | 'reason' | 'applied'>,
+  context: {
+    documentId: string;
+    userId: string;
+    entityRegistryById: Map<string, RuntimeEntitySummary>;
+  },
+): Promise<MergeAction> {
+  const { documentId, userId, entityRegistryById } = context;
+
+  const sourceEntity = entityRegistryById.get(baseAction.sourceEntityId);
+  const targetEntity = entityRegistryById.get(baseAction.targetEntityId);
+
+  if (!sourceEntity || !targetEntity) {
+    // No facet data to send the LLM — route to review queue.
+    return routeToReviewQueue(
+      baseAction,
+      documentId,
+      'Entity facets not available for disambiguation',
+    );
+  }
+
+  const client = await getGeminiClient();
+  if (!client) {
+    logger.warn(
+      { documentId },
+      'Gemini unavailable — routing merge signal to review queue',
+    );
+    return routeToReviewQueue(baseAction, documentId, 'LLM unavailable');
+  }
+
+  const evidenceTexts = group.signals
+    .map((s) => `[Segment ${s.segmentIndex}] ${s.evidence}`)
+    .join('\n');
+
+  const prompt = buildDisambiguationPrompt(
+    sourceEntity,
+    targetEntity,
+    evidenceTexts,
+  );
+
+  try {
+    const raw = await trackedAI.callLLM({
+      operation: 'disambiguateMergeSignal',
+      model: 'gemini-2.5-flash',
+      userId,
+      documentId,
+      stage: 4,
+      logger,
+      execute: async () =>
+        client.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json',
+            responseJsonSchema: disambiguationSchema,
+            maxOutputTokens: 256,
+            temperature: 0,
+            thinkingConfig: { thinkingBudget: 0 },
+          },
+        }),
+    });
+
+    const text = (raw as { text?: string }).text;
+    if (!text) throw new Error('Empty LLM response');
+
+    const response = JSON.parse(text) as LLMDisambiguationResponse;
+
+    logger.info(
+      {
+        sourceEntityName: baseAction.sourceEntityName,
+        targetEntityName: baseAction.targetEntityName,
+        decision: response.decision,
+        confidence: response.confidence,
+        reasoning: response.reasoning,
+      },
+      'LLM merge disambiguation result',
+    );
+
+    if (response.decision === 'merge') {
+      if (response.confidence === 'high' || response.confidence === 'medium') {
+        return {
+          ...baseAction,
+          decision: 'auto_merge',
+          reason: response.reasoning,
+          applied: false,
+        };
+      }
+      return routeToReviewQueue(baseAction, documentId, response.reasoning);
+    }
+
+    if (response.decision === 'uncertain') {
+      return routeToReviewQueue(baseAction, documentId, response.reasoning);
+    }
+
+    // keep_separate
+    return {
+      ...baseAction,
+      decision: 'keep_separate',
+      reason: response.reasoning,
+      applied: false,
+    };
+  } catch (error) {
+    logger.warn(
+      {
+        error,
+        sourceEntityName: baseAction.sourceEntityName,
+        targetEntityName: baseAction.targetEntityName,
+      },
+      'LLM disambiguation failed — routing to review queue',
+    );
+    return routeToReviewQueue(
+      baseAction,
+      documentId,
+      `LLM call failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+function buildDisambiguationPrompt(
+  source: RuntimeEntitySummary,
+  target: RuntimeEntitySummary,
+  evidenceTexts: string,
+): string {
+  const formatEntity = (e: RuntimeEntitySummary) => {
+    const facetLines = e.facets
+      .map((f) => `  ${f.type}: ${f.content}`)
+      .join('\n');
+    const aliases = e.aliases.length > 0 ? e.aliases.join(', ') : 'none';
+    return `Name: ${e.name}\nType: ${e.type}\nAliases: ${aliases}\nFacets:\n${facetLines}`;
+  };
+
+  return `You are disambiguating two entities extracted from a document to determine if they refer to the same real-world entity.
+
+ENTITY A (newly extracted):
+${formatEntity(source)}
+
+ENTITY B (existing in knowledge graph):
+${formatEntity(target)}
+
+EVIDENCE (text passages where A and B were flagged as potential matches):
+${evidenceTexts}
+
+Decide: are these the same entity ("merge"), definitively different ("keep_separate"), or too ambiguous to decide automatically ("uncertain")?
+
+Return JSON with decision, confidence, and one-sentence reasoning.`;
+}
+
+// ─── Review queue routing ─────────────────────────────────────────────────────
+
+async function routeToReviewQueue(
+  baseAction: Omit<MergeAction, 'decision' | 'reason' | 'applied'>,
+  documentId: string,
+  reason: string,
+): Promise<MergeAction> {
+  // Import lazily to avoid circular dependency and to respect the TODO comment
+  // in pipeline.ts (review queue UI not yet built).
+  try {
+    const { reviewQueueService } = await import('../reviewQueue/index.js');
+    await reviewQueueService.add({
+      documentId,
+      itemType: 'merge_suggestion',
+      primaryEntityId: baseAction.sourceEntityId,
+      secondaryEntityId: baseAction.targetEntityId,
+      contextSummary: `Possible merge: "${baseAction.sourceEntityName}" may be the same as "${baseAction.targetEntityName}". ${reason}`,
+      similarity:
+        baseAction.confidence === 'high'
+          ? 0.85
+          : baseAction.confidence === 'medium'
+            ? 0.65
+            : 0.45,
+    });
+    logger.info(
+      {
+        sourceEntityId: baseAction.sourceEntityId,
+        targetEntityId: baseAction.targetEntityId,
+        reason,
+      },
+      'Merge signal routed to review queue',
+    );
+  } catch (error) {
+    logger.warn(
+      {
+        error,
+        sourceEntityId: baseAction.sourceEntityId,
+        targetEntityId: baseAction.targetEntityId,
+      },
+      'Failed to route merge signal to review queue — decision logged only',
+    );
+  }
+
+  return {
+    ...baseAction,
+    decision: 'review_queue',
+    reason,
+    applied: false,
+  };
+}
+
+// ─── Registry builder ─────────────────────────────────────────────────────────
+
+/**
+ * Build a RuntimeEntitySummary map from extracted entities and the name→ID map.
+ *
+ * Collapses multiple ExtractedEntity instances for the same entity ID, merging
+ * their facets and summing mention counts. This is the correct source of truth
+ * at Stage 4 time because runtimeRegistry is scoped to Stage 3's block.
+ */
+export function buildEntityRegistrySummary(
+  extractedEntities: Array<{
+    name: string;
+    type: string;
+    facets: Array<{ type: string; content: string }>;
+    mentions: Array<unknown>;
+  }>,
+  entityIdByName: Map<string, string>,
+): Map<string, RuntimeEntitySummary> {
+  const summaryById = new Map<string, RuntimeEntitySummary>();
+
+  for (const entity of extractedEntities) {
+    const id = entityIdByName.get(entity.name);
+    if (!id) continue;
+
+    const existing = summaryById.get(id);
+    if (existing) {
+      existing.mentionCount += entity.mentions.length;
+      for (const facet of entity.facets) {
+        const key = `${facet.type}:${facet.content}`;
+        if (!existing.facets.some((f) => `${f.type}:${f.content}` === key)) {
+          existing.facets.push(facet);
+        }
+      }
+      if (
+        entity.name !== existing.name &&
+        !existing.aliases.includes(entity.name)
+      ) {
+        existing.aliases.push(entity.name);
+      }
+    } else {
+      summaryById.set(id, {
+        id,
+        name: entity.name,
+        type: entity.type,
+        aliases: [],
+        facets: entity.facets.map((f) => ({
+          type: f.type,
+          content: f.content,
+        })),
+        mentionCount: entity.mentions.length,
+      });
+    }
+  }
+
+  return summaryById;
 }

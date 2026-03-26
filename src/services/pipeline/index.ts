@@ -18,4 +18,4 @@ export {
   type PipelineProgressInfo,
   type PipelineResult,
 } from './pipeline';
-export { type AnalysisStage, STAGE_LABELS } from './stages';
+export type { AnalysisStage } from './stages';

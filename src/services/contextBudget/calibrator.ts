@@ -96,39 +96,24 @@ export class BatchCalibrator {
       );
     }
 
-    const recentBatches = this.history.slice(-20);
+    const charsPerToken = 3.3;
+    const recentBatches = this.history
+      .slice(-20)
+      .filter((b) => !b.hitMaxTokens && b.actualOutputTokens > 0);
 
-    const actualCharsPerEntity = this.calculateWeightedAverage(
-      recentBatches
-        .filter((b) => b.actualEntities > 0)
-        .map((b) => b.totalInputChars / b.actualEntities),
+    if (recentBatches.length === 0) {
+      return (
+        this.formulaBasedEstimate(totalInputChars) * this.conservativeMultiplier
+      );
+    }
+
+    const actualRatios = recentBatches.map(
+      (b) => b.actualOutputTokens / (b.totalInputChars / charsPerToken),
     );
+    const weightedRatio = this.calculateWeightedAverage(actualRatios);
 
-    const actualFacetsPerEntity = this.calculateWeightedAverage(
-      recentBatches
-        .filter((b) => b.actualEntities > 0)
-        .map((b) => b.actualFacets / b.actualEntities),
-    );
-
-    const actualMentionsPerEntity = this.calculateWeightedAverage(
-      recentBatches
-        .filter((b) => b.actualEntities > 0)
-        .map((b) => b.actualMentions / b.actualEntities),
-    );
-
-    const estimatedEntities = Math.ceil(totalInputChars / actualCharsPerEntity);
-    const tokensPerEntity = 150;
-    const tokensPerFacet = 80;
-    const tokensPerMention = 45;
-
-    const baseEstimate =
-      estimatedEntities * tokensPerEntity +
-      estimatedEntities * actualFacetsPerEntity * tokensPerFacet +
-      estimatedEntities * actualMentionsPerEntity * tokensPerMention;
-
-    const withOverhead = baseEstimate * 1.3 * 1.15;
-
-    return Math.ceil(withOverhead * this.conservativeMultiplier);
+    const inputTokens = totalInputChars / charsPerToken;
+    return Math.ceil(inputTokens * weightedRatio * this.conservativeMultiplier);
   }
 
   private calculateWeightedAverage(values: number[]): number {

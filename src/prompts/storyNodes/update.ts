@@ -65,10 +65,10 @@ Return a JSON object with:
   Edge types:
   - Layer 2: CAUSES, ENABLES, PREVENTS, HAPPENS_BEFORE (use HAPPENS_BEFORE only for flashbacks/time jumps/parallel storylines - not for sequential events or events already causally connected)
   - Layer 3: PARTICIPATES_IN (agent in event), LOCATED_AT (at location), PART_OF (meronymy), MEMBER_OF (group membership), POSSESSES (ownership), CONNECTED_TO (social ties, replaces KNOWS), OPPOSES (conflict), ABOUT (entity to concept)
-  - Fallback: RELATED_TO (use sparingly)
+  - Fallback: RELATED_TO (when no specific type fits)
 - narrativeThreads: Array of {name, isPrimary, eventNames} for any new or changed narrative threads
 
 For aliases: For characters, locations, and objects only - provide specific alternate names, nicknames, or titles (e.g., "Rikki", "the hunter", "NYC"). Do NOT include generic pronouns (he/she/it/they). Leave empty for events and concepts.
-For mentions: Use short EXACT VERBATIM quotes (3-15 words) that define the element. Do not paraphrase or use ellipsis.`;
+For mentions: exact verbatim phrases from the text. Use the shortest phrase that captures the reference. Do not paraphrase or use ellipsis.`;
   },
 };

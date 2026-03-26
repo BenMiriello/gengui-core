@@ -9,9 +9,7 @@
  * Stage 6: Cross-Segment Relationships (LLM, sequential)
  * Stage 7: Higher-Order Analysis (LLM + algorithmic)
  * Stage 8: CharacterState Facet Attachment (algorithmic)
- * Stage 9: Conflict Detection (algorithmic)
- *
- * Note: Stage 4 (Text Grounding) was removed as it was a no-op placeholder.
+ * Stage 9: Conflict Detection (LLM batch analysis)
  */
 
 export type AnalysisStage = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
@@ -97,58 +95,4 @@ export const TOTAL_STAGES = ANALYSIS_STAGES.length;
 
 export function getStageInfo(stage: AnalysisStage): StageInfo | undefined {
   return ANALYSIS_STAGES.find((s) => s.number === stage);
-}
-
-/**
- * @deprecated Use getStageInfo instead
- */
-export const STAGE_LABELS: Record<
-  AnalysisStage,
-  { generic: string; technical: string }
-> = {
-  1: {
-    generic: 'Reading through document...',
-    technical: 'Stage 1: Segmentation + Sentence Embeddings',
-  },
-  2: {
-    generic: 'Summarizing segments...',
-    technical: 'Stage 2: Segment Summarization',
-  },
-  3: {
-    generic: 'Identifying characters, places, and ideas...',
-    technical: 'Stage 3: Entity + Facet Extraction',
-  },
-  4: {
-    generic: 'Connecting aliases and resolving identities...',
-    technical: 'Stage 4: Entity Resolution',
-  },
-  5: {
-    generic: 'Mapping connections...',
-    technical: 'Stage 5: Intra-Segment Relationships',
-  },
-  6: {
-    generic: 'Finding connections across the story...',
-    technical: 'Stage 6: Cross-Segment Relationships',
-  },
-  7: {
-    generic: 'Finding narrative arcs and themes...',
-    technical: 'Stage 7: Higher-Order Analysis',
-  },
-  8: {
-    generic: 'Organizing character states...',
-    technical: 'Stage 8: CharacterState Facet Attachment',
-  },
-  9: {
-    generic: 'Checking for inconsistencies...',
-    technical: 'Stage 9: Conflict Detection',
-  },
-};
-
-/**
- * @deprecated Use getStageInfo instead
- */
-export function getStageLabel(stage: AnalysisStage, technical = false): string {
-  return technical
-    ? STAGE_LABELS[stage].technical
-    : STAGE_LABELS[stage].generic;
 }
