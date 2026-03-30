@@ -859,6 +859,16 @@ export const contactSubmissions = pgTable(
   ],
 );
 
+export const earlyAccessSignups = pgTable('early_access_signups', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  email: varchar('email', { length: 255 }).notNull(),
+  ipAddress: varchar('ip_address', { length: 45 }),
+  userAgent: text('user_agent'),
+  createdAt: timestamp('created_at', { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 export const pricingAuditLog = pgTable(
   'pricing_audit_log',
   {

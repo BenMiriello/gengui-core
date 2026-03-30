@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/node';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express from 'express';
@@ -13,6 +14,7 @@ import conflictsRoutes from './routes/conflicts';
 import contactRoutes from './routes/contact';
 import customStylePromptsRoutes from './routes/customStylePrompts';
 import documentsRoutes from './routes/documents';
+import earlyAccessRoutes from './routes/earlyAccess';
 import { exportRouter } from './routes/export';
 import generationsRoutes from './routes/generations';
 import googleDriveRoutes from './routes/google-drive';
@@ -33,7 +35,7 @@ export function createApp() {
           scriptSrc: ["'self'", "'unsafe-inline'"],
           styleSrc: ["'self'", "'unsafe-inline'"],
           imgSrc: ["'self'", 'data:', 'blob:', 'http:', 'https:'],
-          upgradeInsecureRequests: null,
+          upgradeInsecureRequests: env.NODE_ENV === 'production' ? [] : null,
         },
       },
     }),
@@ -56,26 +58,26 @@ export function createApp() {
   // Large document support - default 100KB is too small for narrative documents
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-  app.use(cookieParser(process.env.COOKIE_SECRET || 'dev-secret'));
+  app.use(cookieParser(env.COOKIE_SECRET || 'dev-secret'));
   app.use(passport.initialize());
 
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok' });
   });
 
-  app.get('/health/config', (_req, res) => {
-    res.json({
-      geminiConfigured: !!process.env.GEMINI_API_KEY,
-      redisConfigured: !!process.env.REDIS_URL,
-      s3Configured: !!(
-        process.env.AWS_ACCESS_KEY_ID || process.env.MINIO_ACCESS_KEY
-      ),
-      s3Bucket: process.env.S3_BUCKET || process.env.MINIO_BUCKET || 'media',
-      frontendUrl: process.env.FRONTEND_URL || 'not set',
-      nodeEnv: process.env.NODE_ENV,
-      imageProvider: process.env.IMAGE_INFERENCE_PROVIDER || 'gemini',
+  if (env.NODE_ENV !== 'production') {
+    app.get('/health/config', (_req, res) => {
+      res.json({
+        geminiConfigured: !!env.GEMINI_API_KEY,
+        redisConfigured: !!process.env.REDIS_URL,
+        s3Configured: !!(process.env.AWS_ACCESS_KEY_ID || env.MINIO_ACCESS_KEY),
+        s3Bucket: process.env.S3_BUCKET || env.MINIO_BUCKET,
+        frontendUrl: env.FRONTEND_URL,
+        nodeEnv: env.NODE_ENV,
+        imageProvider: env.IMAGE_INFERENCE_PROVIDER,
+      });
     });
-  });
+  }
 
   // Request logging with requestId correlation
   app.use((req, res, next) => {
@@ -93,6 +95,7 @@ export function createApp() {
   app.use('/api', authRoutes);
   app.use('/api', conflictsRoutes);
   app.use('/api', contactRoutes);
+  app.use('/api', earlyAccessRoutes);
   app.use('/api/media', mediaRoutes);
   app.use('/api/generations', generationsRoutes);
   app.use('/api', tagRoutes);
@@ -105,6 +108,7 @@ export function createApp() {
   app.use('/api', activitiesRouter);
   app.use('', sseRouter); // Unified SSE endpoints at /sse/*
 
+  Sentry.setupExpressErrorHandler(app);
   app.use(errorHandler);
 
   return app;

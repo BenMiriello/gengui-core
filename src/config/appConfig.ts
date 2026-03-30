@@ -1,1 +1,1 @@
-export const APP_NAME = 'Pensive';
+export const APP_NAME = 'Noetic';

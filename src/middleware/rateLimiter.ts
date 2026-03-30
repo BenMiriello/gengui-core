@@ -56,3 +56,17 @@ export const emailVerificationRateLimiter = rateLimit({
     });
   },
 });
+
+export const earlyAccessRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: process.env.NODE_ENV === 'development' ? 100 : 3,
+  message: 'Too many early access requests, please try again later',
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    logger.warn({ ip: req.ip }, 'Early access rate limit exceeded');
+    res.status(429).json({
+      error: 'Too many early access requests, please try again later',
+    });
+  },
+});
