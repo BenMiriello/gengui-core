@@ -1,7 +1,10 @@
+import './lib/sentry';
+import type http from 'node:http';
+import * as Sentry from '@sentry/node';
 import blocked from 'blocked-at';
 import type { ScheduledTask } from 'node-cron';
 import { createApp } from './app';
-import { closeDatabase } from './config/database';
+import { closeDatabase, testConnection } from './config/database';
 import { env } from './config/env';
 import { startCleanupActivitiesJob } from './jobs/cleanupActivities';
 import { startCleanupReservationsJob } from './jobs/cleanupReservations';
@@ -9,6 +12,7 @@ import { startCleanupJob } from './jobs/cleanupSoftDeleted';
 import { startJobWorkers, stopJobWorkers } from './jobs/index';
 import { startReconciliationJob } from './jobs/reconcileGenerations';
 import { cpuPool } from './lib/cpu-pool';
+import { analytics } from './services/analytics';
 import { graphService } from './services/graph/graph.service';
 import { puppeteerPool } from './services/puppeteerPool';
 import { redis } from './services/redis';
@@ -28,26 +32,48 @@ blocked(
 
 const app = createApp();
 
+let server: http.Server;
 let reconciliationTask: ScheduledTask;
 let cleanupTask: ScheduledTask;
 let cleanupReservationsTask: { stop: () => void };
 let cleanupActivitiesTask: ScheduledTask;
 
-const server = app.listen(env.PORT, '0.0.0.0', async () => {
-  logger.info(`Server running on port ${env.PORT} in ${env.NODE_ENV} mode`);
-
-  try {
-    await jobReconciliationService.start();
-    await startJobWorkers();
-    reconciliationTask = startReconciliationJob();
-    cleanupTask = startCleanupJob();
-    cleanupReservationsTask = startCleanupReservationsJob();
-    cleanupActivitiesTask = startCleanupActivitiesJob();
-    await graphService.initializeIndexes();
-  } catch (error) {
-    logger.error({ error }, 'Failed to start generation services');
+async function verifyDatabase() {
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    if (attempt > 1) {
+      logger.warn(`Database connection attempt ${attempt}/3...`);
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+    const ok = await testConnection();
+    if (ok) return;
   }
-});
+  if (env.NODE_ENV === 'production') {
+    logger.error('Database connection failed after 3 attempts, exiting');
+    process.exit(1);
+  }
+}
+
+async function start() {
+  await verifyDatabase();
+
+  server = app.listen(env.PORT, '0.0.0.0', async () => {
+    logger.info(`Server running on port ${env.PORT} in ${env.NODE_ENV} mode`);
+
+    try {
+      await jobReconciliationService.start();
+      await startJobWorkers();
+      reconciliationTask = startReconciliationJob();
+      cleanupTask = startCleanupJob();
+      cleanupReservationsTask = startCleanupReservationsJob();
+      cleanupActivitiesTask = startCleanupActivitiesJob();
+      await graphService.initializeIndexes();
+    } catch (error) {
+      logger.error({ error }, 'Failed to start generation services');
+    }
+  });
+}
+
+start();
 
 let isShuttingDown = false;
 
@@ -83,7 +109,11 @@ const shutdown = async (signal: string) => {
 
     await graphService.disconnect();
 
+    await analytics.shutdown();
+
     await closeDatabase();
+
+    await Sentry.flush(2000);
 
     await new Promise<void>((resolve) => {
       const closeTimeout = setTimeout(() => {

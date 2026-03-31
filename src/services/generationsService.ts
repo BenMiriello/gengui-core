@@ -13,15 +13,15 @@ import { NotFoundError } from '../utils/errors';
 import { logger } from '../utils/logger';
 import { activityService } from './activity.service';
 import { graphService } from './graph/graph.service';
-import { getImageProvider } from './image-generation/factory';
+import {
+  getImageProvider,
+  getReferenceImageProvider,
+} from './image-generation/factory';
 import { mentionService } from './mentions/mention.service';
+import { fetchEntityReferenceData } from './prompt-augmentation/entityReferences';
+import type { EntityReferences } from './prompt-augmentation/promptBuilder';
 import { redis } from './redis';
 import { runpodClient } from './runpod/client';
-
-export interface CharacterReferences {
-  mode: 'auto' | 'manual';
-  selectedNodeIds?: string[];
-}
 
 export interface PromptEnhancement {
   enabled: boolean;
@@ -31,7 +31,7 @@ export interface PromptEnhancement {
   sceneTreatment: 'comprehensive' | 'focused' | 'selective-detail';
   selectiveDetailFocus?: string;
   strength: 'low' | 'medium' | 'high';
-  characterReferences?: CharacterReferences;
+  entityReferences?: EntityReferences;
 }
 
 export interface GenerationRequest {
@@ -39,6 +39,8 @@ export interface GenerationRequest {
   seed?: number;
   width?: number;
   height?: number;
+  negativePrompt?: string | null;
+  guidanceScale?: number;
   documentId?: string;
   startChar?: number;
   endChar?: number;
@@ -81,17 +83,17 @@ export class GenerationsService {
     let stylePreset: string | null = null;
     let stylePrompt: string | null = null;
 
-    if (request.documentId) {
-      const [document] = await db
-        .select()
-        .from(documents)
-        .where(eq(documents.id, request.documentId))
-        .limit(1);
+    const [document] = request.documentId
+      ? await db
+          .select()
+          .from(documents)
+          .where(eq(documents.id, request.documentId))
+          .limit(1)
+      : [];
 
-      if (document) {
-        stylePreset = document.defaultStylePreset;
-        stylePrompt = document.defaultStylePrompt;
-      }
+    if (document) {
+      stylePreset = document.defaultStylePreset;
+      stylePrompt = document.defaultStylePrompt;
     }
 
     // Determine initial status based on whether augmentation is enabled
@@ -102,7 +104,7 @@ export class GenerationsService {
     // Build entity context from character references and text mentions
     let entityContext: EntityContext | undefined;
     const selectedNodeIds =
-      request.promptEnhancement?.characterReferences?.selectedNodeIds;
+      request.promptEnhancement?.entityReferences?.selectedNodeIds;
 
     if (selectedNodeIds?.length || request.documentId) {
       const featured: FeaturedEntity[] = [];
@@ -192,12 +194,6 @@ export class GenerationsService {
         request.startChar !== undefined &&
         request.endChar !== undefined
       ) {
-        const [document] = await db
-          .select()
-          .from(documents)
-          .where(eq(documents.id, request.documentId))
-          .limit(1);
-
         if (document) {
           const CONTEXT_LENGTH = 50;
           const content = document.content;
@@ -275,6 +271,8 @@ export class GenerationsService {
             endChar: request.endChar,
             settings: request.promptEnhancement,
             stylePrompt: stylePrompt || '',
+            negativePrompt: request.negativePrompt,
+            guidanceScale: request.guidanceScale,
             seed,
             width,
             height,
@@ -292,16 +290,58 @@ export class GenerationsService {
         await redis.expire(augmentationKey, 172800); // 48h TTL for cleanup
       } else {
         // Direct generation flow (no augmentation)
-        // Submit to configured image generation provider
-        const provider = await getImageProvider();
+        const entityRefs = request.promptEnhancement?.entityReferences;
+        const hasEntityRefs =
+          entityRefs &&
+          (entityRefs.useImages || entityRefs.useDescriptions) &&
+          request.documentId;
+
+        let enrichedPrompt = request.prompt;
+        let referenceImages:
+          | Awaited<ReturnType<typeof fetchEntityReferenceData>>['images']
+          | undefined;
+
+        if (hasEntityRefs && request.documentId) {
+          const entityData = await fetchEntityReferenceData(
+            request.documentId,
+            userId,
+            entityRefs,
+            request.sourceText || request.prompt,
+          );
+
+          if (
+            entityRefs.useDescriptions &&
+            entityData.descriptions.length > 0
+          ) {
+            const descText = entityData.descriptions
+              .map((d) => `${d.name}: ${d.description}`)
+              .join('. ');
+            enrichedPrompt = `${request.prompt}\n\nEntity details: ${descText}`;
+          }
+
+          if (entityRefs.useImages && entityData.images.length > 0) {
+            referenceImages = entityData.images;
+          }
+        }
+
+        const provider = referenceImages?.length
+          ? getReferenceImageProvider()
+          : await getImageProvider();
 
         await provider.submitJob({
           mediaId: newMedia.id,
           userId,
-          prompt: request.prompt,
+          prompt: enrichedPrompt,
           seed,
           width,
           height,
+          referenceImages,
+          ...(request.negativePrompt
+            ? { negativePrompt: request.negativePrompt }
+            : {}),
+          ...(request.guidanceScale !== undefined
+            ? { guidanceScale: request.guidanceScale }
+            : {}),
         });
 
         // Track generation for rate limiting
@@ -393,6 +433,19 @@ export class GenerationsService {
         'Job already finished, cannot cancel',
       );
       throw new Error(`Job already ${job.status}`);
+    }
+
+    // Cancel any pending queue-based jobs (Gemini, etc.)
+    const pendingJobs = await jobService.getJobsForTarget('media', id, [
+      'queued',
+      'processing',
+    ]);
+    for (const pendingJob of pendingJobs) {
+      await jobService.updateStatus(pendingJob.id, 'cancelled');
+      logger.info(
+        { mediaId: id, jobId: pendingJob.id },
+        'Cancelled pending job',
+      );
     }
 
     // RunPod mode: Check status with RunPod API first to avoid race conditions

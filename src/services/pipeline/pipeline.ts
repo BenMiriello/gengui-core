@@ -1419,9 +1419,10 @@ export const multiStagePipeline = {
         // Map to track name facet content -> facetId for linking mentions
         const nameFacetContentToId = new Map<string, string>();
 
+        // Create entity node if new (idempotent — safe for resume)
+        let created = false;
         if (!isExistingEntity) {
-          // Create new entity
-          const { created } = await createTrackedEntity(
+          const result = await createTrackedEntity(
             documentId,
             userId,
             {
@@ -1437,149 +1438,87 @@ export const multiStagePipeline = {
             },
             { batchId: stage4BatchId },
           );
+          created = result.created;
+        }
 
-          if (created) {
-            // Create facets for newly created entity
-            for (const facet of uniqueFacets) {
-              const facetEmbedding = await generateEmbedding(
-                facet.content,
-                versionConfig.embeddingModel,
-              );
-              logger.debug(
-                {
-                  entityId,
-                  facetType: facet.type,
-                  facetContent: facet.content.substring(0, 50),
-                  embeddingDim: facetEmbedding.length,
-                },
-                'Generated facet embedding',
-              );
-              const facetId = await createTrackedFacet(
-                entityId,
-                facet,
-                facetEmbedding,
-                {
-                  batchId: stage4BatchId,
-                  entityName: primaryName,
-                  analysisVersion,
-                },
-              );
-              if (facet.type === 'name') {
-                nameFacetContentToId.set(facet.content.toLowerCase(), facetId);
-              }
-            }
+        // Unified facet creation: fetch existing facets (skip if just created),
+        // then create any missing ones. Handles resume, new, and existing entities.
+        const existingFacets = created
+          ? []
+          : await graphService.getFacetsForEntity(entityId, analysisVersion);
+        const existingFacetKeys = new Set(
+          existingFacets.map((f) => `${f.type}:${f.content}`),
+        );
 
-            // Ensure at least one name facet exists (auto-create from primary name)
-            const hasNameFacet = uniqueFacets.some((f) => f.type === 'name');
-            if (!hasNameFacet) {
-              const nameFacet: FacetInput = {
-                type: 'name',
-                content: primaryName,
-              };
-              const facetEmbedding = await generateEmbedding(
-                nameFacet.content,
-                versionConfig.embeddingModel,
-              );
-              logger.debug(
-                {
-                  entityId,
-                  primaryName,
-                  embeddingDim: facetEmbedding.length,
-                },
-                'Generated name facet embedding (auto-created)',
-              );
-              const autoFacetId = await createTrackedFacet(
-                entityId,
-                nameFacet,
-                facetEmbedding,
-                {
-                  batchId: stage4BatchId,
-                  entityName: primaryName,
-                  analysisVersion,
-                },
-              );
-              nameFacetContentToId.set(
-                nameFacet.content.toLowerCase(),
-                autoFacetId,
-              );
-              logger.debug(
-                { entityId, entityName: primaryName },
-                'Auto-created name facet from primary name',
-              );
-            }
-
-            // Recompute primary name from facets and update node
-            await recomputeAndUpdatePrimaryName(entityId);
-
-            createdEntityIds.add(entityId);
-
-            // Set entity embedding
-            const embedding = embeddingByName.get(primaryName);
-            if (embedding) {
-              await graphService.setNodeEmbedding(
-                entityId,
-                embedding,
-                analysisVersion,
-              );
-            }
+        for (const f of existingFacets) {
+          if (f.type === 'name') {
+            nameFacetContentToId.set(f.content.toLowerCase(), f.id);
           }
-        } else {
-          // Add new facets to existing entity
-          const existingFacets = await graphService.getFacetsForEntity(
+        }
+
+        let addedNameFacet = false;
+        for (const facet of uniqueFacets) {
+          if (existingFacetKeys.has(`${facet.type}:${facet.content}`)) continue;
+          const facetEmbedding = await generateEmbedding(
+            facet.content,
+            versionConfig.embeddingModel,
+          );
+          const facetId = await createTrackedFacet(
             entityId,
-            analysisVersion,
+            facet,
+            facetEmbedding,
+            {
+              batchId: stage4BatchId,
+              entityName: primaryName,
+              analysisVersion,
+            },
           );
-          const existingFacetKeys = new Set(
-            existingFacets.map((f) => `${f.type}:${f.content}`),
+          if (facet.type === 'name') {
+            addedNameFacet = true;
+            nameFacetContentToId.set(facet.content.toLowerCase(), facetId);
+          }
+        }
+
+        // Ensure at least one name facet exists
+        if (nameFacetContentToId.size === 0) {
+          const nameFacet: FacetInput = {
+            type: 'name',
+            content: primaryName,
+          };
+          const facetEmbedding = await generateEmbedding(
+            nameFacet.content,
+            versionConfig.embeddingModel,
           );
+          const autoFacetId = await createTrackedFacet(
+            entityId,
+            nameFacet,
+            facetEmbedding,
+            {
+              batchId: stage4BatchId,
+              entityName: primaryName,
+              analysisVersion,
+            },
+          );
+          nameFacetContentToId.set(
+            nameFacet.content.toLowerCase(),
+            autoFacetId,
+          );
+          addedNameFacet = true;
+        }
 
-          // Add existing name facets to the map for mention linking
-          for (const f of existingFacets) {
-            if (f.type === 'name') {
-              nameFacetContentToId.set(f.content.toLowerCase(), f.id);
-            }
-          }
+        if (created || addedNameFacet) {
+          await recomputeAndUpdatePrimaryName(entityId);
+        }
 
-          let addedNameFacet = false;
-          for (const facet of uniqueFacets) {
-            const key = `${facet.type}:${facet.content}`;
-            if (!existingFacetKeys.has(key)) {
-              const facetEmbedding = await generateEmbedding(
-                facet.content,
-                versionConfig.embeddingModel,
-              );
-              logger.debug(
-                {
-                  entityId,
-                  facetType: facet.type,
-                  facetContent: facet.content.substring(0, 50),
-                  embeddingDim: facetEmbedding.length,
-                },
-                'Generated facet embedding for existing entity',
-              );
-              const newFacetId = await createTrackedFacet(
-                entityId,
-                facet,
-                facetEmbedding,
-                {
-                  batchId: stage4BatchId,
-                  entityName: primaryName,
-                  analysisVersion,
-                },
-              );
-              if (facet.type === 'name') {
-                addedNameFacet = true;
-                nameFacetContentToId.set(
-                  facet.content.toLowerCase(),
-                  newFacetId,
-                );
-              }
-            }
-          }
-
-          // Recompute primary name if any name facets were added
-          if (addedNameFacet) {
-            await recomputeAndUpdatePrimaryName(entityId);
+        if (created) {
+          createdEntityIds.add(entityId);
+          const embedding = embeddingByName.get(primaryName);
+          if (embedding) {
+            await graphService.setNodeEmbedding(
+              entityId,
+              embedding,
+              analysisVersion,
+            );
           }
         }
 
@@ -2125,6 +2064,14 @@ export const multiStagePipeline = {
           documentTitle,
         );
 
+        // Filter thread eventIds to known events before creating
+        const knownEventIds = new Set(events.map((e) => e.id));
+        for (const thread of higherOrderResult.narrativeThreads) {
+          thread.eventIds = thread.eventIds.filter((id) =>
+            knownEventIds.has(id),
+          );
+        }
+
         // Create narrative threads (idempotent)
         for (const thread of higherOrderResult.narrativeThreads) {
           const { id: threadId, created } = await createTrackedThread(
@@ -2408,122 +2355,152 @@ async function processCharacterArcs(
       }
       characterId = resolved;
     }
-    // Sort phases by phaseIndex
-    phases.sort((a, b) => a.phaseIndex - b.phaseIndex);
 
-    if (phases.length === 0) continue;
+    try {
+      // Sort phases by phaseIndex
+      phases.sort((a, b) => a.phaseIndex - b.phaseIndex);
 
-    // Get arcType from first phase (should be consistent)
-    const arcType = phases[0].arcType;
+      if (phases.length === 0) continue;
 
-    // Create the Arc node
-    const arcId = await createTrackedArc(
-      characterId,
-      documentId,
-      userId,
-      {
-        arcType,
-      },
-      { batchId },
-    );
-
-    // Create CharacterState nodes for each phase
-    const stateIds: string[] = [];
-
-    for (const phase of phases) {
-      // Compute document order and causal order from trigger event
-      let documentOrder = phase.phaseIndex;
-      let causalOrder = phase.phaseIndex;
-
-      if (phase.triggerEventId) {
-        const triggerEvent = events.find((e) => e.id === phase.triggerEventId);
-        if (triggerEvent) {
-          documentOrder = triggerEvent.documentOrder;
-          causalOrder = triggerEvent.documentOrder; // Could compute differently if needed
+      // Validate that at least one phase resolves a triggerEvent to a known document position.
+      // An arc where every state falls back to its phaseIndex (0, 1, 2...) is meaningless for
+      // timeline display and indicates the LLM returned event IDs that don't exist in the graph.
+      if (phases.length > 1) {
+        const resolvedCount = phases.filter(
+          (p) =>
+            p.triggerEventId && events.some((e) => e.id === p.triggerEventId),
+        ).length;
+        if (resolvedCount === 0) {
+          logger.warn(
+            { characterId, documentId, phaseCount: phases.length },
+            'Skipping arc: no triggerEventIds resolved to known events, all states would have synthetic positions',
+          );
+          continue;
         }
       }
 
-      // Create CharacterState node
-      const stateId = await createTrackedState(
+      // Get arcType from first phase (should be consistent)
+      const arcType = phases[0].arcType;
+
+      // Create the Arc node
+      const arcId = await createTrackedArc(
         characterId,
         documentId,
         userId,
         {
-          name: phase.phaseName,
-          phaseIndex: phase.phaseIndex,
-          documentOrder,
-          causalOrder,
+          arcType,
         },
         { batchId },
       );
 
-      stateIds.push(stateId);
+      // Create CharacterState nodes for each phase
+      const stateIds: string[] = [];
 
-      // Link state to arc
-      await graphService.linkStateToArc(stateId, arcId, phase.phaseIndex);
+      for (const phase of phases) {
+        // Compute document order and causal order from trigger event
+        let documentOrder = phase.phaseIndex;
+        let causalOrder = phase.phaseIndex;
 
-      // Link character to state
-      await graphService.linkCharacterToState(characterId, stateId);
+        if (phase.triggerEventId) {
+          const triggerEvent = events.find(
+            (e) => e.id === phase.triggerEventId,
+          );
+          if (triggerEvent) {
+            documentOrder = triggerEvent.documentOrder;
+            causalOrder = triggerEvent.documentOrder; // Could compute differently if needed
+          }
+        }
 
-      // Link state to facets mentioned in stateFacets
-      // Find matching facets from the entity's existing facets
-      const entityFacets = await graphService.getFacetsForEntity(
-        characterId,
-        analysisVersion,
-      );
-      for (const facetContent of phase.stateFacets) {
-        const matchingFacet = entityFacets.find(
-          (f) =>
-            f.content.toLowerCase().includes(facetContent.toLowerCase()) ||
-            facetContent.toLowerCase().includes(f.content.toLowerCase()),
+        // Create CharacterState node
+        const stateId = await createTrackedState(
+          characterId,
+          documentId,
+          userId,
+          {
+            name: phase.phaseName,
+            phaseIndex: phase.phaseIndex,
+            documentOrder,
+            causalOrder,
+          },
+          { batchId },
         );
-        if (matchingFacet) {
-          await graphService.linkStateToFacet(stateId, matchingFacet.id);
+
+        stateIds.push(stateId);
+
+        // Link state to arc
+        await graphService.linkStateToArc(stateId, arcId, phase.phaseIndex);
+
+        // Link character to state
+        await graphService.linkCharacterToState(characterId, stateId);
+
+        // Link state to facets mentioned in stateFacets
+        // Find matching facets from the entity's existing facets
+        const entityFacets = await graphService.getFacetsForEntity(
+          characterId,
+          analysisVersion,
+        );
+        for (const facetContent of phase.stateFacets) {
+          const matchingFacet = entityFacets.find(
+            (f) =>
+              f.content.toLowerCase().includes(facetContent.toLowerCase()) ||
+              facetContent.toLowerCase().includes(f.content.toLowerCase()),
+          );
+          if (matchingFacet) {
+            await graphService.linkStateToFacet(stateId, matchingFacet.id);
+          }
+        }
+
+        // Compute and set embedding for the state (sum of linked facet embeddings)
+        const stateFacets = await graphService.getFacetsForState(stateId);
+        if (stateFacets.length > 0 && stateFacets.some((f) => f.embedding)) {
+          const embeddings = stateFacets
+            .filter(
+              (f): f is typeof f & { embedding: number[] } => !!f.embedding,
+            )
+            .map((f) => f.embedding);
+
+          if (embeddings.length > 0) {
+            const sumEmbedding = embeddings[0].map(
+              (_, i) =>
+                embeddings.reduce((sum, e) => sum + e[i], 0) /
+                embeddings.length,
+            );
+            await graphService.setCharacterStateEmbedding(
+              stateId,
+              sumEmbedding,
+              analysisVersion,
+            );
+          }
         }
       }
 
-      // Compute and set embedding for the state (sum of linked facet embeddings)
-      const stateFacets = await graphService.getFacetsForState(stateId);
-      if (stateFacets.length > 0 && stateFacets.some((f) => f.embedding)) {
-        const embeddings = stateFacets
-          .filter((f): f is typeof f & { embedding: number[] } => !!f.embedding)
-          .map((f) => f.embedding);
+      // Create CHANGES_TO edges between consecutive states
+      for (let i = 0; i < stateIds.length - 1; i++) {
+        const fromStateId = stateIds[i];
+        const toStateId = stateIds[i + 1];
+        const toPhase = phases[i + 1];
 
-        if (embeddings.length > 0) {
-          const sumEmbedding = embeddings[0].map(
-            (_, i) =>
-              embeddings.reduce((sum, e) => sum + e[i], 0) / embeddings.length,
-          );
-          await graphService.setCharacterStateEmbedding(
-            stateId,
-            sumEmbedding,
-            analysisVersion,
-          );
-        }
+        await createTrackedStateTransition(
+          fromStateId,
+          toStateId,
+          {
+            triggerEventId: toPhase.triggerEventId,
+            gapDetected: toPhase.triggerEventId === null && i > 0,
+          },
+          { batchId, characterId },
+        );
       }
-    }
 
-    // Create CHANGES_TO edges between consecutive states
-    for (let i = 0; i < stateIds.length - 1; i++) {
-      const fromStateId = stateIds[i];
-      const toStateId = stateIds[i + 1];
-      const toPhase = phases[i + 1];
-
-      await createTrackedStateTransition(
-        fromStateId,
-        toStateId,
-        {
-          triggerEventId: toPhase.triggerEventId,
-          gapDetected: toPhase.triggerEventId === null && i > 0,
-        },
-        { batchId, characterId },
+      logger.info(
+        { characterId, arcId, stateCount: stateIds.length, arcType },
+        'Character arc processed',
+      );
+    } catch (err) {
+      logger.warn(
+        { characterId, documentId, err },
+        'Arc processing failed for character, skipping',
       );
     }
-
-    logger.info(
-      { characterId, arcId, stateCount: stateIds.length, arcType },
-      'Character arc processed',
-    );
   }
 }
 

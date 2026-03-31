@@ -5,9 +5,15 @@
 
 import { eq } from 'drizzle-orm';
 import { db } from '../../config/database.js';
+import {
+  getAspectRatioString,
+  getModelIdForProvider,
+  mapToNearestSupportedDimensions,
+} from '../../config/models.js';
 import { calculateImageCost } from '../../config/pricing.js';
 import { media } from '../../models/schema.js';
 import { activityService } from '../../services/activity.service.js';
+import { analytics } from '../../services/analytics.js';
 import { imageUsageTracking } from '../../services/imageUsageTracking/index.js';
 import { s3 } from '../../services/s3.js';
 import { logger } from '../../utils/logger.js';
@@ -17,15 +23,6 @@ import { JobWorker } from '../worker.js';
 
 const GENERATION_TIMEOUT_MS = 60_000;
 
-// Gemini Imagen 3 supported dimensions
-const SUPPORTED_DIMENSIONS: Array<[number, number]> = [
-  [1024, 1024], // 1:1
-  [1408, 768], // 16:9 landscape
-  [768, 1408], // 9:16 portrait
-  [1280, 896], // 4:3 landscape
-  [896, 1280], // 3:4 portrait
-];
-
 export interface ImageGenerationPayload {
   mediaId: string;
   userId: string;
@@ -34,6 +31,8 @@ export interface ImageGenerationPayload {
   width: number;
   height: number;
   stylePrompt?: string;
+  negativePrompt?: string;
+  guidanceScale?: number;
 }
 
 // Lazy-loaded Gemini client
@@ -67,7 +66,16 @@ class ImageGenerationWorker extends JobWorker<
     job: Job,
     payload: ImageGenerationPayload,
   ): Promise<void> {
-    const { mediaId, userId, prompt, width, height } = payload;
+    const {
+      mediaId,
+      userId,
+      prompt,
+      width,
+      height,
+      seed,
+      negativePrompt,
+      guidanceScale,
+    } = payload;
 
     if (!mediaId || !prompt) {
       logger.error(
@@ -146,22 +154,27 @@ class ImageGenerationWorker extends JobWorker<
         throw new Error('Image generation service unavailable');
       }
 
-      const response = await Promise.race([
-        client.models.generateImages({
-          model: 'imagen-4.0-generate-001',
-          prompt,
-          config: {
-            numberOfImages: 1,
-            aspectRatio,
-          },
-        }),
-        new Promise<never>((_, reject) =>
-          setTimeout(
-            () => reject(new Error('Image generation timed out')),
-            GENERATION_TIMEOUT_MS,
-          ),
-        ),
-      ]);
+      const abortController = new AbortController();
+      const timeoutId = setTimeout(
+        () => abortController.abort(),
+        GENERATION_TIMEOUT_MS,
+      );
+
+      const modelId = getModelIdForProvider('gemini');
+      const response = await client.models.generateImages({
+        model: modelId,
+        prompt,
+        config: {
+          numberOfImages: 1,
+          aspectRatio,
+          ...(negativePrompt ? { negativePrompt } : {}),
+          ...(seed !== undefined ? { seed } : {}),
+          ...(guidanceScale !== undefined ? { guidanceScale } : {}),
+          abortSignal: abortController.signal,
+        },
+      });
+
+      clearTimeout(timeoutId);
 
       if (!response.generatedImages || response.generatedImages.length === 0) {
         throw new Error('Image generation failed - no images returned');
@@ -211,6 +224,8 @@ class ImageGenerationWorker extends JobWorker<
         );
       }
 
+      analytics.track(userId, 'image_generation_completed_server', { mediaId });
+
       logger.info(
         { jobId: job.id, mediaId, s3Key },
         'Image generation completed',
@@ -256,58 +271,26 @@ class ImageGenerationWorker extends JobWorker<
         );
       }
 
+      analytics.track(userId, 'image_generation_failed_server', {
+        mediaId,
+        error: errorMessage,
+      });
+
       // Re-throw to let base class handle job status update
       throw error;
     }
   }
 
-  /**
-   * Map requested dimensions to nearest supported Gemini Imagen dimensions
-   */
   private mapToNearestDimensions(
     width: number,
     height: number,
   ): [number, number] {
-    const exactMatch = SUPPORTED_DIMENSIONS.find(
-      ([w, h]) => w === width && h === height,
-    );
-    if (exactMatch) {
-      return exactMatch;
-    }
-
-    const requestedRatio = width / height;
-    let nearest = SUPPORTED_DIMENSIONS[0];
-    let minDiff = Math.abs(nearest[0] / nearest[1] - requestedRatio);
-
-    for (const dims of SUPPORTED_DIMENSIONS) {
-      const ratio = dims[0] / dims[1];
-      const diff = Math.abs(ratio - requestedRatio);
-      if (diff < minDiff) {
-        minDiff = diff;
-        nearest = dims;
-      }
-    }
-
-    return nearest;
+    const modelId = getModelIdForProvider('gemini');
+    return mapToNearestSupportedDimensions(width, height, modelId);
   }
 
-  /**
-   * Get aspect ratio string for Gemini API
-   */
   private getAspectRatio(width: number, height: number): string {
-    const ratio = width / height;
-
-    if (Math.abs(ratio - 1) < 0.01) return '1:1';
-    if (Math.abs(ratio - 1.833) < 0.01) return '16:9';
-    if (Math.abs(ratio - 0.545) < 0.01) return '9:16';
-    if (Math.abs(ratio - 1.429) < 0.01) return '4:3';
-    if (Math.abs(ratio - 0.7) < 0.01) return '3:4';
-
-    logger.warn(
-      { width, height, ratio },
-      'Unknown aspect ratio, defaulting to 1:1',
-    );
-    return '1:1';
+    return getAspectRatioString(width, height);
   }
 }
 

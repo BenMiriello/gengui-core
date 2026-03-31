@@ -2,12 +2,6 @@
  * Pure prompt construction functions - no I/O
  */
 
-/** @deprecated Use EntityReferences instead */
-export interface CharacterReferences {
-  mode: 'auto' | 'manual';
-  selectedNodeIds?: string[];
-}
-
 export interface EntityReferences {
   mode: 'auto' | 'manual';
   selectedNodeIds?: string[];
@@ -29,8 +23,6 @@ export interface PromptEnhancementSettings {
   sceneTreatment: 'comprehensive' | 'focused' | 'selective-detail';
   selectiveDetailFocus?: string;
   strength: 'low' | 'medium' | 'high';
-  /** @deprecated Use entityReferences instead */
-  characterReferences?: CharacterReferences;
   entityReferences?: EntityReferences;
 }
 

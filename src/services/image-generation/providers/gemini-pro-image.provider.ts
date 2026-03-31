@@ -1,5 +1,11 @@
 import { eq } from 'drizzle-orm';
 import { db } from '../../../config/database.js';
+import {
+  getModelIdForProvider,
+  getSupportedDimensionsForProvider,
+  mapToNearestSupportedDimensions,
+  validateDimensionsForModel,
+} from '../../../config/models.js';
 import { calculateImageCost } from '../../../config/pricing.js';
 import { jobService } from '../../../jobs/index.js';
 import { media } from '../../../models/schema.js';
@@ -25,15 +31,6 @@ async function ensureGenAI() {
   }
   return genAI;
 }
-
-// Gemini Pro Image supported dimensions (same as Imagen for consistency)
-const SUPPORTED_DIMENSIONS: Array<[number, number]> = [
-  [1024, 1024], // 1:1
-  [1408, 768], // 16:9 landscape
-  [768, 1408], // 9:16 portrait
-  [1280, 896], // 4:3 landscape
-  [896, 1280], // 3:4 portrait
-];
 
 class GeminiProImageProvider implements ImageGenerationProvider {
   readonly name = 'gemini-pro-image' as const;
@@ -135,8 +132,9 @@ class GeminiProImageProvider implements ImageGenerationProvider {
       }
 
       // Call Gemini Pro Image API
+      const modelId = getModelIdForProvider(this.name);
       const response = await client.models.generateContent({
-        model: 'gemini-3-pro-image-preview',
+        model: modelId,
         contents,
         config: {
           responseModalities: ['image', 'text'],
@@ -237,57 +235,34 @@ class GeminiProImageProvider implements ImageGenerationProvider {
   }
 
   getSupportedDimensions(): DimensionWhitelist {
-    return SUPPORTED_DIMENSIONS.map(([width, height]) => ({ width, height }));
+    return getSupportedDimensionsForProvider(this.name);
   }
 
   validateDimensions(width: number, height: number): boolean {
-    const requestedRatio = width / height;
-    return SUPPORTED_DIMENSIONS.some(([w, h]) => {
-      const supportedRatio = w / h;
-      return Math.abs(supportedRatio - requestedRatio) < 0.1;
-    });
+    const modelId = getModelIdForProvider(this.name);
+    return validateDimensionsForModel(width, height, modelId);
   }
 
   supportsReferenceImages(): boolean {
     return true;
   }
 
-  /**
-   * Map requested dimensions to nearest supported dimensions
-   */
   private mapToNearestDimensions(
     width: number,
     height: number,
   ): [number, number] {
-    const exactMatch = SUPPORTED_DIMENSIONS.find(
-      ([w, h]) => w === width && h === height,
-    );
-    if (exactMatch) {
-      return exactMatch;
+    const modelId = getModelIdForProvider(this.name);
+    const result = mapToNearestSupportedDimensions(width, height, modelId);
+    if (result[0] !== width || result[1] !== height) {
+      logger.warn(
+        {
+          requested: `${width}x${height}`,
+          mapped: `${result[0]}x${result[1]}`,
+        },
+        'Mapped to nearest supported Gemini Pro Image dimensions',
+      );
     }
-
-    const requestedRatio = width / height;
-    let nearest = SUPPORTED_DIMENSIONS[0];
-    let minDiff = Math.abs(nearest[0] / nearest[1] - requestedRatio);
-
-    for (const dims of SUPPORTED_DIMENSIONS) {
-      const ratio = dims[0] / dims[1];
-      const diff = Math.abs(ratio - requestedRatio);
-      if (diff < minDiff) {
-        minDiff = diff;
-        nearest = dims;
-      }
-    }
-
-    logger.warn(
-      {
-        requested: `${width}x${height}`,
-        mapped: `${nearest[0]}x${nearest[1]}`,
-      },
-      'Mapped to nearest supported Gemini Pro Image dimensions',
-    );
-
-    return nearest;
+    return result;
   }
 }
 

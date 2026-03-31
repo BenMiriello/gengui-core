@@ -43,7 +43,19 @@ import {
 } from './schemas/storyNodes';
 
 const MAX_RETRIES = 3;
-const RETRY_DELAYS = [1000, 2000, 4000];
+
+function getRetryDelay(attempt: number, error?: unknown): number {
+  if (
+    error &&
+    typeof error === 'object' &&
+    'status' in error &&
+    ((error as { status: number }).status === 429 ||
+      (error as { status: number }).status === 503)
+  ) {
+    return Math.min(10_000 * 2 ** attempt, 60_000);
+  }
+  return Math.min(1000 * 2 ** attempt, 30_000);
+}
 
 export class MaxTokensError extends Error {
   constructor(
@@ -145,7 +157,7 @@ export async function updateNodes(
 
       if (attempt < MAX_RETRIES - 1) {
         await new Promise((resolve) =>
-          setTimeout(resolve, RETRY_DELAYS[attempt]),
+          setTimeout(resolve, getRetryDelay(attempt, error)),
         );
       }
     }
@@ -162,6 +174,7 @@ function parseResponse<T>(result: unknown, operation: string): T {
     candidates?: Array<{ finishReason?: string }>;
     promptFeedback?: { blockReason?: string };
     text?: string;
+    usageMetadata?: { candidatesTokenCount?: number };
   };
 
   if (!typedResult?.candidates?.length) {
@@ -190,16 +203,24 @@ function parseResponse<T>(result: unknown, operation: string): T {
     );
     throw new MaxTokensError(
       `${operation} hit MAX_TOKENS limit. Response truncated at ${text.length} chars.`,
-      0,
+      typedResult.usageMetadata?.candidatesTokenCount ?? 0,
     );
   }
 
-  // Check for potential truncation indicators
-  const trimmed = text.trim();
-  const looksComplete = trimmed.endsWith('}') || trimmed.endsWith(']');
+  // Strip markdown code fences if present (defensive — shouldn't happen with responseMimeType: 'application/json')
+  let jsonText = text.trim();
+  if (jsonText.startsWith('```')) {
+    const firstNewline = jsonText.indexOf('\n');
+    const lastFence = jsonText.lastIndexOf('```');
+    if (firstNewline > 0 && lastFence > firstNewline) {
+      jsonText = jsonText.slice(firstNewline + 1, lastFence).trim();
+    }
+  }
+
+  const looksComplete = jsonText.endsWith('}') || jsonText.endsWith(']');
 
   try {
-    return JSON.parse(text) as T;
+    return JSON.parse(jsonText) as T;
   } catch (parseError: unknown) {
     logger.error(
       {
@@ -586,14 +607,16 @@ export async function extractEntitiesFromBatch(
           error: error instanceof Error ? error.message : String(error),
           elapsedMs: Date.now() - startTime,
           retryDelayMs:
-            attempt < MAX_RETRIES - 1 ? RETRY_DELAYS[attempt] : undefined,
+            attempt < MAX_RETRIES - 1
+              ? getRetryDelay(attempt, error)
+              : undefined,
         },
         'Stage 3 batch extraction attempt failed, retrying',
       );
 
       if (attempt < MAX_RETRIES - 1) {
         await new Promise((resolve) =>
-          setTimeout(resolve, RETRY_DELAYS[attempt]),
+          setTimeout(resolve, getRetryDelay(attempt, error)),
         );
       }
     }
@@ -900,15 +923,32 @@ export async function extractRelationshipsFromSegment(
           : undefined,
     });
 
+    // Validate entity IDs and clamp strength
+    const validEntityIds = new Set(resolvedEntities.map((e) => e.id));
+    const validated = parsed.relationships.filter((rel) => {
+      if (!validEntityIds.has(rel.fromId) || !validEntityIds.has(rel.toId)) {
+        logger.warn(
+          { fromId: rel.fromId, toId: rel.toId, edgeType: rel.edgeType },
+          'Dropping relationship with unknown entity ID',
+        );
+        return false;
+      }
+      if (rel.strength !== undefined) {
+        rel.strength = Math.max(0, Math.min(1, rel.strength));
+      }
+      return true;
+    });
+
     logger.info(
       {
         segmentIndex,
-        relationshipsCount: parsed.relationships.length,
+        relationshipsCount: validated.length,
+        droppedCount: parsed.relationships.length - validated.length,
       },
       'Relationships extracted from segment',
     );
 
-    return parsed;
+    return { relationships: validated };
   } catch (error) {
     logger.error(
       {
@@ -1085,30 +1125,40 @@ RULES:
       'extractRelationshipsFromBatch',
     );
 
-    // Add segmentId attribution (fallback to first segment if not provided)
+    // Validate entity IDs, segment attribution, and clamp strength
+    const validEntityIds = new Set(
+      segments.flatMap((s) => s.entities.map((e) => e.id)),
+    );
     const relationships: Stage4BatchRelationshipsResult['relationships'] = [];
+    let droppedCount = 0;
     for (const rel of parsed.relationships) {
-      // Check if relationship already has segmentId
-      if ('segmentId' in rel && typeof rel.segmentId === 'string') {
-        relationships.push({
-          fromId: rel.fromId,
-          toId: rel.toId,
-          edgeType: rel.edgeType,
-          description: rel.description,
-          strength: rel.strength,
-          segmentId: rel.segmentId,
-        });
-      } else {
+      if (!validEntityIds.has(rel.fromId) || !validEntityIds.has(rel.toId)) {
         logger.warn(
           { fromId: rel.fromId, toId: rel.toId, edgeType: rel.edgeType },
-          'Relationship missing segmentId attribution',
+          'Dropping relationship with unknown entity ID',
         );
-        // Default to first segment as fallback
-        relationships.push({
-          ...rel,
-          segmentId: segments[0].id,
-        });
+        droppedCount++;
+        continue;
       }
+      if (!('segmentId' in rel) || typeof rel.segmentId !== 'string') {
+        logger.warn(
+          { fromId: rel.fromId, toId: rel.toId, edgeType: rel.edgeType },
+          'Dropping relationship without segment attribution',
+        );
+        droppedCount++;
+        continue;
+      }
+      if (rel.strength !== undefined) {
+        rel.strength = Math.max(0, Math.min(1, rel.strength));
+      }
+      relationships.push({
+        fromId: rel.fromId,
+        toId: rel.toId,
+        edgeType: rel.edgeType,
+        description: rel.description,
+        strength: rel.strength,
+        segmentId: rel.segmentId,
+      });
     }
 
     const segmentIndices = segments.map((s) => s.index);
@@ -1122,6 +1172,7 @@ RULES:
         segmentRange,
         segmentCount: segments.length,
         relationshipsCount: relationships.length,
+        droppedCount,
       },
       'Stage 6: Relationships extracted from batch',
     );
@@ -1214,15 +1265,32 @@ export async function extractCrossSegmentRelationships(
       'extractCrossSegmentRelationships',
     );
 
+    // Validate entity IDs and clamp strength
+    const validEntityIds = new Set(allEntities.map((e) => e.id));
+    const validated = parsed.relationships.filter((rel) => {
+      if (!validEntityIds.has(rel.fromId) || !validEntityIds.has(rel.toId)) {
+        logger.warn(
+          { fromId: rel.fromId, toId: rel.toId, edgeType: rel.edgeType },
+          'Dropping cross-segment relationship with unknown entity ID',
+        );
+        return false;
+      }
+      if (rel.strength !== undefined) {
+        rel.strength = Math.max(0, Math.min(1, rel.strength));
+      }
+      return true;
+    });
+
     logger.info(
       {
         entitiesCount: allEntities.length,
-        newRelationshipsCount: parsed.relationships.length,
+        newRelationshipsCount: validated.length,
+        droppedCount: parsed.relationships.length - validated.length,
       },
       'Stage 4b: Cross-segment relationships extracted',
     );
 
-    return parsed;
+    return { relationships: validated };
   } catch (error) {
     if (error instanceof MaxTokensError) {
       throw error;

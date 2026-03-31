@@ -281,6 +281,12 @@ router.delete(
       const userId = req.user.id;
       const id = parseStringParam(req.params.id, 'id');
 
+      // Cancel any active analysis before deleting
+      const activeJob = await jobService.getActiveForTarget(id);
+      if (activeJob) {
+        await jobService.updateStatus(activeJob.id, 'cancelled');
+      }
+
       await sseService.broadcastToDocument(id, 'document-deleted', {
         documentId: id,
       });
@@ -664,9 +670,11 @@ router.post(
     } catch (error) {
       if (error instanceof UsageQuotaExceededError) {
         res.status(403).json({
-          error: 'QUOTA_EXCEEDED',
-          message: `You've used all your monthly usage. Resets on ${error.resetDate.toLocaleDateString()}.`,
-          resetDate: error.resetDate,
+          error: {
+            message: `You've used all your monthly usage. Resets on ${error.resetDate.toLocaleDateString()}.`,
+            code: 'QUOTA_EXCEEDED',
+            resetDate: error.resetDate,
+          },
         });
         return;
       }
@@ -1187,10 +1195,8 @@ router.get(
       // Verify user has access to document
       await documentsService.get(id, userId);
 
-      // Get arcs, states, and transitions for the character
-      const [arcs, states, transitions] = await Promise.all([
+      const [arcs, transitions] = await Promise.all([
         graphService.getCharacterArcs(characterId),
-        graphService.getCharacterStates(characterId),
         graphService.getStateTransitions(characterId),
       ]);
 
@@ -1220,30 +1226,27 @@ router.get(
         }),
       );
 
-      // If no arcs exist but states do, create a default arc from all states
-      if (arcsWithStates.length === 0 && states.length > 0) {
-        arcsWithStates.push({
-          id: 'default',
-          name: 'Arc',
-          arcType: 'growth',
-          states: states.map((s) => ({
-            id: s.id,
-            name: s.name,
-            description: '',
-            documentOrder: s.documentOrder,
-          })),
-          transitions: transitions
-            .filter((t) => states.some((s) => s.id === t.fromStateId))
-            .map((t) => ({
-              fromStateId: t.fromStateId,
-              toStateId: t.toStateId,
-              gapDetected: t.gapDetected,
-              triggerEventId: t.triggerEventId,
-            })),
-        });
-      }
-
       res.json({ characterId, arcs: arcsWithStates });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+// Arc entity IDs endpoint — lightweight query for which entities have real arc data
+router.get(
+  '/documents/:id/arc-entity-ids',
+  requireAuth,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
+      const id = parseStringParam(req.params.id, 'id');
+
+      await documentsService.get(id, userId);
+
+      const entityIds = await graphService.getEntityIdsWithArcs(id);
+      res.json({ entityIds });
     } catch (error) {
       next(error);
     }

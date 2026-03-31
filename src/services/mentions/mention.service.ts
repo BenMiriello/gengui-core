@@ -419,10 +419,51 @@ export const mentionService = {
   /**
    * Delete mentions by node IDs.
    */
-  async deleteByNodeIds(nodeIds: string[]): Promise<void> {
-    if (nodeIds.length === 0) return;
+  async deleteByNodeIds(nodeIds: string[]): Promise<number> {
+    if (nodeIds.length === 0) return 0;
 
-    await db.delete(mentions).where(inArray(mentions.nodeId, nodeIds));
+    const deleted = await db
+      .delete(mentions)
+      .where(inArray(mentions.nodeId, nodeIds))
+      .returning({ id: mentions.id });
+    return deleted.length;
+  },
+
+  /**
+   * Delete mentions whose nodes don't exist in FalkorDB.
+   * Handles both: nodes that were never created (failed analysis)
+   * and nodes being permanently deleted (soft-delete cleanup).
+   */
+  async deleteOrphanedMentions(nodeIds?: string[]): Promise<number> {
+    if (nodeIds && nodeIds.length > 0) {
+      return this.deleteByNodeIds(nodeIds);
+    }
+
+    const mentionNodeIds = await db
+      .selectDistinct({ nodeId: mentions.nodeId })
+      .from(mentions);
+
+    if (mentionNodeIds.length === 0) return 0;
+
+    const existingIds = await graphService.getExistingNodeIds(
+      mentionNodeIds.map((m) => m.nodeId),
+    );
+
+    const orphanedIds = mentionNodeIds
+      .filter((m) => !existingIds.has(m.nodeId))
+      .map((m) => m.nodeId);
+
+    if (orphanedIds.length === 0) return 0;
+
+    const deleted = await db
+      .delete(mentions)
+      .where(inArray(mentions.nodeId, orphanedIds))
+      .returning({ id: mentions.id });
+
+    if (deleted.length > 0) {
+      logger.info({ count: deleted.length }, 'Deleted orphaned mentions');
+    }
+    return deleted.length;
   },
 
   /**

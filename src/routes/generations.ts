@@ -21,12 +21,6 @@ import { parseStringParam } from '../utils/validation';
 
 const router = Router();
 
-/** @deprecated Use entityReferencesSchema instead */
-const characterReferencesSchema = z.object({
-  mode: z.enum(['auto', 'manual']),
-  selectedNodeIds: z.array(z.string().uuid()).optional(),
-});
-
 const entityReferencesSchema = z.object({
   mode: z.enum(['auto', 'manual']),
   selectedNodeIds: z.array(z.string().uuid()).optional(),
@@ -42,8 +36,6 @@ const promptEnhancementSchema = z.object({
   sceneTreatment: z.enum(['comprehensive', 'focused', 'selective-detail']),
   selectiveDetailFocus: z.string().max(200).optional(),
   strength: z.enum(['low', 'medium', 'high']),
-  /** @deprecated Use entityReferences instead */
-  characterReferences: characterReferencesSchema.optional(),
   entityReferences: entityReferencesSchema.optional(),
 });
 
@@ -52,6 +44,8 @@ const createGenerationSchema = z.object({
   seed: z.number().int().min(0).optional(),
   width: z.number().int().min(MIN_WIDTH).max(MAX_WIDTH).optional(),
   height: z.number().int().min(MIN_HEIGHT).max(MAX_HEIGHT).optional(),
+  negativePrompt: z.string().max(2000).nullable().optional(),
+  guidanceScale: z.number().min(0).max(100).optional(),
   documentId: z.string().uuid().optional(),
   startChar: z.number().int().min(0).optional(),
   endChar: z.number().int().min(0).optional(),
@@ -128,16 +122,20 @@ router.post(
     } catch (error) {
       if (error instanceof UsageQuotaExceededError) {
         res.status(403).json({
-          error: 'QUOTA_EXCEEDED',
-          message: `You've used all your monthly usage. Resets on ${error.resetDate.toLocaleDateString()}.`,
-          resetDate: error.resetDate,
+          error: {
+            message: `You've used all your monthly usage. Resets on ${error.resetDate.toLocaleDateString()}.`,
+            code: 'QUOTA_EXCEEDED',
+            resetDate: error.resetDate,
+          },
         });
         return;
       }
       if (error instanceof ConcurrentLimitExceededError) {
         res.status(429).json({
-          error: 'CONCURRENT_LIMIT_EXCEEDED',
-          message: error.message,
+          error: {
+            message: error.message,
+            code: 'CONCURRENT_LIMIT_EXCEEDED',
+          },
         });
         return;
       }

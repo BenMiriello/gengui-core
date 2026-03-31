@@ -1,18 +1,14 @@
 import { env } from '../../../config/env.js';
+import {
+  getModelIdForProvider,
+  getSupportedDimensionsForProvider,
+  validateDimensionsForModel,
+} from '../../../config/models.js';
 import { calculateImageCost } from '../../../config/pricing.js';
 import { jobService } from '../../../jobs/index.js';
 import { logger } from '../../../utils/logger.js';
 import type { ImageGenerationProvider } from '../provider.interface.js';
 import type { DimensionWhitelist, GenerationInput } from '../types.js';
-
-// Gemini Imagen 3 supported dimensions
-const SUPPORTED_DIMENSIONS: Array<[number, number]> = [
-  [1024, 1024], // 1:1
-  [1408, 768], // 16:9 landscape
-  [768, 1408], // 9:16 portrait
-  [1280, 896], // 4:3 landscape
-  [896, 1280], // 3:4 portrait
-];
 
 class GeminiImagenProvider implements ImageGenerationProvider {
   readonly name = 'gemini' as const;
@@ -46,6 +42,8 @@ class GeminiImagenProvider implements ImageGenerationProvider {
         width: input.width,
         height: input.height,
         stylePrompt: input.stylePrompt,
+        negativePrompt: input.negativePrompt,
+        guidanceScale: input.guidanceScale,
       },
     });
 
@@ -60,17 +58,12 @@ class GeminiImagenProvider implements ImageGenerationProvider {
   }
 
   getSupportedDimensions(): DimensionWhitelist {
-    return SUPPORTED_DIMENSIONS.map(([width, height]) => ({ width, height }));
+    return getSupportedDimensionsForProvider(this.name);
   }
 
   validateDimensions(width: number, height: number): boolean {
-    // Allow dimensions with compatible aspect ratios, not just exact matches
-    // This allows the mapping logic to convert to nearest supported size
-    const requestedRatio = width / height;
-    return SUPPORTED_DIMENSIONS.some(([w, h]) => {
-      const supportedRatio = w / h;
-      return Math.abs(supportedRatio - requestedRatio) < 0.1;
-    });
+    const modelId = getModelIdForProvider(this.name);
+    return validateDimensionsForModel(width, height, modelId);
   }
 
   supportsReferenceImages(): boolean {

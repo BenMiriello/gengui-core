@@ -60,6 +60,14 @@ const envSchema = z
     // Cookie signing (for signed cookies like pendingOAuthProfile)
     COOKIE_SECRET: z.string().optional(),
 
+    // Sentry
+    SENTRY_DSN: z.string().optional(),
+    SENTRY_ENVIRONMENT: z.string().default('development'),
+
+    // PostHog (Product Analytics)
+    POSTHOG_API_KEY: z.string().optional(),
+    POSTHOG_HOST: z.string().default('https://us.i.posthog.com'),
+
     // Google Drive token encryption key (64 hex chars = 32 bytes)
     GOOGLE_TOKEN_ENCRYPTION_KEY: z.string().length(64).optional(),
 
@@ -86,6 +94,29 @@ const envSchema = z
     {
       message:
         'If OAuth is configured, all OAuth variables must be set (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_CALLBACK_URL, COOKIE_SECRET)',
+    },
+  )
+  .refine(
+    (data) => {
+      if (data.NODE_ENV === 'production' && !data.COOKIE_SECRET) {
+        return false;
+      }
+      return true;
+    },
+    { message: 'COOKIE_SECRET is required in production' },
+  )
+  .refine(
+    (data) => {
+      if (
+        data.NODE_ENV === 'production' &&
+        data.DB_PASSWORD === 'gengui_dev_pass'
+      ) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message: 'DB_PASSWORD must not use the development default in production',
     },
   )
   .refine(

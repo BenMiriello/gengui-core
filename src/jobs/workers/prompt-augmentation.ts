@@ -13,7 +13,6 @@ import { buildContext } from '../../services/prompt-augmentation/contextBuilder'
 import { fetchEntityReferenceData } from '../../services/prompt-augmentation/entityReferences';
 import type {
   EntityDescription,
-  EntityReferences,
   PromptEnhancementSettings,
 } from '../../services/prompt-augmentation/promptBuilder';
 import { buildGeminiPrompt } from '../../services/prompt-augmentation/promptBuilder';
@@ -40,6 +39,8 @@ interface AugmentationPayload {
   endChar: number;
   settings: PromptEnhancementSettings;
   stylePrompt: string;
+  negativePrompt?: string;
+  guidanceScale?: number;
   seed: number;
   width: number;
   height: number;
@@ -67,6 +68,8 @@ class PromptAugmentationWorker extends JobWorker<
       endChar,
       settings,
       stylePrompt,
+      negativePrompt,
+      guidanceScale,
       seed,
       width,
       height,
@@ -96,7 +99,7 @@ class PromptAugmentationWorker extends JobWorker<
         throw new Error('Document not found');
       }
 
-      const entityRefs = this.normalizeEntityReferences(settings);
+      const entityRefs = settings.entityReferences ?? null;
 
       let entityDescriptions: EntityDescription[] = [];
       let referenceImages: ReferenceImage[] | undefined;
@@ -213,6 +216,8 @@ class PromptAugmentationWorker extends JobWorker<
         width,
         height,
         referenceImages,
+        ...(negativePrompt ? { negativePrompt } : {}),
+        ...(guidanceScale !== undefined ? { guidanceScale } : {}),
       });
 
       logger.info(
@@ -274,57 +279,35 @@ class PromptAugmentationWorker extends JobWorker<
 
       return text.trim();
     } catch (error: unknown) {
-      const err = error as Error;
       logger.error({ error }, 'Gemini API error during augmentation');
 
-      if (err?.message?.includes('quota')) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+
+      if (message.includes('quota')) {
         throw new Error('API quota exceeded. Please try again later.');
       }
 
-      if (err?.message?.includes('rate limit')) {
+      if (message.includes('rate limit')) {
         throw new Error(
           'Rate limit exceeded. Please wait a moment and try again.',
         );
       }
 
-      if (err?.message?.includes('404')) {
+      if (message.includes('404')) {
         throw new Error(
           'Augmentation service not available. Please contact support.',
         );
       }
 
       if (
-        err?.message?.includes('Unable to augment') ||
-        err?.message?.includes('quota') ||
-        err?.message?.includes('rate limit') ||
-        err?.message?.includes('inappropriate material')
+        message.includes('Unable to augment') ||
+        message.includes('inappropriate material')
       ) {
         throw error;
       }
 
-      throw new Error(
-        `Augmentation failed: ${err?.message || 'Unknown error'}. Please try again.`,
-      );
+      throw new Error(`Augmentation failed: ${message}. Please try again.`);
     }
-  }
-
-  private normalizeEntityReferences(
-    settings: PromptEnhancementSettings,
-  ): EntityReferences | null {
-    if (settings.entityReferences) {
-      return settings.entityReferences;
-    }
-
-    if (settings.characterReferences) {
-      return {
-        mode: settings.characterReferences.mode,
-        selectedNodeIds: settings.characterReferences.selectedNodeIds,
-        useImages: true,
-        useDescriptions: false,
-      };
-    }
-
-    return null;
   }
 
   private async updateActivityProgress(

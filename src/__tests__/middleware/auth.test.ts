@@ -175,7 +175,7 @@ describe('Auth Middleware', () => {
       expect(body.error.message).toContain('Email verification required');
     });
 
-    test('includes user email in error details for unverified user', async () => {
+    test('does not leak email in error details for unverified user', async () => {
       const { user, password } = await createTestUser({ emailVerified: false });
 
       const loginResponse = await fetch(`${baseUrl}/api/auth/login`, {
@@ -191,7 +191,7 @@ describe('Auth Middleware', () => {
 
       const body = await response.json();
       expect(body.error.details).toBeDefined();
-      expect(body.error.details.email).toBe(user.email);
+      expect(body.error.details.email).toBeUndefined();
     });
 
     test('includes action hint in error details', async () => {

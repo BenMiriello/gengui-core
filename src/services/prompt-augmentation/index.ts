@@ -1,5 +1,5 @@
 export type {
-  CharacterReferences,
+  EntityReferences,
   PromptContext,
   PromptEnhancementSettings,
 } from './promptBuilder';

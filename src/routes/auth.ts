@@ -14,6 +14,7 @@ import {
   passwordResetRateLimiter,
   signupRateLimiter,
 } from '../middleware/rateLimiter';
+import { analytics } from '../services/analytics';
 import { authService } from '../services/auth';
 import { oauthService } from '../services/auth/oauth';
 import type { OAuthProfile } from '../services/auth/oauth.types';
@@ -84,6 +85,7 @@ router.post(
         maxAge: ONE_WEEK_MS,
       });
 
+      analytics.track(user.id, 'auth_signup_server', { method: 'email' });
       res.status(201).json({ user });
     } catch (error) {
       return next(error);
@@ -125,6 +127,7 @@ router.post(
         maxAge: ONE_WEEK_MS,
       });
 
+      analytics.track(user.id, 'auth_login_server', { method: 'email' });
       res.json({ user });
     } catch (error) {
       return next(error);

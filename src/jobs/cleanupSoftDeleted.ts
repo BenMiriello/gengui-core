@@ -12,6 +12,7 @@ import { authService } from '../services/auth';
 import { customStylePromptsService } from '../services/customStylePrompts';
 import { emailService } from '../services/emailService';
 import { graphService } from '../services/graph/graph.service';
+import { mentionService } from '../services/mentions/mention.service';
 import { logger } from '../utils/logger';
 
 const CLEANUP_JOB_SCHEDULE = '0 2 * * *';
@@ -48,6 +49,19 @@ export function startCleanupJob(): ScheduledTask {
         .returning({ id: nodeMedia.id });
       if (deletedNodeMedia.length > 0)
         results.nodeMedia = deletedNodeMedia.length;
+
+      // Before cleaning up FalkorDB nodes, clean up their mentions
+      const nodeIdsToDelete =
+        await graphService.getSoftDeletedNodeIds(threshold);
+      if (nodeIdsToDelete.length > 0) {
+        const mentionsDeleted =
+          await mentionService.deleteOrphanedMentions(nodeIdsToDelete);
+        if (mentionsDeleted > 0) results.mentions = mentionsDeleted;
+      }
+
+      // Also clean up orphaned mentions (from failed analysis, etc.)
+      const orphanedMentions = await mentionService.deleteOrphanedMentions();
+      if (orphanedMentions > 0) results.orphanedMentions = orphanedMentions;
 
       // Clean up story nodes and connections from FalkorDB
       const graphCleanup = await graphService.cleanupSoftDeleted(threshold);

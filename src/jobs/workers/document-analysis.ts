@@ -6,6 +6,7 @@
 import { and, eq } from 'drizzle-orm';
 import { db } from '../../config/database';
 import { documents } from '../../models/schema';
+import { analytics } from '../../services/analytics';
 import {
   AnalysisCancelledError,
   AnalysisPausedError,
@@ -149,6 +150,12 @@ class DocumentAnalysisWorker extends JobWorker<
 
       success = true;
 
+      analytics.track(userId, 'analysis_completed_server', {
+        documentId,
+        entityCount: result.entityCount,
+        relationshipCount: result.relationshipCount,
+      });
+
       logger.info(
         { jobId: job.id, documentId, ...result },
         'Document analysis completed successfully',
@@ -170,6 +177,11 @@ class DocumentAnalysisWorker extends JobWorker<
 
         throw new JobCancelledError(error.message);
       }
+
+      analytics.track(userId, 'analysis_failed_server', {
+        documentId,
+        error: (error as Error).message,
+      });
 
       // Mark analysis as failed
       await db

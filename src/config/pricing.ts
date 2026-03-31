@@ -202,8 +202,8 @@ export const OPERATION_COSTS: Record<OperationType, OperationCost> = {
   },
   'image-standard': {
     operationType: 'image-standard',
-    apiCostPer1kUnits: deriveImageCost('runpod-z-image-turbo'),
-    description: 'Standard image generation (RunPod)',
+    apiCostPer1kUnits: deriveImageCost('imagen-4'),
+    description: 'Standard image generation (Imagen 4)',
   },
   'image-character-consistency': {
     operationType: 'image-character-consistency',

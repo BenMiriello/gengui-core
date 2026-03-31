@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { Router } from 'express';
 import { z } from 'zod';
 import { db } from '../config/database';
@@ -29,6 +29,7 @@ const generateCharacterSheetSchema = z.object({
   aspectRatio: z.enum(['portrait', 'square', 'landscape']).optional(),
   stylePreset: z.string().max(50).nullable().optional(),
   stylePrompt: z.string().max(2000).nullable().optional(),
+  negativePrompt: z.string().max(2000).nullable().optional(),
   cursorPosition: z.number().int().min(0).optional(),
 });
 
@@ -63,6 +64,7 @@ router.post(
         aspectRatio: validatedData.aspectRatio,
         stylePreset: validatedData.stylePreset,
         stylePrompt: validatedData.stylePrompt,
+        negativePrompt: validatedData.negativePrompt,
         cursorPosition: validatedData.cursorPosition,
       });
 
@@ -336,6 +338,25 @@ router.get('/mentions/:id', requireAuth, async (req, res, next) => {
     const mention = await mentionService.getMentionById(id);
 
     if (!mention) {
+      res
+        .status(404)
+        .json({ error: { message: 'Mention not found', code: 'NOT_FOUND' } });
+      return;
+    }
+
+    // Verify user owns the document this mention belongs to
+    const [doc] = await db
+      .select({ id: documents.id })
+      .from(documents)
+      .where(
+        and(
+          eq(documents.id, mention.documentId),
+          eq(documents.userId, req.user?.id as string),
+        ),
+      )
+      .limit(1);
+
+    if (!doc) {
       res
         .status(404)
         .json({ error: { message: 'Mention not found', code: 'NOT_FOUND' } });

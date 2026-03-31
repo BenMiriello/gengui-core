@@ -232,19 +232,31 @@ class GraphService {
   }
 
   private parseResult(result: unknown[]): QueryResult {
-    if (!Array.isArray(result) || result.length < 2) {
+    if (!Array.isArray(result) || result.length === 0) {
       return { headers: [], data: [], stats: {} };
     }
 
-    const headers = Array.isArray(result[0]) ? (result[0] as string[]) : [];
-    const data = Array.isArray(result[1]) ? (result[1] as unknown[][]) : [];
-    const statsArray = Array.isArray(result[2]) ? (result[2] as string[]) : [];
+    // FalkorDB returns [stats] for no-RETURN queries, [headers, data, stats] for RETURN queries.
+    // Stats are always the last element.
+    const lastElement = result[result.length - 1];
+    const statsArray = Array.isArray(lastElement)
+      ? (lastElement as string[])
+      : [];
+
+    const headers =
+      result.length >= 3 && Array.isArray(result[0])
+        ? (result[0] as string[])
+        : [];
+    const data =
+      result.length >= 3 && Array.isArray(result[1])
+        ? (result[1] as unknown[][])
+        : [];
 
     const stats: Record<string, string> = {};
     for (const stat of statsArray) {
-      const [key, value] = stat.split(':').map((s) => s.trim());
-      if (key && value) {
-        stats[key] = value;
+      const colonIdx = stat.indexOf(':');
+      if (colonIdx > 0) {
+        stats[stat.slice(0, colonIdx).trim()] = stat.slice(colonIdx + 1).trim();
       }
     }
 
@@ -1193,6 +1205,41 @@ class GraphService {
   }
 
   /**
+   * Get IDs of nodes that are about to be permanently deleted.
+   * Used by cleanup job to cascade deletion to mentions.
+   */
+  async getSoftDeletedNodeIds(beforeDate: Date): Promise<string[]> {
+    const threshold = beforeDate.toISOString();
+    const result = await this.query(
+      `
+      MATCH (n:StoryNode)
+      WHERE n.deletedAt IS NOT NULL AND n.deletedAt < $threshold
+      RETURN n.id as id
+      `,
+      { threshold },
+    );
+    return result.data.map((row) => row[0] as string);
+  }
+
+  /**
+   * Check which node IDs exist in FalkorDB (not soft-deleted).
+   */
+  async getExistingNodeIds(nodeIds: string[]): Promise<Set<string>> {
+    if (nodeIds.length === 0) return new Set();
+
+    const result = await this.query(
+      `
+      UNWIND $nodeIds AS nodeId
+      MATCH (n:StoryNode {id: nodeId})
+      WHERE n.deletedAt IS NULL
+      RETURN n.id as id
+      `,
+      { nodeIds },
+    );
+    return new Set(result.data.map((row) => row[0] as string));
+  }
+
+  /**
    * Cleanup soft-deleted nodes and connections older than the given date.
    * Returns count of deleted nodes.
    */
@@ -1953,11 +2000,9 @@ class GraphService {
     const checkCypher = `MATCH (c:StoryNode) WHERE c.id = $characterId RETURN c.id`;
     const checkResult = await this.query(checkCypher, { characterId });
     if (checkResult.data.length === 0) {
-      logger.error(
-        { characterId, arcId },
-        'HAS_ARC edge FAILED: StoryNode not found for characterId',
+      throw new Error(
+        `HAS_ARC edge failed: StoryNode not found for characterId=${characterId}, arcId=${arcId}`,
       );
-      return arcId;
     }
 
     const edgeCypher = `
@@ -1965,20 +2010,23 @@ class GraphService {
       WHERE c.id = $characterId AND a.id = $arcId
       CREATE (c)-[:HAS_ARC {createdAt: $now}]->(a)
     `;
-    const edgeResult = await this.query(edgeCypher, { characterId, arcId, now });
+    const edgeResult = await this.query(edgeCypher, {
+      characterId,
+      arcId,
+      now,
+    });
 
     const relCreated = Number(edgeResult.stats?.['Relationships created'] ?? 0);
     if (relCreated === 0) {
-      logger.error(
-        { characterId, arcId, stats: edgeResult.stats },
-        'HAS_ARC edge FAILED: MATCH succeeded but CREATE produced 0 relationships',
-      );
-    } else {
-      logger.info(
-        { arcId, characterId, arcType: input.arcType },
-        'Arc created with HAS_ARC edge in FalkorDB',
+      throw new Error(
+        `HAS_ARC edge failed: MATCH succeeded but CREATE produced 0 relationships for characterId=${characterId}, arcId=${arcId}`,
       );
     }
+
+    logger.info(
+      { arcId, characterId, arcType: input.arcType },
+      'Arc created with HAS_ARC edge in FalkorDB',
+    );
     return arcId;
   }
 
@@ -2000,13 +2048,19 @@ class GraphService {
         createdAt: $now
       }]->(to)
     `;
-    await this.query(cypher, {
+    const result = await this.query(cypher, {
       fromStateId,
       toStateId,
       triggerEventId: props.triggerEventId,
       gapDetected: props.gapDetected,
       now,
     });
+    const relCreated = Number(result.stats?.['Relationships created'] ?? 0);
+    if (relCreated === 0) {
+      throw new Error(
+        `CHANGES_TO edge failed: 0 relationships created for fromStateId=${fromStateId}, toStateId=${toStateId}`,
+      );
+    }
     logger.info(
       { fromStateId, toStateId, triggerEventId: props.triggerEventId },
       'CHANGES_TO edge created',
@@ -2027,7 +2081,13 @@ class GraphService {
       WHERE s.id = $stateId AND a.id = $arcId
       CREATE (a)-[:INCLUDES_STATE {order: $order, createdAt: $now}]->(s)
     `;
-    await this.query(cypher, { stateId, arcId, order, now });
+    const result = await this.query(cypher, { stateId, arcId, order, now });
+    const relCreated = Number(result.stats?.['Relationships created'] ?? 0);
+    if (relCreated === 0) {
+      throw new Error(
+        `INCLUDES_STATE edge failed: 0 relationships created for stateId=${stateId}, arcId=${arcId}`,
+      );
+    }
   }
 
   /**
@@ -2113,7 +2173,27 @@ class GraphService {
       WHERE c.id = $characterId AND s.id = $stateId
       CREATE (c)-[:HAS_STATE {createdAt: $now}]->(s)
     `;
-    await this.query(cypher, { characterId, stateId, now });
+    const result = await this.query(cypher, { characterId, stateId, now });
+    const relCreated = Number(result.stats?.['Relationships created'] ?? 0);
+    if (relCreated === 0) {
+      throw new Error(
+        `HAS_STATE edge failed: 0 relationships created for characterId=${characterId}, stateId=${stateId}`,
+      );
+    }
+  }
+
+  /**
+   * Get IDs of entities that have at least one fully-linked Arc (HAS_ARC + INCLUDES_STATE).
+   * Used by the frontend to decide which entities should show an arc button.
+   */
+  async getEntityIdsWithArcs(documentId: string): Promise<string[]> {
+    const cypher = `
+      MATCH (c:StoryNode {documentId: $documentId})-[:HAS_ARC]->(a:Arc)-[:INCLUDES_STATE]->(s:CharacterState)
+      WHERE a.deletedAt IS NULL AND s.deletedAt IS NULL
+      RETURN DISTINCT c.id
+    `;
+    const result = await this.query(cypher, { documentId });
+    return result.data.map((row) => row[0] as string);
   }
 
   /**

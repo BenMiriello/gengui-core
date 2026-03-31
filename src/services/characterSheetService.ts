@@ -30,6 +30,40 @@ import {
 import { s3 } from './s3';
 import { sseService } from './sse';
 
+const PHOTO_STYLE_PATTERN =
+  /\b(photo\w*|dslr|camera|studio\s+photography|hyperrealistic)\b/i;
+
+function isPhotoStyle(stylePrompt?: string | null): boolean {
+  if (!stylePrompt) return false;
+  return PHOTO_STYLE_PATTERN.test(stylePrompt);
+}
+
+type BackgroundType = 'white' | 'black' | 'transparent' | 'custom' | undefined;
+
+function getBackgroundPhrase(
+  background: BackgroundType,
+  customBg: string | undefined,
+  stylePrompt?: string | null,
+): string | null {
+  const photo = isPhotoStyle(stylePrompt);
+  switch (background) {
+    case 'white':
+      return photo
+        ? 'Studio white backdrop, clean seamless background, studio lighting.'
+        : 'White background, isolated subject.';
+    case 'black':
+      return photo
+        ? 'Studio black backdrop, clean seamless background, dramatic lighting.'
+        : 'Black background, isolated subject.';
+    case 'transparent':
+      return 'Transparent background, isolated subject.';
+    case 'custom':
+      return customBg ? `Background: ${customBg}` : null;
+    default:
+      return null;
+  }
+}
+
 interface GenerateCharacterSheetParams {
   nodeId: string;
   userId: string;
@@ -37,6 +71,7 @@ interface GenerateCharacterSheetParams {
   aspectRatio?: AspectRatio;
   stylePreset?: string | null;
   stylePrompt?: string | null;
+  negativePrompt?: string | null;
   cursorPosition?: number;
 }
 
@@ -51,6 +86,7 @@ export const characterSheetService = {
     aspectRatio,
     stylePreset,
     stylePrompt,
+    negativePrompt,
     cursorPosition,
   }: GenerateCharacterSheetParams) {
     // Fetch node and verify ownership from FalkorDB
@@ -167,13 +203,15 @@ export const characterSheetService = {
 
     // Submit to image generation provider
     const provider = await getImageProvider();
+    const seed = Math.floor(Math.random() * 1000000);
     await provider.submitJob({
       mediaId: newMedia.id,
       userId,
       prompt,
-      seed: Math.floor(Math.random() * 1000000),
+      seed,
       width,
       height,
+      ...(negativePrompt ? { negativePrompt } : {}),
     });
 
     logger.info(
@@ -239,28 +277,15 @@ export const characterSheetService = {
     }
 
     // Add background
-    if (settings.background === 'white') {
-      parts.push(
-        'Plain white background, no other elements, isolated subject.',
-      );
-    } else if (settings.background === 'black') {
-      parts.push(
-        'Plain black background, no other elements, isolated subject.',
-      );
-    } else if (settings.background === 'transparent') {
-      parts.push('Transparent background, isolated subject, no environment.');
-    } else if (settings.background === 'custom' && settings.backgroundCustom) {
-      parts.push(`Background: ${settings.backgroundCustom}`);
-    }
+    const bgPhrase = getBackgroundPhrase(
+      settings.background,
+      settings.backgroundCustom,
+      stylePrompt,
+    );
+    if (bgPhrase) parts.push(bgPhrase);
 
-    // Quality hints - only add generic ones if no style prompt provided
-    if (stylePrompt) {
-      parts.push('Clear lighting, detailed, high quality.');
-    } else {
-      parts.push(
-        'Reference sheet style, clear lighting, detailed, high quality.',
-      );
-    }
+    // Quality hints
+    parts.push('Well-lit, detailed, high quality.');
 
     return parts.join(' ');
   },
@@ -419,28 +444,15 @@ export const characterSheetService = {
     }
 
     // Add background
-    if (settings.background === 'white') {
-      parts.push(
-        'Plain white background, no other elements, isolated subject.',
-      );
-    } else if (settings.background === 'black') {
-      parts.push(
-        'Plain black background, no other elements, isolated subject.',
-      );
-    } else if (settings.background === 'transparent') {
-      parts.push('Transparent background, isolated subject, no environment.');
-    } else if (settings.background === 'custom' && settings.backgroundCustom) {
-      parts.push(`Background: ${settings.backgroundCustom}`);
-    }
+    const bgPhrase = getBackgroundPhrase(
+      settings.background,
+      settings.backgroundCustom,
+      stylePrompt,
+    );
+    if (bgPhrase) parts.push(bgPhrase);
 
     // Quality hints
-    if (stylePrompt) {
-      parts.push('Clear lighting, detailed, high quality.');
-    } else {
-      parts.push(
-        'Reference sheet style, clear lighting, detailed, high quality.',
-      );
-    }
+    parts.push('Well-lit, detailed, high quality.');
 
     return parts.join(' ');
   },
@@ -664,7 +676,13 @@ Example: ["tall with brown hair", "wearing armor", "visible scar on cheek"]`;
     const VISUAL_INFERENCE_TIMEOUT_MS = 3000;
 
     try {
-      const inferencePromise = client.models.generateContent({
+      const abortController = new AbortController();
+      const timeoutId = setTimeout(
+        () => abortController.abort(),
+        VISUAL_INFERENCE_TIMEOUT_MS,
+      );
+
+      const result = await client.models.generateContent({
         model: 'gemini-2.5-flash',
         contents: prompt,
         config: {
@@ -673,17 +691,11 @@ Example: ["tall with brown hair", "wearing armor", "visible scar on cheek"]`;
             type: GeminiType.ARRAY,
             items: { type: GeminiType.STRING },
           },
+          abortSignal: abortController.signal,
         },
       });
 
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(
-          () => reject(new Error('Visual inference timeout')),
-          VISUAL_INFERENCE_TIMEOUT_MS,
-        );
-      });
-
-      const result = await Promise.race([inferencePromise, timeoutPromise]);
+      clearTimeout(timeoutId);
 
       const text = result.text?.trim();
       if (!text) {
@@ -699,7 +711,8 @@ Example: ["tall with brown hair", "wearing armor", "visible scar on cheek"]`;
       return parsed;
     } catch (error) {
       const isTimeout =
-        error instanceof Error && error.message === 'Visual inference timeout';
+        (error instanceof Error && error.name === 'AbortError') ||
+        (error instanceof DOMException && error.name === 'AbortError');
       logger.warn(
         { error, entityName, position, isTimeout },
         isTimeout

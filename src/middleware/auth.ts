@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import * as Sentry from '@sentry/node';
 import type { NextFunction, Request, Response } from 'express';
 import { authService } from '../services/auth';
 import { UnauthorizedError } from '../utils/errors';
@@ -30,6 +31,7 @@ export async function requireAuth(
 
     req.user = user;
     req.sessionId = sessionId;
+    Sentry.setUser({ id: user.id, email: user.email, username: user.username });
     logger.debug({ userId: user.id, sessionId }, 'User authenticated');
     next();
   } catch (error) {
@@ -46,7 +48,7 @@ export function requireEmailVerified(customMessage?: string) {
         error: {
           message: customMessage || 'Email verification required',
           code: 'EMAIL_NOT_VERIFIED',
-          details: { action: 'verify_email', email: user?.email },
+          details: { action: 'verify_email' },
         },
       });
       return;

@@ -13,6 +13,8 @@ export interface GenerationInput {
   width: number;
   height: number;
   stylePrompt?: string;
+  negativePrompt?: string;
+  guidanceScale?: number;
   referenceImages?: ReferenceImage[];
 }
 
