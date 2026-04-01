@@ -282,7 +282,10 @@ router.delete(
       const id = parseStringParam(req.params.id, 'id');
 
       // Cancel any active analysis before deleting
-      const activeJob = await jobService.getActiveForTarget(id);
+      const activeJob = await jobService.getActiveForTarget(
+        'document_analysis',
+        id,
+      );
       if (activeJob) {
         await jobService.updateStatus(activeJob.id, 'cancelled');
       }
