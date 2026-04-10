@@ -20,8 +20,8 @@ export type SSEEventName =
   | 'media-uploaded'
   | 'media-deleted'
   | 'media-update'
-  // Character arc events
-  | 'character-arc-updated'
+  // Entity arc events
+  | 'entity-arc-updated'
   // Activity events
   | 'activity-created'
   | 'activity-updated'
@@ -92,9 +92,9 @@ export interface MediaDeletedEvent {
   nodeId?: string;
 }
 
-export interface CharacterArcUpdatedEvent {
+export interface EntityArcUpdatedEvent {
   documentId: string;
-  characterIds: string[];
+  entityIds: string[];
 }
 
 export interface ActivityCreatedEvent {
@@ -163,7 +163,7 @@ export const EVENT_INVALIDATION_MAP: Record<
   ],
   'media-update': [['documents', ':documentId', 'media']],
 
-  'character-arc-updated': [['documents', ':documentId', 'characterArc']],
+  'entity-arc-updated': [['documents', ':documentId', 'entityArc']],
 
   'activity-created': [['activities']],
   'activity-updated': [['activities'], ['activities', ':activityId']],

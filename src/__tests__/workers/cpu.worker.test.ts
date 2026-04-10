@@ -22,7 +22,7 @@ describe('cpu.worker', () => {
           [0, 1, 0],
           [0, 0, 1],
         ],
-        types: ['character', 'character', 'character'],
+        types: ['person', 'person', 'person'],
         threshold: 0.85,
       });
       expect(result).toEqual([]);
@@ -35,7 +35,7 @@ describe('cpu.worker', () => {
           [0.99, 0.1, 0],
           [0, 1, 0],
         ],
-        types: ['character', 'character', 'character'],
+        types: ['person', 'person', 'person'],
         threshold: 0.85,
       });
       expect(result.length).toBe(1);
@@ -50,7 +50,7 @@ describe('cpu.worker', () => {
           [1, 0, 0],
           [1, 0, 0],
         ],
-        types: ['character', 'location'],
+        types: ['person', 'place'],
         threshold: 0.5,
       });
       expect(result).toEqual([]);
@@ -59,7 +59,7 @@ describe('cpu.worker', () => {
     test('handles null embeddings', () => {
       const result = findMergeCandidates({
         embeddings: [[1, 0, 0], null, [1, 0, 0]],
-        types: ['character', 'character', 'character'],
+        types: ['person', 'person', 'person'],
         threshold: 0.5,
       });
       expect(result.length).toBe(1);
@@ -74,7 +74,7 @@ describe('cpu.worker', () => {
           [0.9, 0.1, 0],
           [0.99, 0.01, 0],
         ],
-        types: ['character', 'character', 'character'],
+        types: ['person', 'person', 'person'],
         threshold: 0.8,
       });
       // With embeddings [1,0,0], [0.9,0.1,0], [0.99,0.01,0] and threshold 0.8:
@@ -103,7 +103,7 @@ describe('cpu.worker', () => {
           [0, 1, 0],
           [0, 0, 1],
         ],
-        types: ['character', 'character', 'character'],
+        types: ['person', 'person', 'person'],
       });
       expect(result[0][0]).toBe(1);
       expect(result[1][1]).toBe(1);
@@ -117,7 +117,7 @@ describe('cpu.worker', () => {
           [0.5, 0.5, 0],
           [0, 0, 1],
         ],
-        types: ['character', 'character', 'character'],
+        types: ['person', 'person', 'person'],
       });
       expect(result[0][1]).toBe(result[1][0]);
       expect(result[0][2]).toBe(result[2][0]);
@@ -130,7 +130,7 @@ describe('cpu.worker', () => {
           [1, 0, 0],
           [1, 0, 0],
         ],
-        types: ['character', 'location'],
+        types: ['person', 'place'],
       });
       expect(result[0][1]).toBe(0);
       expect(result[1][0]).toBe(0);
@@ -139,7 +139,7 @@ describe('cpu.worker', () => {
     test('handles null embeddings', () => {
       const result = computeSimilarityMatrix({
         embeddings: [[1, 0, 0], null, [1, 0, 0]],
-        types: ['character', 'character', 'character'],
+        types: ['person', 'person', 'person'],
       });
       expect(result[0][1]).toBe(0);
       expect(result[1][0]).toBe(0);

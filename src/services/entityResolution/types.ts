@@ -5,7 +5,7 @@
  * Replaces per-entity LLM calls with algorithmic clustering.
  */
 
-import type { FacetInput, StoryNodeType } from '../../types/storyNodes';
+import type { FacetInput, NodeType } from '../../types/entities';
 
 // ========== Signal Weights ==========
 
@@ -23,15 +23,17 @@ export const DEFAULT_WEIGHTS: SignalWeights = {
   graph: 0.1,
 };
 
-export const WEIGHTS_BY_TYPE: Record<StoryNodeType, SignalWeights> = {
-  character: { embedding: 0.5, name: 0.3, type: 0.1, graph: 0.1 },
-  location: { embedding: 0.4, name: 0.4, type: 0.1, graph: 0.1 },
+export const WEIGHTS_BY_TYPE: Record<NodeType, SignalWeights> = {
+  person: { embedding: 0.5, name: 0.3, type: 0.1, graph: 0.1 },
+  place: { embedding: 0.4, name: 0.4, type: 0.1, graph: 0.1 },
   event: { embedding: 0.55, name: 0.2, type: 0.1, graph: 0.15 },
   concept: { embedding: 0.6, name: 0.15, type: 0.1, graph: 0.15 },
   object: { embedding: 0.4, name: 0.4, type: 0.1, graph: 0.1 },
-  other: { embedding: 0.5, name: 0.3, type: 0.1, graph: 0.1 },
-  character_state: { embedding: 0.5, name: 0.3, type: 0.1, graph: 0.1 },
+  group: { embedding: 0.5, name: 0.3, type: 0.1, graph: 0.1 },
+  arc_state: { embedding: 0.5, name: 0.3, type: 0.1, graph: 0.1 },
   arc: { embedding: 0.5, name: 0.3, type: 0.1, graph: 0.1 },
+  thread: { embedding: 0.5, name: 0.3, type: 0.1, graph: 0.1 },
+  motif: { embedding: 0.5, name: 0.3, type: 0.1, graph: 0.1 },
 };
 
 // ========== Thresholds ==========
@@ -52,7 +54,7 @@ export const DEFAULT_THRESHOLDS: ResolutionThresholds = {
 
 export interface EntityCandidate {
   name: string;
-  type: StoryNodeType;
+  type: NodeType;
   embedding: number[];
   facets: FacetInput[];
   mentions: Array<{ text: string; segmentId?: string }>;
@@ -90,7 +92,7 @@ export interface ScoredCandidate {
 
 export interface EntityCluster {
   primaryName: string;
-  type: StoryNodeType;
+  type: NodeType;
   aliases: string[];
   members: EntityCandidate[];
   mergedEmbedding: number[];

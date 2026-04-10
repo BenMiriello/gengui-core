@@ -7,7 +7,7 @@
 import { eq } from 'drizzle-orm';
 import { db } from '../../config/database';
 import { documents } from '../../models/schema';
-import type { FacetType, StoryNodeType } from '../../types/storyNodes';
+import type { FacetType, NodeType } from '../../types/entities';
 import { logger } from '../../utils/logger';
 import type { AnalysisStage } from './stages';
 
@@ -50,7 +50,7 @@ export interface AnalysisCheckpoint {
     extractedEntities: Array<{
       segmentId: string;
       name: string;
-      type: StoryNodeType;
+      type: NodeType;
       documentOrder?: number;
       facets: Array<{ type: FacetType; content: string }>;
       mentions: Array<{ text: string }>;
@@ -66,7 +66,7 @@ export interface AnalysisCheckpoint {
     extractedEntities: Array<{
       segmentId: string;
       name: string;
-      type: StoryNodeType;
+      type: NodeType;
       documentOrder?: number;
       facets: Array<{ type: FacetType; content: string }>;
       mentions: Array<{ text: string }>;

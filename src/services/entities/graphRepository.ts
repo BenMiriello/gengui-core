@@ -4,31 +4,31 @@
 
 import { randomUUID } from 'node:crypto';
 import type {
+  ConnectionResult,
   ConnectionUpdate,
+  EntityFacetResult,
+  EntityMention,
   EntityResolutionResult,
+  EntityResult,
+  EntityUpdate,
   EventRange,
   FacetInput,
-  NarrativeThreadResult,
-  NodeUpdate,
   ResolvedEntity,
-  StoryConnectionResult,
-  StoryNodeFacetResult,
-  StoryNodeMention,
-  StoryNodeResult,
   TextPosition,
-} from '../../types/storyNodes';
+  ThreadResult,
+} from '../../types/entities';
 import { logger } from '../../utils/logger';
 import { buildEmbeddingText, generateEmbedding } from '../embeddings';
-import { graphService, type StoredStoryNode } from '../graph/graph.service';
+import { graphService, type StoredEntity } from '../graph/graph.service';
 import { fuzzyFindText, mentionService } from '../mentions';
 import { type Segment, segmentService } from '../segments';
 
 interface CreateNodesParams {
   userId: string;
   documentId: string;
-  nodes: StoryNodeResult[];
-  connections: StoryConnectionResult[];
-  narrativeThreads?: NarrativeThreadResult[];
+  nodes: EntityResult[];
+  connections: ConnectionResult[];
+  narrativeThreads?: ThreadResult[];
   documentContent: string;
   segments: Segment[];
   versionNumber: number;
@@ -38,9 +38,9 @@ interface CreateNodesParams {
 interface CreateNodesWithFacetsParams {
   userId: string;
   documentId: string;
-  nodes: StoryNodeFacetResult[];
-  connections: StoryConnectionResult[];
-  narrativeThreads?: NarrativeThreadResult[];
+  nodes: EntityFacetResult[];
+  connections: ConnectionResult[];
+  narrativeThreads?: ThreadResult[];
   documentContent: string;
   segments: Segment[];
   versionNumber: number;
@@ -48,7 +48,7 @@ interface CreateNodesWithFacetsParams {
 }
 
 interface CreateConnectionsParams {
-  connections: StoryConnectionResult[];
+  connections: ConnectionResult[];
   nodeNameToId: Map<string, string>;
 }
 
@@ -60,14 +60,14 @@ interface ApplyUpdatesParams {
   versionNumber: number;
   existingNodes: Array<{ id: string; name: string }>;
   updates: {
-    add: StoryNodeResult[];
-    update: NodeUpdate[];
+    add: EntityResult[];
+    update: EntityUpdate[];
     delete: string[];
     connectionUpdates: {
       add: ConnectionUpdate[];
       delete: { fromId: string; toId: string }[];
     };
-    narrativeThreads?: NarrativeThreadResult[];
+    narrativeThreads?: ThreadResult[];
   };
   documentStyle?: { preset: string | null; prompt: string | null };
 }
@@ -174,7 +174,7 @@ export async function selectEntitiesForContext(
   }> = [];
 
   for (const id of entityIds) {
-    const node = await graphService.getStoryNodeByIdInternal(id);
+    const node = await graphService.getEntityByIdInternal(id);
     if (!node) continue;
 
     const facets = await graphService.getFacetsForEntity(id);
@@ -216,12 +216,12 @@ export async function selectEntitiesForContext(
   return selected.map(({ relevanceScore, ...rest }) => rest);
 }
 
-export const graphStoryNodesRepository = {
+export const graphEntitiesRepository = {
   async getActiveNodes(
     documentId: string,
     userId: string,
-  ): Promise<StoredStoryNode[]> {
-    return graphService.getStoryNodesForDocument(documentId, userId);
+  ): Promise<StoredEntity[]> {
+    return graphService.getEntitiesForDocument(documentId, userId);
   },
 
   async createNodes({
@@ -238,7 +238,7 @@ export const graphStoryNodesRepository = {
     const nodeNameToId = new Map<string, string>();
 
     for (const nodeData of nodes) {
-      const nodeId = await graphService.createStoryNode(
+      const nodeId = await graphService.createEntity(
         documentId,
         userId,
         nodeData,
@@ -299,7 +299,7 @@ export const graphStoryNodesRepository = {
 
       // Build embedding text from stored node + extraction mentions
       try {
-        const storedNode = await graphService.getStoryNodeByIdInternal(nodeId);
+        const storedNode = await graphService.getEntityByIdInternal(nodeId);
         if (storedNode) {
           const extractionMentions = await mentionService.getByNodeIdAndSource(
             nodeId,
@@ -320,7 +320,7 @@ export const graphStoryNodesRepository = {
     // Create narrative threads
     if (narrativeThreads?.length) {
       for (const thread of narrativeThreads) {
-        const threadId = await graphService.createNarrativeThread(
+        const threadId = await graphService.createThread(
           documentId,
           userId,
           thread,
@@ -364,7 +364,7 @@ export const graphStoryNodesRepository = {
       const mainName = deriveMainNameFromFacets(nodeData.facets, nodeData.name);
 
       // Create the entity node (without aliases - facets replace them)
-      const entityNodeResult: StoryNodeResult = {
+      const entityNodeResult: EntityResult = {
         type: nodeData.type,
         name: mainName,
         description,
@@ -374,7 +374,7 @@ export const graphStoryNodesRepository = {
         eventRanges: nodeData.eventRanges,
       };
 
-      const nodeId = await graphService.createStoryNode(
+      const nodeId = await graphService.createEntity(
         documentId,
         userId,
         entityNodeResult,
@@ -480,19 +480,19 @@ export const graphStoryNodesRepository = {
     }
 
     // Create connections with typed edges
-    const storyConnections: StoryConnectionResult[] = connections.map((c) => ({
+    const mappedConnections: ConnectionResult[] = connections.map((c) => ({
       ...c,
       edgeType: c.edgeType || 'RELATED_TO',
     }));
     await this.createConnections({
-      connections: storyConnections,
+      connections: mappedConnections,
       nodeNameToId,
     });
 
     // Create narrative threads
     if (narrativeThreads?.length) {
       for (const thread of narrativeThreads) {
-        const threadId = await graphService.createNarrativeThread(
+        const threadId = await graphService.createThread(
           documentId,
           userId,
           thread,
@@ -520,7 +520,7 @@ export const graphStoryNodesRepository = {
 
       if (fromId && toId) {
         try {
-          await graphService.createStoryConnection(
+          await graphService.createConnection(
             fromId,
             toId,
             connData.edgeType || 'RELATED_TO',
@@ -571,7 +571,7 @@ export const graphStoryNodesRepository = {
     documentId: string,
     userId: string,
   ): Promise<void> {
-    await graphService.deleteAllStoryNodesForDocument(documentId, userId);
+    await graphService.deleteAllEntitiesForDocument(documentId, userId);
   },
 
   /**
@@ -587,12 +587,12 @@ export const graphStoryNodesRepository = {
   async resolveEntities(
     documentId: string,
     userId: string,
-    candidates: StoryNodeResult[],
-    existingNodes: StoredStoryNode[],
+    candidates: EntityResult[],
+    existingNodes: StoredEntity[],
   ): Promise<EntityResolutionResult> {
     const resolved: ResolvedEntity[] = [];
-    const existingNodesByNameLower = new Map<string, StoredStoryNode>();
-    const existingNodesByAliasLower = new Map<string, StoredStoryNode>();
+    const existingNodesByNameLower = new Map<string, StoredEntity>();
+    const existingNodesByAliasLower = new Map<string, StoredEntity>();
 
     for (const node of existingNodes) {
       existingNodesByNameLower.set(node.name.toLowerCase(), node);
@@ -637,7 +637,7 @@ export const graphStoryNodesRepository = {
       }
 
       // 2b. Check if any candidate alias matches an existing node name
-      let foundAliasMatch: StoredStoryNode | undefined;
+      let foundAliasMatch: StoredEntity | undefined;
       if (candidate.aliases) {
         for (const alias of candidate.aliases) {
           const match = existingNodesByNameLower.get(alias.toLowerCase());
@@ -752,7 +752,7 @@ export const graphStoryNodesRepository = {
 
     // 1. Soft delete nodes and their mentions
     for (const nodeId of updates.delete) {
-      await graphService.softDeleteStoryNode(nodeId);
+      await graphService.softDeleteEntity(nodeId);
       await mentionService.deleteByNodeId(nodeId);
       deleted++;
     }
@@ -780,7 +780,7 @@ export const graphStoryNodesRepository = {
         );
       }
 
-      await graphService.updateStoryNode(update.id, updateFields);
+      await graphService.updateEntity(update.id, updateFields);
       updated++;
 
       // Update mentions if mentions changed
@@ -795,7 +795,7 @@ export const graphStoryNodesRepository = {
         );
 
         // Run name matching for updated nodes
-        const node = await graphService.getStoryNodeByIdInternal(update.id);
+        const node = await graphService.getEntityByIdInternal(update.id);
         const nodeName = update.name !== undefined ? update.name : node?.name;
         const aliases =
           update.aliases !== undefined ? update.aliases : node?.aliases;
@@ -831,7 +831,7 @@ export const graphStoryNodesRepository = {
       // Re-embed if name or description changed
       if (update.name !== undefined || update.description !== undefined) {
         try {
-          const node = await graphService.getStoryNodeByIdInternal(update.id);
+          const node = await graphService.getEntityByIdInternal(update.id);
           if (node) {
             const extractionMentions =
               await mentionService.getByNodeIdAndSource(
@@ -853,7 +853,7 @@ export const graphStoryNodesRepository = {
 
     // 3. Add new nodes
     for (const nodeData of updates.add) {
-      const nodeId = await graphService.createStoryNode(
+      const nodeId = await graphService.createEntity(
         documentId,
         userId,
         nodeData,
@@ -919,7 +919,7 @@ export const graphStoryNodesRepository = {
 
       // Build embedding text from stored node + extraction mentions
       try {
-        const storedNode = await graphService.getStoryNodeByIdInternal(nodeId);
+        const storedNode = await graphService.getEntityByIdInternal(nodeId);
         if (storedNode) {
           const extractionMentions = await mentionService.getByNodeIdAndSource(
             nodeId,
@@ -936,10 +936,7 @@ export const graphStoryNodesRepository = {
 
     // 4. Handle connection deletes
     for (const connDel of updates.connectionUpdates.delete) {
-      await graphService.softDeleteStoryConnection(
-        connDel.fromId,
-        connDel.toId,
-      );
+      await graphService.softDeleteConnection(connDel.fromId, connDel.toId);
     }
 
     // 5. Handle connection adds
@@ -954,7 +951,7 @@ export const graphStoryNodesRepository = {
         newNodeIds.get(connAdd.toName || '');
 
       if (fromId && toId) {
-        await graphService.createStoryConnection(
+        await graphService.createConnection(
           fromId,
           toId,
           connAdd.edgeType || 'RELATED_TO',
@@ -973,7 +970,7 @@ export const graphStoryNodesRepository = {
     // 6. Handle narrative threads
     if (updates.narrativeThreads?.length) {
       for (const thread of updates.narrativeThreads) {
-        const threadId = await graphService.createNarrativeThread(
+        const threadId = await graphService.createThread(
           documentId,
           userId,
           thread,
@@ -991,13 +988,13 @@ export const graphStoryNodesRepository = {
   },
 
   async getConnectionsForDocument(documentId: string) {
-    return graphService.getStoryConnectionsForDocument(documentId);
+    return graphService.getConnectionsForDocument(documentId);
   },
 };
 
 function processPassage(
   content: string,
-  passage: StoryNodeMention,
+  passage: EntityMention,
 ): TextPosition | { text: string } {
   // Try exact match first (fast path)
   const exactIndex = content.indexOf(passage.text);
@@ -1076,7 +1073,7 @@ function validateNearMatch(
   return true;
 }
 
-export function parsePassages(mentions: unknown): StoryNodeMention[] {
+export function parsePassages(mentions: unknown): EntityMention[] {
   if (!mentions) return [];
   try {
     const parsed =
@@ -1218,7 +1215,7 @@ async function updateDocumentOrderFromMentions(
   const firstPosition = await mentionService.getFirstPosition(nodeId, segments);
 
   if (firstPosition !== null) {
-    await graphService.updateStoryNode(nodeId, {
+    await graphService.updateEntity(nodeId, {
       documentOrder: firstPosition,
     });
     logger.debug(

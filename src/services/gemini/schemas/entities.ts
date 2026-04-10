@@ -19,17 +19,14 @@ const EDGE_TYPE_ENUM = [
   'ENABLES',
   'PREVENTS',
   'HAPPENS_BEFORE',
-  // Layer 3 (structural/relational)
+  // Structural/relational
   'PARTICIPATES_IN',
   'LOCATED_AT',
   'PART_OF',
   'MEMBER_OF',
-  'POSSESSES',
   'CONNECTED_TO',
   'OPPOSES',
   'ABOUT',
-  // System
-  'BELONGS_TO_THREAD',
   // Fallback
   'RELATED_TO',
 ];
@@ -48,7 +45,7 @@ const nodeSchema = {
   properties: {
     type: {
       type: GeminiType.STRING,
-      enum: ['character', 'location', 'event', 'concept', 'object', 'other'],
+      enum: ['person', 'place', 'event', 'concept', 'object'],
     },
     name: { type: GeminiType.STRING },
     description: { type: GeminiType.STRING },
@@ -109,7 +106,7 @@ const entityBaseSchema = {
     name: { type: GeminiType.STRING },
     type: {
       type: GeminiType.STRING,
-      enum: ['character', 'location', 'event', 'concept', 'object', 'other'],
+      enum: ['person', 'place', 'event', 'concept', 'object'],
     },
     segmentId: { type: GeminiType.STRING },
     documentOrder: { type: GeminiType.INTEGER, nullable: true },
@@ -381,12 +378,12 @@ const narrativeThreadOutputSchema = {
 
 /**
  * Flattened arc phase schema to avoid Gemini depth limits.
- * Uses characterId + phaseIndex as composite key.
+ * Uses entityId + phaseIndex as composite key for arc phase grouping.
  */
 const arcPhaseSchema = {
   type: GeminiType.OBJECT,
   properties: {
-    characterId: { type: GeminiType.STRING },
+    entityId: { type: GeminiType.STRING },
     phaseIndex: { type: GeminiType.INTEGER },
     phaseName: { type: GeminiType.STRING },
     arcType: {
@@ -399,13 +396,7 @@ const arcPhaseSchema = {
       items: { type: GeminiType.STRING },
     },
   },
-  required: [
-    'characterId',
-    'phaseIndex',
-    'phaseName',
-    'arcType',
-    'stateFacets',
-  ],
+  required: ['entityId', 'phaseIndex', 'phaseName', 'arcType', 'stateFacets'],
 };
 
 export const stage5HigherOrderSchema = {

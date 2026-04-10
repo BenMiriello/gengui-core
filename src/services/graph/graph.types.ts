@@ -1,19 +1,19 @@
 import type {
   ArcType,
+  EdgeType,
   FacetType,
-  StoryEdgeType,
-  StoryNodeType,
-} from '../../types/storyNodes';
+  NodeType,
+} from '../../types/entities';
 
 export interface NodeProperties {
   [key: string]: string | number | boolean | null;
 }
 
-export interface StoredStoryNode {
+export interface StoredEntity {
   id: string;
   documentId: string;
   userId: string;
-  type: StoryNodeType;
+  type: NodeType;
   name: string;
   description: string | null;
   aliases: string[] | null;
@@ -27,11 +27,11 @@ export interface StoredStoryNode {
   deletedAt: string | null;
 }
 
-export interface StoredStoryConnection {
+export interface StoredConnection {
   id: string;
   fromNodeId: string;
   toNodeId: string;
-  edgeType: StoryEdgeType;
+  edgeType: EdgeType;
   description: string | null;
   strength: number | null;
   narrativeDistance: number | null;
@@ -45,7 +45,7 @@ export interface QueryResult {
   stats: Record<string, string>;
 }
 
-export interface NarrativeThread {
+export interface StoredThread {
   id: string;
   documentId: string;
   userId: string;
@@ -72,7 +72,7 @@ export interface ThreadDetectionResult {
   suggestedName?: string;
 }
 
-export const CAUSAL_EDGE_TYPES: StoryEdgeType[] = [
+export const CAUSAL_EDGE_TYPES: EdgeType[] = [
   'CAUSES',
   'ENABLES',
   'PREVENTS',
@@ -90,11 +90,11 @@ export interface StoredFacet {
   deletedAt: string | null;
 }
 
-// ========== Character Arc Types ==========
+// ========== Arc Types ==========
 
-export interface StoredCharacterState {
+export interface StoredArcState {
   id: string;
-  characterId: string;
+  entityId: string;
   name: string;
   phaseIndex: number;
   documentOrder: number;
@@ -107,7 +107,7 @@ export interface StoredCharacterState {
 
 export interface StoredArc {
   id: string;
-  characterId: string;
+  entityId: string;
   name: string;
   arcType: ArcType;
   summary: string | null;

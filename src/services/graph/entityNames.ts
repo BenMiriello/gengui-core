@@ -253,7 +253,7 @@ export async function recomputeAndUpdatePrimaryName(
 ): Promise<string> {
   const primaryName = await computePrimaryName(entityId);
 
-  await graphService.updateStoryNode(entityId, { name: primaryName });
+  await graphService.updateEntity(entityId, { name: primaryName });
 
   logger.info({ entityId, primaryName }, 'Recomputed and updated primary name');
 

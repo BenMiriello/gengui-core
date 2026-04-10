@@ -172,8 +172,8 @@ export function scoreTypeMatch(
 
   // Compatible types (character and character_state)
   if (
-    (candidateType === 'character' && existingType === 'character_state') ||
-    (candidateType === 'character_state' && existingType === 'character')
+    (candidateType === 'person' && existingType === 'arc_state') ||
+    (candidateType === 'arc_state' && existingType === 'person')
   ) {
     return 0.8;
   }

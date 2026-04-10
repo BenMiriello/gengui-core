@@ -335,7 +335,7 @@ export class DocumentsService {
       doc.narrativeModeEnabled && doc.lastAnalyzedVersion !== null;
     if (hasAnalysis) {
       const result = await graphService.query(
-        `MATCH (n:StoryNode {documentId: $documentId}) RETURN count(n) as count`,
+        `MATCH (n:Entity {documentId: $documentId}) RETURN count(n) as count`,
         { documentId },
       );
       entityCount = (result.data[0]?.[0] as number) || 0;

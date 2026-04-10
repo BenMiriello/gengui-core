@@ -13,7 +13,7 @@ import type { ReferenceImage } from '../image-generation/types';
 import { s3 } from '../s3';
 import type { EntityDescription, EntityReferences } from './promptBuilder';
 
-const ENTITY_TYPES = ['character', 'location', 'other'] as const;
+const ENTITY_TYPES = ['person', 'place', 'object'] as const;
 
 export interface EntityReferenceData {
   images: ReferenceImage[];
@@ -26,7 +26,7 @@ export async function fetchEntityReferenceData(
   entityRefs: EntityReferences,
   selectedText: string,
 ): Promise<EntityReferenceData> {
-  const allNodes = await graphService.getStoryNodesForDocument(
+  const allNodes = await graphService.getEntitiesForDocument(
     documentId,
     userId,
   );
@@ -169,9 +169,9 @@ function extractEntityDescriptions(
 
 function mapNodeTypeToEntityType(
   nodeType: string,
-): 'character' | 'location' | 'object' {
-  if (nodeType === 'character') return 'character';
-  if (nodeType === 'location') return 'location';
+): 'person' | 'place' | 'object' {
+  if (nodeType === 'person') return 'person';
+  if (nodeType === 'place') return 'place';
   return 'object';
 }
 

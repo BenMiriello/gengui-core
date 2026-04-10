@@ -16,10 +16,10 @@ import {
   truncateAll,
 } from '../helpers';
 import {
-  clearMockStoryNodes,
+  clearMockEntitys,
   clearRedisStore,
   clearStorageData,
-  setMockStoryNode,
+  setMockEntity,
   startTestServer,
   stopTestServer,
 } from '../helpers/testApp';
@@ -43,7 +43,7 @@ describe('Node Ownership', () => {
     resetDocumentCounter();
     clearRedisStore();
     clearStorageData();
-    clearMockStoryNodes();
+    clearMockEntitys();
   });
 
   describe('Node access via document ownership', () => {
@@ -52,11 +52,11 @@ describe('Node Ownership', () => {
       const doc = await createTestDocument(user.id);
 
       const nodeId = randomUUID();
-      setMockStoryNode(nodeId, {
+      setMockEntity(nodeId, {
         id: nodeId,
         documentId: doc.id,
         userId: user.id,
-        type: 'character',
+        type: 'person',
         name: 'My Character',
         description: null,
         aliases: [],
@@ -92,11 +92,11 @@ describe('Node Ownership', () => {
       const doc = await createTestDocument(owner.id);
 
       const nodeId = randomUUID();
-      setMockStoryNode(nodeId, {
+      setMockEntity(nodeId, {
         id: nodeId,
         documentId: doc.id,
         userId: owner.id,
-        type: 'character',
+        type: 'person',
         name: 'Protected Character',
         description: 'Secret info',
         aliases: [],
@@ -133,11 +133,11 @@ describe('Node Ownership', () => {
       const doc = await createTestDocument(owner.id);
 
       const nodeId = randomUUID();
-      setMockStoryNode(nodeId, {
+      setMockEntity(nodeId, {
         id: nodeId,
         documentId: doc.id,
         userId: owner.id,
-        type: 'location',
+        type: 'place',
         name: 'Secret Location',
         description: null,
         aliases: [],
@@ -176,11 +176,11 @@ describe('Node Ownership', () => {
       const doc = await createTestDocument(owner.id);
 
       const nodeId = randomUUID();
-      setMockStoryNode(nodeId, {
+      setMockEntity(nodeId, {
         id: nodeId,
         documentId: doc.id,
         userId: owner.id,
-        type: 'character',
+        type: 'person',
         name: 'Protected Character',
         description: null,
         aliases: [],
@@ -223,11 +223,11 @@ describe('Node Ownership', () => {
       const nodeId1 = randomUUID();
       const nodeId2 = randomUUID();
 
-      setMockStoryNode(nodeId1, {
+      setMockEntity(nodeId1, {
         id: nodeId1,
         documentId: doc1.id,
         userId: user1.id,
-        type: 'character',
+        type: 'person',
         name: 'John',
         description: 'User 1 version',
         aliases: [],
@@ -239,11 +239,11 @@ describe('Node Ownership', () => {
         deletedAt: null,
       });
 
-      setMockStoryNode(nodeId2, {
+      setMockEntity(nodeId2, {
         id: nodeId2,
         documentId: doc2.id,
         userId: user2.id,
-        type: 'character',
+        type: 'person',
         name: 'John',
         description: 'User 2 version',
         aliases: [],

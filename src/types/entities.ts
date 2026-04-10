@@ -1,17 +1,21 @@
 /**
- * Shared types for story node analysis and management.
+ * Shared types for entity analysis and management.
  * Used by Gemini client, text analysis service, and repositories.
  */
 
-export type StoryNodeType =
-  | 'character'
-  | 'location'
+export type NodeType =
+  // Text-grounded entities
+  | 'person'
+  | 'place'
   | 'event'
   | 'concept'
   | 'object'
-  | 'other'
-  | 'character_state'
-  | 'arc';
+  | 'group'
+  // Analytical structures
+  | 'arc'
+  | 'arc_state'
+  | 'thread'
+  | 'motif';
 
 export type ArcType =
   | 'transformation'
@@ -20,33 +24,33 @@ export type ArcType =
   | 'revelation'
   | 'static';
 
-export type StoryEdgeType =
-  // Layer 2 (causal/temporal)
+export type EdgeType =
+  // Foundation
+  | 'PART_OF'
+  | 'MEMBER_OF'
+  | 'LOCATED_AT'
+  | 'RELATED_TO'
+  // Causal
   | 'CAUSES'
   | 'ENABLES'
   | 'PREVENTS'
   | 'HAPPENS_BEFORE'
-  // Layer 3 (structural/relational)
-  | 'PARTICIPATES_IN'
-  | 'LOCATED_AT'
-  | 'PART_OF'
-  | 'MEMBER_OF'
-  | 'POSSESSES'
+  // Social
   | 'CONNECTED_TO'
   | 'OPPOSES'
+  // Structural
+  | 'PARTICIPATES_IN'
   | 'ABOUT'
-  // System
-  | 'BELONGS_TO_THREAD'
-  // Character Arc edges
-  | 'HAS_STATE'
+  // Analytical
+  | 'INCLUDES'
+  | 'INSTANCE_OF'
   | 'HAS_FACET'
+  | 'HAS_STATE'
   | 'CHANGES_TO'
   | 'HAS_ARC'
-  | 'INCLUDES_STATE'
-  // Fallback
-  | 'RELATED_TO';
+  | 'INCLUDES_STATE';
 
-export interface StoryNodeMention {
+export interface EntityMention {
   text: string;
 }
 
@@ -61,52 +65,52 @@ export interface EventRange {
   endMarker: string;
 }
 
-export interface StoryNodeResult {
-  type: StoryNodeType;
+export interface EntityResult {
+  type: NodeType;
   name: string;
   description: string;
   aliases?: string[];
-  mentions: StoryNodeMention[];
+  mentions: EntityMention[];
   metadata?: Record<string, unknown>;
   documentOrder?: number;
   eventRanges?: EventRange[];
 }
 
-export interface StoryConnectionResult {
+export interface ConnectionResult {
   fromName: string;
   toName: string;
-  edgeType: StoryEdgeType;
+  edgeType: EdgeType;
   description: string;
   strength?: number;
 }
 
-export interface NarrativeThreadResult {
+export interface ThreadResult {
   name: string;
   isPrimary: boolean;
   eventNames: string[];
 }
 
 export interface AnalysisResult {
-  nodes: StoryNodeResult[];
-  connections: StoryConnectionResult[];
-  narrativeThreads?: NarrativeThreadResult[];
+  nodes: EntityResult[];
+  connections: ConnectionResult[];
+  narrativeThreads?: ThreadResult[];
 }
 
 export interface ExistingNode {
   id: string;
-  type: StoryNodeType;
+  type: NodeType;
   name: string;
   description: string;
   aliases?: string[];
-  mentions: StoryNodeMention[];
+  mentions: EntityMention[];
 }
 
-export interface NodeUpdate {
+export interface EntityUpdate {
   id: string;
   name?: string;
   description?: string;
   aliases?: string[];
-  mentions?: StoryNodeMention[];
+  mentions?: EntityMention[];
 }
 
 export interface ConnectionUpdate {
@@ -114,20 +118,20 @@ export interface ConnectionUpdate {
   toId?: string;
   fromName?: string;
   toName?: string;
-  edgeType?: StoryEdgeType;
+  edgeType?: EdgeType;
   description: string;
   strength?: number;
 }
 
-export interface NodeUpdatesResult {
-  add: StoryNodeResult[];
-  update: NodeUpdate[];
+export interface EntityUpdatesResult {
+  add: EntityResult[];
+  update: EntityUpdate[];
   delete: string[];
   connectionUpdates: {
     add: ConnectionUpdate[];
     delete: { fromId: string; toId: string }[];
   };
-  narrativeThreads?: NarrativeThreadResult[];
+  narrativeThreads?: ThreadResult[];
 }
 
 export type EntityResolutionMatch =
@@ -151,9 +155,14 @@ export interface EntityResolutionResult {
   softDeleted: string[];
 }
 
-// ========== Facet Types (Phase 1) ==========
+// ========== Facet Types ==========
 
-export type FacetType = 'name' | 'appearance' | 'trait' | 'state';
+export type FacetType =
+  | 'name'
+  | 'appearance'
+  | 'trait'
+  | 'state'
+  | 'description';
 
 export interface Facet {
   id: string;
@@ -171,17 +180,17 @@ export interface FacetInput {
   content: string;
 }
 
-export interface StoryNodeFacetResult {
-  type: StoryNodeType;
+export interface EntityFacetResult {
+  type: NodeType;
   name: string;
   facets: FacetInput[];
-  mentions: StoryNodeMention[];
+  mentions: EntityMention[];
   metadata?: Record<string, unknown>;
   documentOrder?: number;
   eventRanges?: EventRange[];
 }
 
-// ========== Incremental Analysis Actions (Phase 3) ==========
+// ========== Incremental Analysis Actions ==========
 
 export type IncrementalAction =
   | IncrementalUpdateAction
@@ -193,14 +202,14 @@ export type IncrementalAction =
 export interface IncrementalUpdateAction {
   action: 'update';
   entityId: string;
-  mentions: StoryNodeMention[];
+  mentions: EntityMention[];
 }
 
 export interface IncrementalAddFacetAction {
   action: 'add_facet';
   entityId: string;
   facet: FacetInput;
-  mentions: StoryNodeMention[];
+  mentions: EntityMention[];
 }
 
 export interface IncrementalRemoveFacetAction {
@@ -211,14 +220,14 @@ export interface IncrementalRemoveFacetAction {
 
 export interface IncrementalNewEntityAction {
   action: 'new';
-  entity: StoryNodeFacetResult;
+  entity: EntityFacetResult;
 }
 
 export interface IncrementalNewConnectionAction {
   action: 'new_connection';
   fromEntityId: string;
   toEntityId: string;
-  edgeType: StoryEdgeType;
+  edgeType: EdgeType;
   description: string;
 }
 

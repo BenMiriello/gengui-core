@@ -1,14 +1,14 @@
 import { graphService } from './graph.service';
-import type { NarrativeThread, ThreadMembership } from './graph.types';
+import type { StoredThread, ThreadMembership } from './graph.types';
 
 export const graphThreads = {
   async getThreadsForDocument(
     documentId: string,
     userId: string,
-  ): Promise<NarrativeThread[]> {
+  ): Promise<StoredThread[]> {
     const result = await graphService.query(
       `
-      MATCH (nt:NarrativeThread)
+      MATCH (nt:Thread)
       WHERE nt.documentId = $documentId AND nt.userId = $userId
       RETURN nt.id, nt.documentId, nt.userId, nt.name, nt.isPrimary, nt.color, nt.createdAt
       ORDER BY nt.createdAt
@@ -27,10 +27,10 @@ export const graphThreads = {
     }));
   },
 
-  async getThreadById(threadId: string): Promise<NarrativeThread | null> {
+  async getThreadById(threadId: string): Promise<StoredThread | null> {
     const result = await graphService.query(
       `
-      MATCH (nt:NarrativeThread)
+      MATCH (nt:Thread)
       WHERE nt.id = $threadId
       RETURN nt.id, nt.documentId, nt.userId, nt.name, nt.isPrimary, nt.color, nt.createdAt
       `,
@@ -53,7 +53,7 @@ export const graphThreads = {
   async renameThread(threadId: string, name: string): Promise<void> {
     await graphService.query(
       `
-      MATCH (nt:NarrativeThread)
+      MATCH (nt:Thread)
       WHERE nt.id = $threadId
       SET nt.name = $name
       `,
@@ -64,7 +64,7 @@ export const graphThreads = {
   async deleteThread(threadId: string): Promise<void> {
     await graphService.query(
       `
-      MATCH (nt:NarrativeThread)
+      MATCH (nt:Thread)
       WHERE nt.id = $threadId
       DETACH DELETE nt
       `,
@@ -75,7 +75,7 @@ export const graphThreads = {
   async getEventsForThread(threadId: string): Promise<ThreadMembership[]> {
     const result = await graphService.query(
       `
-      MATCH (e:StoryNode)-[r:BELONGS_TO_THREAD]->(nt:NarrativeThread)
+      MATCH (nt:Thread)-[r:INCLUDES]->(e:Entity)
       WHERE nt.id = $threadId AND e.deletedAt IS NULL
       RETURN e.id, nt.id, r.order
       ORDER BY r.order
@@ -95,7 +95,7 @@ export const graphThreads = {
   ): Promise<{ threadId: string; order: number }[]> {
     const result = await graphService.query(
       `
-      MATCH (e:StoryNode)-[r:BELONGS_TO_THREAD]->(nt:NarrativeThread)
+      MATCH (nt:Thread)-[r:INCLUDES]->(e:Entity)
       WHERE e.id = $eventId AND e.deletedAt IS NULL
       RETURN nt.id, r.order
       ORDER BY r.order
@@ -123,7 +123,7 @@ export const graphThreads = {
   ): Promise<void> {
     await graphService.query(
       `
-      MATCH (e:StoryNode)-[r:BELONGS_TO_THREAD]->(nt:NarrativeThread)
+      MATCH (nt:Thread)-[r:INCLUDES]->(e:Entity)
       WHERE e.id = $eventId AND nt.id = $threadId
       DELETE r
       `,
@@ -138,7 +138,7 @@ export const graphThreads = {
   ): Promise<void> {
     await graphService.query(
       `
-      MATCH (e:StoryNode)-[r:BELONGS_TO_THREAD]->(nt:NarrativeThread)
+      MATCH (nt:Thread)-[r:INCLUDES]->(e:Entity)
       WHERE e.id = $eventId AND nt.id = $threadId AND e.deletedAt IS NULL
       SET r.order = $newOrder
       `,

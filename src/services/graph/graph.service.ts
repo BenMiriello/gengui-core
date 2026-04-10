@@ -10,13 +10,13 @@ import { db } from '../../config/database.js';
 import { documents } from '../../models/schema.js';
 import type {
   ArcType,
+  EdgeType,
+  EntityResult,
   FacetInput,
   FacetType,
-  NarrativeThreadResult,
-  StoryEdgeType,
-  StoryNodeResult,
-  StoryNodeType,
-} from '../../types/storyNodes';
+  NodeType,
+  ThreadResult,
+} from '../../types/entities';
 import { logger } from '../../utils/logger';
 import {
   CAUSAL_EDGE_TYPES,
@@ -25,61 +25,58 @@ import {
   type NodeProperties,
   type QueryResult,
   type StoredArc,
-  type StoredCharacterState,
+  type StoredArcState,
+  type StoredConnection,
+  type StoredEntity,
   type StoredFacet,
-  type StoredStoryConnection,
-  type StoredStoryNode,
 } from './graph.types';
 
 export type {
   NodeProperties,
   QueryResult,
+  StoredConnection,
+  StoredEntity,
   StoredFacet,
-  StoredStoryConnection,
-  StoredStoryNode,
 };
 
 const GRAPH_NAME = process.env.FALKORDB_GRAPH_NAME || 'gengui';
 
 // Allowed node labels - must be validated before interpolation into queries
 const ALLOWED_NODE_LABELS = new Set([
-  'StoryNode',
-  'Character',
-  'Location',
+  'Entity',
+  'Person',
+  'Place',
   'Event',
   'Concept',
-  'Other',
-  'NarrativeThread',
+  'Object',
+  'Group',
+  'Thread',
+  'Motif',
   'Facet',
-  'CharacterState',
+  'ArcState',
   'Arc',
 ]);
 
 // Allowed edge types - must be validated before interpolation into queries
 const ALLOWED_EDGE_TYPES = new Set([
-  // Layer 2 (causal/temporal)
   'CAUSES',
   'ENABLES',
   'PREVENTS',
   'HAPPENS_BEFORE',
-  // Layer 3 (structural/relational)
   'PARTICIPATES_IN',
   'LOCATED_AT',
   'PART_OF',
   'MEMBER_OF',
-  'POSSESSES',
   'CONNECTED_TO',
   'OPPOSES',
   'ABOUT',
-  // System
-  'BELONGS_TO_THREAD',
+  'INCLUDES',
+  'INSTANCE_OF',
   'HAS_FACET',
-  // Character Arc edges
   'HAS_STATE',
   'CHANGES_TO',
   'HAS_ARC',
   'INCLUDES_STATE',
-  // Fallback
   'RELATED_TO',
 ]);
 
@@ -111,8 +108,7 @@ const ALLOWED_PROPERTY_NAMES = new Set([
   'entityId',
   'content',
   'facetType',
-  // Character Arc properties
-  'characterId',
+  // Arc properties
   'phaseIndex',
   'causalOrder',
   'arcType',
@@ -463,7 +459,7 @@ class GraphService {
     toNodeId: string,
   ): Promise<boolean> {
     const cypher = `
-      MATCH path = (b:StoryNode)-[${causalEdgePattern('*1..50')}]->(a:StoryNode)
+      MATCH path = (b:Entity)-[${causalEdgePattern('*1..50')}]->(a:Entity)
       WHERE b.id = $toNodeId AND a.id = $fromNodeId
       RETURN count(path) > 0 AS wouldCycle
       LIMIT 1
@@ -518,10 +514,8 @@ class GraphService {
 
     for (const idx of indexes) {
       try {
-        await this.query(
-          `CREATE INDEX FOR (n:StoryNode) ON (n.${idx.property})`,
-        );
-        logger.info({ index: idx.name }, 'Created property index on StoryNode');
+        await this.query(`CREATE INDEX FOR (n:Entity) ON (n.${idx.property})`);
+        logger.info({ index: idx.name }, 'Created property index on Entity');
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : '';
         if (
@@ -548,12 +542,9 @@ class GraphService {
     for (const idx of indexes) {
       try {
         await this.query(
-          `CREATE VECTOR INDEX FOR (n:StoryNode) ON (n.${idx.column}) OPTIONS {dimension: ${idx.dimension}, similarityFunction: 'cosine'}`,
+          `CREATE VECTOR INDEX FOR (n:Entity) ON (n.${idx.column}) OPTIONS {dimension: ${idx.dimension}, similarityFunction: 'cosine'}`,
         );
-        logger.info(
-          { column: idx.column },
-          'Created vector index on StoryNode',
-        );
+        logger.info({ column: idx.column }, 'Created vector index on Entity');
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : '';
         if (
@@ -622,7 +613,7 @@ class GraphService {
     const vecString = embedding.join(',');
     const embeddingColumn = versionConfig.embeddingColumn;
     const cypher = `
-      MATCH (n:StoryNode)
+      MATCH (n:Entity)
       WHERE n.id = $nodeId
       SET n.${embeddingColumn} = vecf32([${vecString}]),
           n.embeddingModel = $embeddingModel
@@ -641,7 +632,7 @@ class GraphService {
     const embeddingColumn = getVersionConfig(version).embeddingColumn;
 
     const cypher = `
-      MATCH (n:StoryNode)
+      MATCH (n:Entity)
       WHERE n.id = $nodeId AND n.${embeddingColumn} IS NOT NULL
       RETURN n.${embeddingColumn}
     `;
@@ -686,7 +677,7 @@ class GraphService {
     userId: string,
     limit: number = 10,
     analysisVersion?: string,
-  ): Promise<(StoredStoryNode & { score: number })[]> {
+  ): Promise<(StoredEntity & { score: number })[]> {
     const version = analysisVersion ?? getCurrentAnalysisVersion();
     const versionConfig = getVersionConfig(version);
     this.validateEmbedding(embedding, versionConfig.embeddingDimensions);
@@ -695,7 +686,7 @@ class GraphService {
     const vecString = embedding.join(',');
     const embeddingColumn = versionConfig.embeddingColumn;
     const cypher = `
-      CALL db.idx.vector.queryNodes('StoryNode', '${embeddingColumn}', ${overFetchLimit}, vecf32([${vecString}]))
+      CALL db.idx.vector.queryNodes('Entity', '${embeddingColumn}', ${overFetchLimit}, vecf32([${vecString}]))
       YIELD node, score
       WHERE node.documentId = $documentId AND node.userId = $userId AND node.deletedAt IS NULL
       RETURN node.id, node.documentId, node.userId, node.type, node.name, node.description,
@@ -714,7 +705,7 @@ class GraphService {
         id: row[0] as string,
         documentId: row[1] as string,
         userId: row[2] as string,
-        type: row[3] as StoryNodeType,
+        type: row[3] as NodeType,
         name: row[4] as string,
         description: row[5] as string | null,
         aliases,
@@ -731,34 +722,46 @@ class GraphService {
     });
   }
 
-  // ========== StoryNode-Specific Methods ==========
+  // ========== Entity-Specific Methods ==========
 
-  private getLabelForType(type: StoryNodeType): string {
+  private getLabelForNodeType(type: NodeType): string {
     switch (type) {
-      case 'character':
-        return 'Character';
-      case 'location':
-        return 'Location';
+      case 'person':
+        return 'Person';
+      case 'place':
+        return 'Place';
       case 'event':
         return 'Event';
       case 'concept':
         return 'Concept';
+      case 'object':
+        return 'Object';
+      case 'group':
+        return 'Group';
+      case 'arc_state':
+        return 'ArcState';
+      case 'arc':
+        return 'Arc';
+      case 'thread':
+        return 'Thread';
+      case 'motif':
+        return 'Motif';
       default:
-        return 'Other';
+        return 'Entity';
     }
   }
 
-  async createStoryNode(
+  async createEntity(
     documentId: string,
     userId: string,
-    node: StoryNodeResult,
+    node: EntityResult,
     options?: {
       stylePreset?: string | null;
       stylePrompt?: string | null;
       existingId?: string;
     },
   ): Promise<string> {
-    const label = this.getLabelForType(node.type);
+    const label = this.getLabelForNodeType(node.type);
     const nodeId = options?.existingId || randomUUID();
     const now = new Date().toISOString();
 
@@ -784,7 +787,7 @@ class GraphService {
     };
 
     const propsString = this.propsToString(props);
-    const cypher = `CREATE (n:StoryNode:${label} ${propsString}) RETURN n.id as nodeId`;
+    const cypher = `CREATE (n:Entity:${label} ${propsString}) RETURN n.id as nodeId`;
     const result = await this.query(cypher);
 
     if (result.data.length === 0 || result.data[0].length === 0) {
@@ -801,10 +804,10 @@ class GraphService {
     return nodeId;
   }
 
-  async createStoryConnection(
+  async createConnection(
     fromId: string,
     toId: string,
-    edgeType: StoryEdgeType,
+    edgeType: EdgeType,
     description: string | null,
     properties?: { strength?: number },
   ): Promise<string> {
@@ -832,7 +835,7 @@ class GraphService {
 
     const propsString = this.propsToString(props);
     const cypher = `
-      MATCH (a:StoryNode), (b:StoryNode)
+      MATCH (a:Entity), (b:Entity)
       WHERE a.id = $fromId AND b.id = $toId
         AND a.deletedAt IS NULL AND b.deletedAt IS NULL
       CREATE (a)-[r:${edgeType} ${propsString}]->(b)
@@ -849,7 +852,7 @@ class GraphService {
       'Story connection created in FalkorDB',
     );
 
-    const fromNode = await this.getStoryNodeByIdInternal(fromId);
+    const fromNode = await this.getEntityByIdInternal(fromId);
     if (fromNode) {
       await this.invalidateLayoutPositions(fromNode.documentId);
     }
@@ -857,12 +860,12 @@ class GraphService {
     return connectionId;
   }
 
-  async getStoryNodesForDocument(
+  async getEntitiesForDocument(
     documentId: string,
     userId: string,
-  ): Promise<StoredStoryNode[]> {
+  ): Promise<StoredEntity[]> {
     const cypher = `
-      MATCH (n:StoryNode)
+      MATCH (n:Entity)
       WHERE n.documentId = $documentId AND n.userId = $userId AND ${this.deletedAtFilter('n')}
       RETURN n.id, n.documentId, n.userId, n.type, n.name, n.description,
              n.aliases, n.metadata, n.primaryMediaId, n.stylePreset, n.stylePrompt,
@@ -879,7 +882,7 @@ class GraphService {
         id: row[0] as string,
         documentId: row[1] as string,
         userId: row[2] as string,
-        type: row[3] as StoryNodeType,
+        type: row[3] as NodeType,
         name: row[4] as string,
         description: row[5] as string | null,
         aliases,
@@ -895,22 +898,22 @@ class GraphService {
     });
   }
 
-  async getStoryConnectionsForDocument(
+  async getConnectionsForDocument(
     documentId: string,
-  ): Promise<StoredStoryConnection[]> {
+  ): Promise<StoredConnection[]> {
     const cypher = `
-      MATCH (a:StoryNode)-[r]->(b:StoryNode)
+      MATCH (a:Entity)-[r]->(b:Entity)
       WHERE a.documentId = $documentId
         AND b.documentId = $documentId
         AND ${this.deletedAtFilterEdge('a', 'r', 'b')}
-        AND type(r) IN ['CAUSES', 'ENABLES', 'PREVENTS', 'HAPPENS_BEFORE', 'PARTICIPATES_IN', 'LOCATED_AT', 'PART_OF', 'MEMBER_OF', 'POSSESSES', 'CONNECTED_TO', 'OPPOSES', 'ABOUT', 'RELATED_TO']
+        AND type(r) IN ['CAUSES', 'ENABLES', 'PREVENTS', 'HAPPENS_BEFORE', 'PARTICIPATES_IN', 'LOCATED_AT', 'PART_OF', 'MEMBER_OF', 'CONNECTED_TO', 'OPPOSES', 'ABOUT', 'RELATED_TO']
       RETURN DISTINCT r.id, a.id, b.id, type(r) as edgeType, r.description, r.strength, r.createdAt, r.deletedAt
     `;
     const result = await this.query(cypher, { documentId });
 
     // Deduplicate by edge ID (in case FalkorDB returns duplicates)
     const seenIds = new Set<string>();
-    const connections: StoredStoryConnection[] = [];
+    const connections: StoredConnection[] = [];
 
     for (const row of result.data) {
       const id = row[0] as string;
@@ -921,7 +924,7 @@ class GraphService {
         id,
         fromNodeId: row[1] as string,
         toNodeId: row[2] as string,
-        edgeType: row[3] as StoryEdgeType,
+        edgeType: row[3] as EdgeType,
         description: row[4] as string | null,
         strength: row[5] != null ? Number(row[5]) : null,
         narrativeDistance: null,
@@ -933,14 +936,12 @@ class GraphService {
     return connections;
   }
 
-  async getConnectionsFromNode(
-    nodeId: string,
-  ): Promise<StoredStoryConnection[]> {
+  async getConnectionsFromNode(nodeId: string): Promise<StoredConnection[]> {
     const cypher = `
-      MATCH (a:StoryNode)-[r]->(b:StoryNode)
+      MATCH (a:Entity)-[r]->(b:Entity)
       WHERE a.id = $nodeId
         AND ${this.deletedAtFilterEdge('a', 'r', 'b')}
-        AND type(r) IN ['CAUSES', 'ENABLES', 'PREVENTS', 'HAPPENS_BEFORE', 'PARTICIPATES_IN', 'LOCATED_AT', 'PART_OF', 'MEMBER_OF', 'POSSESSES', 'CONNECTED_TO', 'OPPOSES', 'ABOUT', 'RELATED_TO']
+        AND type(r) IN ['CAUSES', 'ENABLES', 'PREVENTS', 'HAPPENS_BEFORE', 'PARTICIPATES_IN', 'LOCATED_AT', 'PART_OF', 'MEMBER_OF', 'CONNECTED_TO', 'OPPOSES', 'ABOUT', 'RELATED_TO']
       RETURN r.id, a.id, b.id, type(r) as edgeType, r.description, r.strength, r.createdAt, r.deletedAt
     `;
     const result = await this.query(cypher, { nodeId });
@@ -949,7 +950,7 @@ class GraphService {
       id: row[0] as string,
       fromNodeId: row[1] as string,
       toNodeId: row[2] as string,
-      edgeType: row[3] as StoryEdgeType,
+      edgeType: row[3] as EdgeType,
       description: row[4] as string | null,
       strength: row[5] != null ? Number(row[5]) : null,
       narrativeDistance: null,
@@ -958,11 +959,11 @@ class GraphService {
     }));
   }
 
-  async softDeleteStoryNode(nodeId: string): Promise<void> {
-    const node = await this.getStoryNodeByIdInternal(nodeId);
+  async softDeleteEntity(nodeId: string): Promise<void> {
+    const node = await this.getEntityByIdInternal(nodeId);
 
     const cypher = `
-      MATCH (n:StoryNode)
+      MATCH (n:Entity)
       WHERE n.id = $nodeId
       SET n.deletedAt = $deletedAt
     `;
@@ -974,13 +975,13 @@ class GraphService {
     }
   }
 
-  async softDeleteStoryConnection(fromId: string, toId: string): Promise<void> {
-    const fromNode = await this.getStoryNodeByIdInternal(fromId);
+  async softDeleteConnection(fromId: string, toId: string): Promise<void> {
+    const fromNode = await this.getEntityByIdInternal(fromId);
 
     const cypher = `
-      MATCH (a:StoryNode)-[r]->(b:StoryNode)
+      MATCH (a:Entity)-[r]->(b:Entity)
       WHERE a.id = $fromId AND b.id = $toId
-        AND type(r) <> 'BELONGS_TO_THREAD'
+        AND type(r) <> 'INCLUDES'
       SET r.deletedAt = $deletedAt
     `;
     await this.query(cypher, {
@@ -995,14 +996,14 @@ class GraphService {
     }
   }
 
-  async deleteAllStoryNodesForDocument(
+  async deleteAllEntitiesForDocument(
     documentId: string,
     userId: string,
   ): Promise<void> {
     // Delete narrative threads for this document
     await this.query(
       `
-      MATCH (nt:NarrativeThread)
+      MATCH (nt:Thread)
       WHERE nt.documentId = $documentId AND nt.userId = $userId
       DETACH DELETE nt
       `,
@@ -1012,7 +1013,7 @@ class GraphService {
     // Delete facets attached to story nodes
     await this.query(
       `
-      MATCH (n:StoryNode)-[:HAS_FACET]->(f:Facet)
+      MATCH (n:Entity)-[:HAS_FACET]->(f:Facet)
       WHERE n.documentId = $documentId AND n.userId = $userId
       DELETE f
       `,
@@ -1022,7 +1023,7 @@ class GraphService {
     // Delete story nodes and their edges
     await this.query(
       `
-      MATCH (n:StoryNode)
+      MATCH (n:Entity)
       WHERE n.documentId = $documentId AND n.userId = $userId
       DETACH DELETE n
       `,
@@ -1035,7 +1036,7 @@ class GraphService {
     );
   }
 
-  async updateStoryNode(
+  async updateEntity(
     nodeId: string,
     updates: {
       name?: string;
@@ -1071,7 +1072,7 @@ class GraphService {
     }
 
     const cypher = `
-      MATCH (n:StoryNode)
+      MATCH (n:Entity)
       WHERE n.id = $nodeId
       SET ${setStatements.join(', ')}
     `;
@@ -1079,12 +1080,12 @@ class GraphService {
     logger.info({ nodeId }, 'Story node updated in FalkorDB');
   }
 
-  async updateStoryNodePrimaryMedia(
+  async updateEntityPrimaryMedia(
     nodeId: string,
     mediaId: string | null,
   ): Promise<void> {
     const cypher = `
-      MATCH (n:StoryNode)
+      MATCH (n:Entity)
       WHERE n.id = $nodeId
       SET n.primaryMediaId = $mediaId,
           n.updatedAt = $updatedAt
@@ -1096,13 +1097,13 @@ class GraphService {
     });
   }
 
-  async updateStoryNodeStyle(
+  async updateEntityStyle(
     nodeId: string,
     stylePreset: string | null,
     stylePrompt: string | null,
-  ): Promise<StoredStoryNode | null> {
+  ): Promise<StoredEntity | null> {
     const cypher = `
-      MATCH (n:StoryNode)
+      MATCH (n:Entity)
       WHERE n.id = $nodeId
       SET n.stylePreset = $stylePreset,
           n.stylePrompt = $stylePrompt,
@@ -1129,7 +1130,7 @@ class GraphService {
       id: row[0] as string,
       documentId: row[1] as string,
       userId: row[2] as string,
-      type: row[3] as StoryNodeType,
+      type: row[3] as NodeType,
       name: row[4] as string,
       description: row[5] as string | null,
       aliases,
@@ -1144,12 +1145,12 @@ class GraphService {
     };
   }
 
-  async getStoryNodeById(
+  async getEntityById(
     nodeId: string,
     userId: string,
-  ): Promise<StoredStoryNode | null> {
+  ): Promise<StoredEntity | null> {
     const cypher = `
-      MATCH (n:StoryNode)
+      MATCH (n:Entity)
       WHERE n.id = $nodeId AND n.userId = $userId AND ${this.deletedAtFilter('n')}
       RETURN n.id, n.documentId, n.userId, n.type, n.name, n.description,
              n.aliases, n.metadata, n.primaryMediaId, n.stylePreset, n.stylePrompt,
@@ -1168,7 +1169,7 @@ class GraphService {
       id: row[0] as string,
       documentId: row[1] as string,
       userId: row[2] as string,
-      type: row[3] as StoryNodeType,
+      type: row[3] as NodeType,
       name: row[4] as string,
       description: row[5] as string | null,
       aliases,
@@ -1190,7 +1191,7 @@ class GraphService {
   async deleteDocumentNodes(documentId: string): Promise<number> {
     const result = await this.query(
       `
-      MATCH (n:StoryNode {documentId: $documentId})
+      MATCH (n:Entity {documentId: $documentId})
       DETACH DELETE n
       RETURN count(n) as deleted
       `,
@@ -1212,7 +1213,7 @@ class GraphService {
     const threshold = beforeDate.toISOString();
     const result = await this.query(
       `
-      MATCH (n:StoryNode)
+      MATCH (n:Entity)
       WHERE n.deletedAt IS NOT NULL AND n.deletedAt < $threshold
       RETURN n.id as id
       `,
@@ -1230,7 +1231,7 @@ class GraphService {
     const result = await this.query(
       `
       UNWIND $nodeIds AS nodeId
-      MATCH (n:StoryNode {id: nodeId})
+      MATCH (n:Entity {id: nodeId})
       WHERE n.deletedAt IS NULL
       RETURN n.id as id
       `,
@@ -1261,7 +1262,7 @@ class GraphService {
 
     const nodeResult = await this.query(
       `
-      MATCH (n:StoryNode)
+      MATCH (n:Entity)
       WHERE n.deletedAt IS NOT NULL AND n.deletedAt < $threshold
       DETACH DELETE n
       RETURN count(n) as deleted
@@ -1284,11 +1285,9 @@ class GraphService {
    * Internal method: get node by ID without user verification.
    * Use only for trusted internal service operations.
    */
-  async getStoryNodeByIdInternal(
-    nodeId: string,
-  ): Promise<StoredStoryNode | null> {
+  async getEntityByIdInternal(nodeId: string): Promise<StoredEntity | null> {
     const cypher = `
-      MATCH (n:StoryNode)
+      MATCH (n:Entity)
       WHERE n.id = $nodeId AND n.deletedAt IS NULL
       RETURN n.id, n.documentId, n.userId, n.type, n.name, n.description,
              n.aliases, n.metadata, n.primaryMediaId, n.stylePreset, n.stylePrompt,
@@ -1307,7 +1306,7 @@ class GraphService {
       id: row[0] as string,
       documentId: row[1] as string,
       userId: row[2] as string,
-      type: row[3] as StoryNodeType,
+      type: row[3] as NodeType,
       name: row[4] as string,
       description: row[5] as string | null,
       aliases,
@@ -1324,10 +1323,10 @@ class GraphService {
 
   // ========== Narrative Thread Methods ==========
 
-  async createNarrativeThread(
+  async createThread(
     documentId: string,
     userId: string,
-    thread: NarrativeThreadResult,
+    thread: ThreadResult,
   ): Promise<string> {
     const threadId = randomUUID();
     const now = new Date().toISOString();
@@ -1364,7 +1363,7 @@ class GraphService {
     };
 
     const propsString = this.propsToString(props);
-    const cypher = `CREATE (nt:NarrativeThread ${propsString}) RETURN nt.id as threadId`;
+    const cypher = `CREATE (nt:Thread ${propsString}) RETURN nt.id as threadId`;
     const result = await this.query(cypher);
 
     if (result.data.length === 0 || result.data[0].length === 0) {
@@ -1384,9 +1383,9 @@ class GraphService {
     order: number,
   ): Promise<void> {
     const cypher = `
-      MATCH (e:StoryNode), (nt:NarrativeThread)
+      MATCH (e:Entity), (nt:Thread)
       WHERE e.id = $eventId AND nt.id = $threadId
-      CREATE (e)-[:BELONGS_TO_THREAD {order: $order}]->(nt)
+      CREATE (nt)-[:INCLUDES {order: $order}]->(e)
     `;
     await this.query(cypher, { eventId, threadId, order });
   }
@@ -1402,10 +1401,10 @@ class GraphService {
     const embeddingColumn = getVersionConfig(version).embeddingColumn;
 
     const cypher = `
-      MATCH (source:StoryNode)
+      MATCH (source:Entity)
       WHERE source.documentId = $documentId AND source.userId = $userId
         AND source.deletedAt IS NULL AND source.${embeddingColumn} IS NOT NULL
-      CALL db.idx.vector.queryNodes('StoryNode', '${embeddingColumn}', ${k + 1}, source.${embeddingColumn})
+      CALL db.idx.vector.queryNodes('Entity', '${embeddingColumn}', ${k + 1}, source.${embeddingColumn})
       YIELD node, score
       WHERE node.documentId = $documentId AND node.userId = $userId
         AND node.deletedAt IS NULL AND node.id <> source.id AND score >= $cutoff
@@ -1477,7 +1476,7 @@ class GraphService {
 
     const startTime = Date.now();
     const cypher = `
-      MATCH (n:StoryNode)
+      MATCH (n:Entity)
       WHERE n.documentId = $documentId AND n.userId = $userId
         AND n.deletedAt IS NULL AND n.${embeddingColumn} IS NOT NULL
       RETURN n.id, n.${embeddingColumn}
@@ -1645,7 +1644,7 @@ class GraphService {
     // Create HAS_FACET edge from entity to facet
     // Split MATCH statements so query fails explicitly if either node is missing
     const edgeCypher = `
-      MATCH (e:StoryNode {id: $entityId})
+      MATCH (e:Entity {id: $entityId})
       MATCH (f:Facet {id: $facetId})
       CREATE (e)-[:HAS_FACET {createdAt: $now}]->(f)
     `;
@@ -1693,7 +1692,7 @@ class GraphService {
     const embeddingColumn = getVersionConfig(version).embeddingColumn;
 
     const cypher = `
-      MATCH (e:StoryNode)-[:HAS_FACET]->(f:Facet)
+      MATCH (e:Entity)-[:HAS_FACET]->(f:Facet)
       WHERE e.id = $entityId AND f.deletedAt IS NULL
       RETURN f.id, f.entityId, f.facetType, f.content, f.${embeddingColumn}, f.createdAt, f.updatedAt, f.deletedAt
       ORDER BY f.facetType, f.createdAt
@@ -1843,27 +1842,27 @@ class GraphService {
     nodeId: string,
     userId: string,
   ): Promise<{
-    entity: StoredStoryNode;
+    entity: StoredEntity;
     facets: StoredFacet[];
     connections: Array<{
-      connectedEntity: StoredStoryNode;
+      connectedEntity: StoredEntity;
       edgeType: string;
       direction: 'in' | 'out';
     }>;
   } | null> {
-    const entity = await this.getStoryNodeById(nodeId, userId);
+    const entity = await this.getEntityById(nodeId, userId);
     if (!entity) return null;
 
     const facets = await this.getFacetsForEntity(nodeId);
 
     // Get 1-hop connections (both directions)
     const cypher = `
-      MATCH (n:StoryNode)-[r]-(m:StoryNode)
+      MATCH (n:Entity)-[r]-(m:Entity)
       WHERE n.id = $nodeId
         AND m.deletedAt IS NULL
         AND r.deletedAt IS NULL
         AND type(r) <> 'HAS_FACET'
-        AND type(r) <> 'BELONGS_TO_THREAD'
+        AND type(r) <> 'INCLUDES'
       RETURN m.id, m.documentId, m.userId, m.type, m.name, m.description,
              m.aliases, m.metadata, m.primaryMediaId, m.stylePreset, m.stylePrompt,
              m.documentOrder,
@@ -1874,7 +1873,7 @@ class GraphService {
     const result = await this.query(cypher, { nodeId });
 
     const connections: Array<{
-      connectedEntity: StoredStoryNode;
+      connectedEntity: StoredEntity;
       edgeType: string;
       direction: 'in' | 'out';
     }> = [];
@@ -1883,11 +1882,11 @@ class GraphService {
       const aliasesRaw = row[6] as string | null;
       const aliases = aliasesRaw ? JSON.parse(aliasesRaw) : null;
 
-      const connectedEntity: StoredStoryNode = {
+      const connectedEntity: StoredEntity = {
         id: row[0] as string,
         documentId: row[1] as string,
         userId: row[2] as string,
-        type: row[3] as StoryNodeType,
+        type: row[3] as NodeType,
         name: row[4] as string,
         description: row[5] as string | null,
         aliases,
@@ -1911,13 +1910,10 @@ class GraphService {
     return { entity, facets, connections };
   }
 
-  // ========== Character Arc Methods ==========
+  // ========== Arc Methods ==========
 
-  /**
-   * Create a CharacterState node representing a character's state at a point in their arc.
-   */
-  async createCharacterState(
-    characterId: string,
+  async createArcState(
+    entityId: string,
     documentId: string,
     userId: string,
     input: {
@@ -1932,7 +1928,7 @@ class GraphService {
 
     const props: NodeProperties = {
       id: stateId,
-      characterId,
+      entityId,
       documentId,
       userId,
       name: input.name,
@@ -1945,25 +1941,25 @@ class GraphService {
     };
 
     const propsString = this.propsToString(props);
-    const cypher = `CREATE (s:CharacterState ${propsString}) RETURN s.id as stateId`;
+    const cypher = `CREATE (s:ArcState ${propsString}) RETURN s.id as stateId`;
     const result = await this.query(cypher);
 
     if (result.data.length === 0 || result.data[0].length === 0) {
-      throw new Error('Failed to create character state');
+      throw new Error('Failed to create arc state');
     }
 
     logger.info(
-      { stateId, characterId, name: input.name },
-      'CharacterState created in FalkorDB',
+      { stateId, entityId, name: input.name },
+      'ArcState created in FalkorDB',
     );
     return stateId;
   }
 
   /**
-   * Create an Arc node representing a character's overall development arc.
+   * Create an Arc node.
    */
   async createArc(
-    characterId: string,
+    entityId: string,
     documentId: string,
     userId: string,
     input: {
@@ -1977,7 +1973,7 @@ class GraphService {
 
     const props: NodeProperties = {
       id: arcId,
-      characterId,
+      entityId,
       documentId,
       userId,
       name: input.name || `${input.arcType} arc`,
@@ -1996,22 +1992,22 @@ class GraphService {
       throw new Error('Failed to create arc');
     }
 
-    // Verify the StoryNode exists before creating edge
-    const checkCypher = `MATCH (c:StoryNode) WHERE c.id = $characterId RETURN c.id`;
-    const checkResult = await this.query(checkCypher, { characterId });
+    // Verify the Entity exists before creating edge
+    const checkCypher = `MATCH (c:Entity) WHERE c.id = $entityId RETURN c.id`;
+    const checkResult = await this.query(checkCypher, { entityId });
     if (checkResult.data.length === 0) {
       throw new Error(
-        `HAS_ARC edge failed: StoryNode not found for characterId=${characterId}, arcId=${arcId}`,
+        `HAS_ARC edge failed: Entity not found for entityId=${entityId}, arcId=${arcId}`,
       );
     }
 
     const edgeCypher = `
-      MATCH (c:StoryNode), (a:Arc)
-      WHERE c.id = $characterId AND a.id = $arcId
+      MATCH (c:Entity), (a:Arc)
+      WHERE c.id = $entityId AND a.id = $arcId
       CREATE (c)-[:HAS_ARC {createdAt: $now}]->(a)
     `;
     const edgeResult = await this.query(edgeCypher, {
-      characterId,
+      entityId,
       arcId,
       now,
     });
@@ -2019,19 +2015,19 @@ class GraphService {
     const relCreated = Number(edgeResult.stats?.['Relationships created'] ?? 0);
     if (relCreated === 0) {
       throw new Error(
-        `HAS_ARC edge failed: MATCH succeeded but CREATE produced 0 relationships for characterId=${characterId}, arcId=${arcId}`,
+        `HAS_ARC edge failed: MATCH succeeded but CREATE produced 0 relationships for entityId=${entityId}, arcId=${arcId}`,
       );
     }
 
     logger.info(
-      { arcId, characterId, arcType: input.arcType },
+      { arcId, entityId, arcType: input.arcType },
       'Arc created with HAS_ARC edge in FalkorDB',
     );
     return arcId;
   }
 
   /**
-   * Create a CHANGES_TO edge between two CharacterStates.
+   * Create a CHANGES_TO edge between two ArcStates.
    */
   async createChangesToEdge(
     fromStateId: string,
@@ -2040,7 +2036,7 @@ class GraphService {
   ): Promise<void> {
     const now = new Date().toISOString();
     const cypher = `
-      MATCH (from:CharacterState), (to:CharacterState)
+      MATCH (from:ArcState), (to:ArcState)
       WHERE from.id = $fromStateId AND to.id = $toStateId
       CREATE (from)-[:CHANGES_TO {
         triggerEventId: $triggerEventId,
@@ -2068,7 +2064,7 @@ class GraphService {
   }
 
   /**
-   * Link a CharacterState to an Arc via INCLUDES_STATE edge.
+   * Link a ArcState to an Arc via INCLUDES_STATE edge.
    */
   async linkStateToArc(
     stateId: string,
@@ -2077,7 +2073,7 @@ class GraphService {
   ): Promise<void> {
     const now = new Date().toISOString();
     const cypher = `
-      MATCH (s:CharacterState), (a:Arc)
+      MATCH (s:ArcState), (a:Arc)
       WHERE s.id = $stateId AND a.id = $arcId
       CREATE (a)-[:INCLUDES_STATE {order: $order, createdAt: $now}]->(s)
     `;
@@ -2091,12 +2087,12 @@ class GraphService {
   }
 
   /**
-   * Link a CharacterState to a Facet via HAS_FACET edge.
+   * Link a ArcState to a Facet via HAS_FACET edge.
    */
   async linkStateToFacet(stateId: string, facetId: string): Promise<void> {
     const now = new Date().toISOString();
     const cypher = `
-      MATCH (s:CharacterState), (f:Facet)
+      MATCH (s:ArcState), (f:Facet)
       WHERE s.id = $stateId AND f.id = $facetId
       CREATE (s)-[:HAS_FACET {createdAt: $now}]->(f)
     `;
@@ -2104,8 +2100,8 @@ class GraphService {
   }
 
   /**
-   * Move a facet from an Entity to a CharacterState.
-   * Removes HAS_FACET edge from Entity, adds HAS_FACET edge to CharacterState.
+   * Move a facet from an Entity to a ArcState.
+   * Removes HAS_FACET edge from Entity, adds HAS_FACET edge to ArcState.
    */
   async moveFacetToState(
     entityId: string,
@@ -2114,7 +2110,7 @@ class GraphService {
   ): Promise<void> {
     const now = new Date().toISOString();
     const cypher = `
-      MATCH (e:StoryNode)-[r:HAS_FACET]->(f:Facet), (s:CharacterState)
+      MATCH (e:Entity)-[r:HAS_FACET]->(f:Facet), (s:ArcState)
       WHERE e.id = $entityId AND f.id = $facetId AND s.id = $stateId
       DELETE r
       CREATE (s)-[:HAS_FACET {createdAt: $now}]->(f)
@@ -2127,7 +2123,7 @@ class GraphService {
    */
   async getStateFacetsForEntity(entityId: string): Promise<StoredFacet[]> {
     const cypher = `
-      MATCH (e:StoryNode)-[:HAS_FACET]->(f:Facet)
+      MATCH (e:Entity)-[:HAS_FACET]->(f:Facet)
       WHERE e.id = $entityId AND f.facetType = 'state' AND f.deletedAt IS NULL
       RETURN f.id, f.entityId, f.facetType, f.content, f.embedding, f.createdAt, f.updatedAt, f.deletedAt
     `;
@@ -2160,24 +2156,21 @@ class GraphService {
   }
 
   /**
-   * Create HAS_STATE edge from character to state.
+   * Create HAS_STATE edge from entity to arc state.
    * State ordering is determined by phaseIndex and CHANGES_TO edges.
    */
-  async linkCharacterToState(
-    characterId: string,
-    stateId: string,
-  ): Promise<void> {
+  async linkEntityToState(entityId: string, stateId: string): Promise<void> {
     const now = new Date().toISOString();
     const cypher = `
-      MATCH (c:StoryNode), (s:CharacterState)
-      WHERE c.id = $characterId AND s.id = $stateId
+      MATCH (c:Entity), (s:ArcState)
+      WHERE c.id = $entityId AND s.id = $stateId
       CREATE (c)-[:HAS_STATE {createdAt: $now}]->(s)
     `;
-    const result = await this.query(cypher, { characterId, stateId, now });
+    const result = await this.query(cypher, { entityId, stateId, now });
     const relCreated = Number(result.stats?.['Relationships created'] ?? 0);
     if (relCreated === 0) {
       throw new Error(
-        `HAS_STATE edge failed: 0 relationships created for characterId=${characterId}, stateId=${stateId}`,
+        `HAS_STATE edge failed: 0 relationships created for entityId=${entityId}, stateId=${stateId}`,
       );
     }
   }
@@ -2188,7 +2181,7 @@ class GraphService {
    */
   async getEntityIdsWithArcs(documentId: string): Promise<string[]> {
     const cypher = `
-      MATCH (c:StoryNode {documentId: $documentId})-[:HAS_ARC]->(a:Arc)-[:INCLUDES_STATE]->(s:CharacterState)
+      MATCH (c:Entity {documentId: $documentId})-[:HAS_ARC]->(a:Arc)-[:INCLUDES_STATE]->(s:ArcState)
       WHERE a.deletedAt IS NULL AND s.deletedAt IS NULL
       RETURN DISTINCT c.id
     `;
@@ -2197,23 +2190,21 @@ class GraphService {
   }
 
   /**
-   * Get all CharacterStates for a character, ordered by phaseIndex.
+   * Get all ArcStates for an entity, ordered by phaseIndex.
    */
-  async getCharacterStates(
-    characterId: string,
-  ): Promise<StoredCharacterState[]> {
+  async getArcStates(entityId: string): Promise<StoredArcState[]> {
     const cypher = `
-      MATCH (c:StoryNode)-[:HAS_STATE]->(s:CharacterState)
-      WHERE c.id = $characterId AND s.deletedAt IS NULL
-      RETURN s.id, s.characterId, s.name, s.phaseIndex, s.documentOrder, s.causalOrder,
+      MATCH (c:Entity)-[:HAS_STATE]->(s:ArcState)
+      WHERE c.id = $entityId AND s.deletedAt IS NULL
+      RETURN s.id, s.entityId, s.name, s.phaseIndex, s.documentOrder, s.causalOrder,
              s.embedding, s.createdAt, s.updatedAt, s.deletedAt
       ORDER BY s.phaseIndex
     `;
-    const result = await this.query(cypher, { characterId });
+    const result = await this.query(cypher, { entityId });
 
     return result.data.map((row) => ({
       id: row[0] as string,
-      characterId: row[1] as string,
+      entityId: row[1] as string,
       name: row[2] as string,
       phaseIndex: row[3] as number,
       documentOrder: row[4] as number,
@@ -2226,20 +2217,20 @@ class GraphService {
   }
 
   /**
-   * Get all Arcs for a character.
+   * Get all Arcs for an entity.
    */
-  async getCharacterArcs(characterId: string): Promise<StoredArc[]> {
+  async getEntityArcs(entityId: string): Promise<StoredArc[]> {
     const cypher = `
-      MATCH (c:StoryNode)-[:HAS_ARC]->(a:Arc)
-      WHERE c.id = $characterId AND a.deletedAt IS NULL
-      RETURN a.id, a.characterId, a.name, a.arcType, a.summary, a.embedding,
+      MATCH (c:Entity)-[:HAS_ARC]->(a:Arc)
+      WHERE c.id = $entityId AND a.deletedAt IS NULL
+      RETURN a.id, a.entityId, a.name, a.arcType, a.summary, a.embedding,
              a.createdAt, a.updatedAt, a.deletedAt
     `;
-    const result = await this.query(cypher, { characterId });
+    const result = await this.query(cypher, { entityId });
 
     return result.data.map((row) => ({
       id: row[0] as string,
-      characterId: row[1] as string,
+      entityId: row[1] as string,
       name: row[2] as string,
       arcType: row[3] as ArcType,
       summary: row[4] as string | null,
@@ -2251,13 +2242,13 @@ class GraphService {
   }
 
   /**
-   * Get all CharacterStates linked to an Arc, ordered by inclusion order.
+   * Get all ArcStates linked to an Arc, ordered by inclusion order.
    */
-  async getArcStates(arcId: string): Promise<StoredCharacterState[]> {
+  async getArcStatesForArc(arcId: string): Promise<StoredArcState[]> {
     const cypher = `
-      MATCH (a:Arc)-[r:INCLUDES_STATE]->(s:CharacterState)
+      MATCH (a:Arc)-[r:INCLUDES_STATE]->(s:ArcState)
       WHERE a.id = $arcId AND s.deletedAt IS NULL
-      RETURN s.id, s.characterId, s.name, s.phaseIndex, s.documentOrder, s.causalOrder,
+      RETURN s.id, s.entityId, s.name, s.phaseIndex, s.documentOrder, s.causalOrder,
              s.embedding, s.createdAt, s.updatedAt, s.deletedAt
       ORDER BY r.order
     `;
@@ -2265,7 +2256,7 @@ class GraphService {
 
     return result.data.map((row) => ({
       id: row[0] as string,
-      characterId: row[1] as string,
+      entityId: row[1] as string,
       name: row[2] as string,
       phaseIndex: row[3] as number,
       documentOrder: row[4] as number,
@@ -2278,11 +2269,11 @@ class GraphService {
   }
 
   /**
-   * Get facets linked to a CharacterState.
+   * Get facets linked to a ArcState.
    */
   async getFacetsForState(stateId: string): Promise<StoredFacet[]> {
     const cypher = `
-      MATCH (s:CharacterState)-[:HAS_FACET]->(f:Facet)
+      MATCH (s:ArcState)-[:HAS_FACET]->(f:Facet)
       WHERE s.id = $stateId AND f.deletedAt IS NULL
       RETURN f.id, f.entityId, f.facetType, f.content, f.embedding, f.createdAt, f.updatedAt, f.deletedAt
       ORDER BY f.facetType, f.createdAt
@@ -2317,7 +2308,7 @@ class GraphService {
   }
 
   /**
-   * Get what a facet is attached to (Entity or CharacterState).
+   * Get what a facet is attached to (Entity or ArcState).
    * Used for conflict classification to determine if facets are in different temporal contexts.
    */
   async getFacetAttachment(
@@ -2326,11 +2317,11 @@ class GraphService {
     | { type: 'entity'; entityId: string }
     | { type: 'state'; stateId: string; entityId: string }
   > {
-    // Check if attached to CharacterState first
+    // Check if attached to ArcState first
     const stateResult = await this.query(
       `
-      MATCH (s:CharacterState)-[:HAS_FACET]->(f:Facet {id: $facetId})
-      MATCH (c:StoryNode)-[:HAS_STATE]->(s)
+      MATCH (s:ArcState)-[:HAS_FACET]->(f:Facet {id: $facetId})
+      MATCH (c:Entity)-[:HAS_STATE]->(s)
       RETURN s.id, c.id
       `,
       { facetId },
@@ -2347,7 +2338,7 @@ class GraphService {
     // Check if attached to Entity
     const entityResult = await this.query(
       `
-      MATCH (e:StoryNode)-[:HAS_FACET]->(f:Facet {id: $facetId})
+      MATCH (e:Entity)-[:HAS_FACET]->(f:Facet {id: $facetId})
       RETURN e.id
       `,
       { facetId },
@@ -2367,7 +2358,7 @@ class GraphService {
   /**
    * Get CHANGES_TO edges for a character's states (state transitions).
    */
-  async getStateTransitions(characterId: string): Promise<
+  async getStateTransitions(entityId: string): Promise<
     Array<{
       fromStateId: string;
       toStateId: string;
@@ -2376,12 +2367,12 @@ class GraphService {
     }>
   > {
     const cypher = `
-      MATCH (c:StoryNode)-[:HAS_STATE]->(from:CharacterState)-[r:CHANGES_TO]->(to:CharacterState)
-      WHERE c.id = $characterId AND from.deletedAt IS NULL AND to.deletedAt IS NULL
+      MATCH (c:Entity)-[:HAS_STATE]->(from:ArcState)-[r:CHANGES_TO]->(to:ArcState)
+      WHERE c.id = $entityId AND from.deletedAt IS NULL AND to.deletedAt IS NULL
       RETURN from.id, to.id, r.triggerEventId, r.gapDetected
       ORDER BY from.phaseIndex
     `;
-    const result = await this.query(cypher, { characterId });
+    const result = await this.query(cypher, { entityId });
 
     return result.data.map((row) => ({
       fromStateId: row[0] as string,
@@ -2427,7 +2418,7 @@ class GraphService {
   /**
    * Get thread participation for a character (events they participate in, with thread info).
    */
-  async getCharacterThreadParticipation(characterId: string): Promise<
+  async getEntityThreadParticipation(entityId: string): Promise<
     Array<{
       threadId: string;
       threadName: string;
@@ -2436,11 +2427,11 @@ class GraphService {
     }>
   > {
     const cypher = `
-      MATCH (c:StoryNode)-[:PARTICIPATES_IN]->(e:StoryNode)-[bt:BELONGS_TO_THREAD]->(t:NarrativeThread)
-      WHERE c.id = $characterId AND c.deletedAt IS NULL AND e.deletedAt IS NULL
+      MATCH (c:Entity)-[:PARTICIPATES_IN]->(e:Entity)<-[bt:INCLUDES]-(t:Thread)
+      WHERE c.id = $entityId AND c.deletedAt IS NULL AND e.deletedAt IS NULL
       RETURN t.id, t.name, t.color, collect(e.id) as eventIds
     `;
-    const result = await this.query(cypher, { characterId });
+    const result = await this.query(cypher, { entityId });
 
     return result.data.map((row) => ({
       threadId: row[0] as string,
@@ -2451,9 +2442,9 @@ class GraphService {
   }
 
   /**
-   * Set embedding on a CharacterState node.
+   * Set embedding on a ArcState node.
    */
-  async setCharacterStateEmbedding(
+  async setArcStateEmbedding(
     stateId: string,
     embedding: number[],
     analysisVersion?: string,
@@ -2464,7 +2455,7 @@ class GraphService {
     const vecString = embedding.join(',');
     const embeddingColumn = versionConfig.embeddingColumn;
     const cypher = `
-      MATCH (s:CharacterState)
+      MATCH (s:ArcState)
       WHERE s.id = $stateId
       SET s.${embeddingColumn} = vecf32([${vecString}]),
           s.embeddingModel = $embeddingModel
@@ -2494,7 +2485,7 @@ class GraphService {
   // ========== Position-Based Validity Queries ==========
 
   /**
-   * Get the validity window for a CharacterState.
+   * Get the validity window for a ArcState.
    * Window runs from state's documentOrder to next state's documentOrder (or null for last state).
    */
   async getStateValidityWindow(
@@ -2502,15 +2493,15 @@ class GraphService {
   ): Promise<{ start: number; end: number | null }> {
     // Get this state and the next state in sequence
     const cypher = `
-      MATCH (s:CharacterState {id: $stateId})
-      OPTIONAL MATCH (s)-[:CHANGES_TO]->(next:CharacterState)
+      MATCH (s:ArcState {id: $stateId})
+      OPTIONAL MATCH (s)-[:CHANGES_TO]->(next:ArcState)
       WHERE next.deletedAt IS NULL
       RETURN s.documentOrder, next.documentOrder
     `;
     const result = await this.query(cypher, { stateId });
 
     if (result.data.length === 0) {
-      throw new Error(`CharacterState ${stateId} not found`);
+      throw new Error(`ArcState ${stateId} not found`);
     }
 
     const start = result.data[0][0] as number;
@@ -2520,23 +2511,23 @@ class GraphService {
   }
 
   /**
-   * Get the CharacterState active at a specific document position.
+   * Get the ArcState active at a specific document position.
    * Returns the state whose validity window contains the position.
    */
   async getStateAtPosition(
-    characterId: string,
+    entityId: string,
     position: number,
-  ): Promise<StoredCharacterState | null> {
+  ): Promise<StoredArcState | null> {
     // Find the state with the highest documentOrder that is <= position
     const cypher = `
-      MATCH (c:StoryNode {id: $characterId})-[:HAS_STATE]->(s:CharacterState)
+      MATCH (c:Entity {id: $entityId})-[:HAS_STATE]->(s:ArcState)
       WHERE s.deletedAt IS NULL AND s.documentOrder <= $position
-      RETURN s.id, s.characterId, s.name, s.phaseIndex, s.documentOrder, s.causalOrder,
+      RETURN s.id, s.entityId, s.name, s.phaseIndex, s.documentOrder, s.causalOrder,
              s.embedding, s.createdAt, s.updatedAt, s.deletedAt
       ORDER BY s.documentOrder DESC
       LIMIT 1
     `;
-    const result = await this.query(cypher, { characterId, position });
+    const result = await this.query(cypher, { entityId, position });
 
     if (result.data.length === 0) {
       return null;
@@ -2545,7 +2536,7 @@ class GraphService {
     const row = result.data[0];
     return {
       id: row[0] as string,
-      characterId: row[1] as string,
+      entityId: row[1] as string,
       name: row[2] as string,
       phaseIndex: row[3] as number,
       documentOrder: row[4] as number,
@@ -2567,7 +2558,7 @@ class GraphService {
   ): Promise<StoredFacet[]> {
     // Get permanent facets (attached directly to entity)
     const permanentCypher = `
-      MATCH (e:StoryNode {id: $entityId})-[:HAS_FACET]->(f:Facet)
+      MATCH (e:Entity {id: $entityId})-[:HAS_FACET]->(f:Facet)
       WHERE f.deletedAt IS NULL
       RETURN f.id, f.entityId, f.facetType, f.content, f.embedding,
              f.createdAt, f.updatedAt, f.deletedAt
@@ -2600,17 +2591,17 @@ class GraphService {
     userId: string,
     position: number,
   ): Promise<{
-    entity: StoredStoryNode;
-    activeState: StoredCharacterState | null;
+    entity: StoredEntity;
+    activeState: StoredArcState | null;
     permanentFacets: StoredFacet[];
     stateFacets: StoredFacet[];
   } | null> {
-    const entity = await this.getStoryNodeById(entityId, userId);
+    const entity = await this.getEntityById(entityId, userId);
     if (!entity) return null;
 
     // Get permanent facets
     const permanentCypher = `
-      MATCH (e:StoryNode {id: $entityId})-[:HAS_FACET]->(f:Facet)
+      MATCH (e:Entity {id: $entityId})-[:HAS_FACET]->(f:Facet)
       WHERE f.deletedAt IS NULL
       RETURN f.id, f.entityId, f.facetType, f.content, f.embedding,
              f.createdAt, f.updatedAt, f.deletedAt
@@ -2672,9 +2663,9 @@ class GraphService {
   async findNodeByNameInDocument(
     documentId: string,
     name: string,
-  ): Promise<StoredStoryNode | null> {
+  ): Promise<StoredEntity | null> {
     const cypher = `
-      MATCH (n:StoryNode)
+      MATCH (n:Entity)
       WHERE n.documentId = $documentId AND n.name = $name AND n.deletedAt IS NULL
       RETURN n.id, n.documentId, n.userId, n.type, n.name, n.description,
              n.aliases, n.metadata, n.primaryMediaId, n.stylePreset, n.stylePrompt,
@@ -2694,7 +2685,7 @@ class GraphService {
       id: row[0] as string,
       documentId: row[1] as string,
       userId: row[2] as string,
-      type: row[3] as StoryNodeType,
+      type: row[3] as NodeType,
       name: row[4] as string,
       description: row[5] as string | null,
       aliases,
@@ -2716,11 +2707,11 @@ class GraphService {
   async findConnection(
     fromId: string,
     toId: string,
-    edgeType: StoryEdgeType,
-  ): Promise<StoredStoryConnection | null> {
+    edgeType: EdgeType,
+  ): Promise<StoredConnection | null> {
     this.validateEdgeType(edgeType);
     const cypher = `
-      MATCH (a:StoryNode)-[r:${edgeType}]->(b:StoryNode)
+      MATCH (a:Entity)-[r:${edgeType}]->(b:Entity)
       WHERE a.id = $fromId AND b.id = $toId AND r.deletedAt IS NULL
       RETURN r.id, a.id, b.id, type(r) as edgeType, r.description, r.strength, r.createdAt, r.deletedAt
       LIMIT 1
@@ -2734,7 +2725,7 @@ class GraphService {
       id: row[0] as string,
       fromNodeId: row[1] as string,
       toNodeId: row[2] as string,
-      edgeType: row[3] as StoryEdgeType,
+      edgeType: row[3] as EdgeType,
       description: row[4] as string | null,
       strength: row[5] != null ? Number(row[5]) : null,
       narrativeDistance: null,
@@ -2757,7 +2748,7 @@ class GraphService {
     color: string | null;
   } | null> {
     const cypher = `
-      MATCH (nt:NarrativeThread)
+      MATCH (nt:Thread)
       WHERE nt.documentId = $documentId AND nt.name = $name
       RETURN nt.id, nt.name, nt.isPrimary, nt.color
       LIMIT 1
@@ -2779,10 +2770,10 @@ class GraphService {
    * Create a story node only if one with the same name doesn't exist.
    * Returns the existing node ID if found, or creates and returns the new ID.
    */
-  async createStoryNodeIdempotent(
+  async createEntityIdempotent(
     documentId: string,
     userId: string,
-    node: StoryNodeResult,
+    node: EntityResult,
     options?: {
       stylePreset?: string | null;
       stylePrompt?: string | null;
@@ -2791,9 +2782,7 @@ class GraphService {
   ): Promise<{ id: string; created: boolean }> {
     // If existingId provided, check by ID first (handles aliases mapped to same ID)
     if (options?.existingId) {
-      const existingById = await this.getStoryNodeByIdInternal(
-        options.existingId,
-      );
+      const existingById = await this.getEntityByIdInternal(options.existingId);
       if (existingById) {
         return { id: options.existingId, created: false };
       }
@@ -2805,7 +2794,7 @@ class GraphService {
       return { id: existing.id, created: false };
     }
 
-    const id = await this.createStoryNode(documentId, userId, node, options);
+    const id = await this.createEntity(documentId, userId, node, options);
     return { id, created: true };
   }
 
@@ -2813,10 +2802,10 @@ class GraphService {
    * Create a story connection only if one doesn't exist.
    * Returns the existing connection ID if found, or creates and returns the new ID.
    */
-  async createStoryConnectionIdempotent(
+  async createConnectionIdempotent(
     fromId: string,
     toId: string,
-    edgeType: StoryEdgeType,
+    edgeType: EdgeType,
     description: string | null,
     properties?: { strength?: number },
   ): Promise<{ id: string; created: boolean }> {
@@ -2824,7 +2813,7 @@ class GraphService {
     if (existing) {
       return { id: existing.id, created: false };
     }
-    const id = await this.createStoryConnection(
+    const id = await this.createConnection(
       fromId,
       toId,
       edgeType,
@@ -2838,16 +2827,16 @@ class GraphService {
    * Create a narrative thread only if one with the same name doesn't exist.
    * Returns the existing thread ID if found, or creates and returns the new ID.
    */
-  async createNarrativeThreadIdempotent(
+  async createThreadIdempotent(
     documentId: string,
     userId: string,
-    thread: NarrativeThreadResult,
+    thread: ThreadResult,
   ): Promise<{ id: string; created: boolean }> {
     const existing = await this.findThreadByName(documentId, thread.name);
     if (existing) {
       return { id: existing.id, created: false };
     }
-    const id = await this.createNarrativeThread(documentId, userId, thread);
+    const id = await this.createThread(documentId, userId, thread);
     return { id, created: true };
   }
 }

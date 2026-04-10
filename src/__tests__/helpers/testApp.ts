@@ -4,7 +4,7 @@ import { getEmailServiceMock } from './mocks';
 
 const redisStore = new Map<string, string>();
 const mockStorageData = new Map<string, Buffer>();
-const mockStoryNodes = new Map<string, unknown>();
+const mockEntities = new Map<string, unknown>();
 const primaryEditors = new Map<string, string>();
 const storageKeyCounter = { value: 0 };
 const testServer: { server: unknown; port: number } = { server: null, port: 0 };
@@ -275,15 +275,15 @@ mock.module('../../services/redis-streams', () => ({
   },
 }));
 
-export function clearMockStoryNodes() {
-  mockStoryNodes.clear();
+export function clearMockEntitys() {
+  mockEntities.clear();
 }
 
-export function setMockStoryNode(nodeId: string, node: unknown) {
-  mockStoryNodes.set(nodeId, node);
+export function setMockEntity(nodeId: string, node: unknown) {
+  mockEntities.set(nodeId, node);
 }
 
-interface MockStoryNode {
+interface MockEntity {
   userId: string;
   documentId: string;
   stylePreset?: string | null;
@@ -297,42 +297,42 @@ mock.module('../../services/graph/graph.service', () => ({
     disconnect: async () => {},
     getConnectionStatus: () => true,
     query: async () => ({ headers: [], data: [], stats: {} }),
-    createStoryNode: async () => 'mock-node-id',
-    getStoryNodeById: async (nodeId: string, userId: string) => {
-      const node = mockStoryNodes.get(nodeId) as MockStoryNode | undefined;
+    createEntity: async () => 'mock-node-id',
+    getEntityById: async (nodeId: string, userId: string) => {
+      const node = mockEntities.get(nodeId) as MockEntity | undefined;
       if (!node || node.userId !== userId) return null;
       return node;
     },
-    getStoryNodeByIdInternal: async (nodeId: string) =>
-      mockStoryNodes.get(nodeId) || null,
-    getStoryNodesForDocument: async (documentId: string, userId: string) => {
+    getEntityByIdInternal: async (nodeId: string) =>
+      mockEntities.get(nodeId) || null,
+    getEntitiesForDocument: async (documentId: string, userId: string) => {
       const nodes: unknown[] = [];
-      for (const node of mockStoryNodes.values()) {
-        const n = node as MockStoryNode;
+      for (const node of mockEntities.values()) {
+        const n = node as MockEntity;
         if (n.documentId === documentId && n.userId === userId) {
           nodes.push(node);
         }
       }
       return nodes;
     },
-    updateStoryNode: async () => {},
-    updateStoryNodeStyle: async (
+    updateEntity: async () => {},
+    updateEntityStyle: async (
       nodeId: string,
       stylePreset: string | null,
       stylePrompt: string | null,
     ) => {
-      const node = mockStoryNodes.get(nodeId) as MockStoryNode | undefined;
+      const node = mockEntities.get(nodeId) as MockEntity | undefined;
       if (!node) return null;
       node.stylePreset = stylePreset;
       node.stylePrompt = stylePrompt;
       return node;
     },
-    updateStoryNodePrimaryMedia: async () => {},
-    softDeleteStoryNode: async () => {},
-    deleteAllStoryNodesForDocument: async () => {},
-    getStoryConnectionsForDocument: async () => [],
-    createStoryConnection: async () => 'mock-connection-id',
-    softDeleteStoryConnection: async () => {},
+    updateEntityPrimaryMedia: async () => {},
+    softDeleteEntity: async () => {},
+    deleteAllEntitiesForDocument: async () => {},
+    getConnectionsForDocument: async () => [],
+    createConnection: async () => 'mock-connection-id',
+    softDeleteConnection: async () => {},
     setNodeEmbedding: async () => {},
     findSimilarNodes: async () => [],
     getNodeSimilaritiesForDocument: async () => [],
@@ -511,4 +511,4 @@ export async function stopTestServer(): Promise<void> {
 
 const emailMock = getEmailServiceMock();
 
-export { emailMock, mockStorageData, mockStoryNodes };
+export { emailMock, mockEntities, mockStorageData };

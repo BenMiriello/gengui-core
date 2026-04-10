@@ -4,7 +4,7 @@ export type TargetType =
   | 'facet'
   | 'edge'
   | 'mention'
-  | 'character_state'
+  | 'arc_state'
   | 'arc'
   | 'thread';
 export type Operation = 'create' | 'update' | 'delete' | 'merge';

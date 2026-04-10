@@ -243,7 +243,7 @@ export class MediaService {
     }
 
     // Then fetch the node from FalkorDB
-    const node = await graphService.getStoryNodeById(nodeMed.nodeId, userId);
+    const node = await graphService.getEntityById(nodeMed.nodeId, userId);
     if (!node) {
       return null;
     }

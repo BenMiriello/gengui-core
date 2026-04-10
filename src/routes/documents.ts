@@ -14,6 +14,7 @@ import { jobService } from '../jobs/service';
 import { requireAuth } from '../middleware/auth';
 import { analysisSnapshots, documents, jobs, mentions } from '../models/schema';
 import { documentsService } from '../services/documents';
+import { graphEntitiesRepository } from '../services/entities';
 import {
   computeCausalOrder,
   detectThreads,
@@ -29,7 +30,6 @@ import { redis } from '../services/redis';
 import { redisStreams } from '../services/redis-streams';
 import { sseService } from '../services/sse';
 import { stalenessService } from '../services/staleness';
-import { graphStoryNodesRepository } from '../services/storyNodes';
 import { UsageQuotaExceededError, usageService } from '../services/usage';
 import { versioningService } from '../services/versioning';
 import { sanitizeError } from '../utils/error-sanitizer';
@@ -430,7 +430,7 @@ router.get(
       const id = parseStringParam(req.params.id, 'id');
 
       const document = await documentsService.get(id, userId);
-      const nodes = await graphStoryNodesRepository.getActiveNodes(id, userId);
+      const nodes = await graphEntitiesRepository.getActiveNodes(id, userId);
 
       const hasAnalysis = nodes.length > 0;
       const lastAnalyzedVersion = document.lastAnalyzedVersion ?? null;
@@ -786,7 +786,7 @@ router.post(
 
       // Clean up immediately (whether paused or processing)
       await clearCheckpoint(id);
-      await graphService.deleteAllStoryNodesForDocument(id, userId);
+      await graphService.deleteAllEntitiesForDocument(id, userId);
       await mentionService.deleteByDocumentId(id);
 
       sseService.broadcastToDocument(id, 'job-cancelled', {
@@ -872,12 +872,12 @@ router.get(
       const id = parseStringParam(req.params.id, 'id');
 
       // Fetch active story nodes from FalkorDB
-      const nodes = await graphStoryNodesRepository.getActiveNodes(id, userId);
+      const nodes = await graphEntitiesRepository.getActiveNodes(id, userId);
 
       // Fetch active connections from FalkorDB
       const connections =
         nodes.length > 0
-          ? await graphStoryNodesRepository.getConnectionsForDocument(id)
+          ? await graphEntitiesRepository.getConnectionsForDocument(id)
           : [];
 
       res.json({ nodes, connections });
@@ -952,7 +952,7 @@ router.delete(
       }
 
       // Get node IDs before deletion for SSE event
-      const nodes = await graphStoryNodesRepository.getActiveNodes(id, userId);
+      const nodes = await graphEntitiesRepository.getActiveNodes(id, userId);
       const nodeIds = nodes.map((n) => n.id);
 
       // Check state BEFORE delete
@@ -976,7 +976,7 @@ router.delete(
 
       // Phase 1: Delete FalkorDB data (OUTSIDE transaction - separate database)
       logger.info({ documentId: id }, 'Starting FalkorDB delete');
-      await graphStoryNodesRepository.deleteAllForDocument(id, userId);
+      await graphEntitiesRepository.deleteAllForDocument(id, userId);
       logger.info({ documentId: id }, 'FalkorDB delete completed');
 
       // Phase 2: Update PostgreSQL atomically
@@ -1181,32 +1181,29 @@ router.get(
   },
 );
 
-// Character arc endpoint
+// Entity arc endpoint
 router.get(
-  '/documents/:id/character-arc/:characterId',
+  '/documents/:id/entity-arc/:entityId',
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       if (!req.user) throw new Error('User not authenticated');
       const userId = req.user.id;
       const id = parseStringParam(req.params.id, 'id');
-      const characterId = parseStringParam(
-        req.params.characterId,
-        'characterId',
-      );
+      const entityId = parseStringParam(req.params.entityId, 'entityId');
 
       // Verify user has access to document
       await documentsService.get(id, userId);
 
       const [arcs, transitions] = await Promise.all([
-        graphService.getCharacterArcs(characterId),
-        graphService.getStateTransitions(characterId),
+        graphService.getEntityArcs(entityId),
+        graphService.getStateTransitions(entityId),
       ]);
 
       // For each arc, get its states via INCLUDES_STATE
       const arcsWithStates = await Promise.all(
         arcs.map(async (arc) => {
-          const arcStates = await graphService.getArcStates(arc.id);
+          const arcStates = await graphService.getArcStatesForArc(arc.id);
           return {
             id: arc.id,
             name: arc.name,
@@ -1229,7 +1226,7 @@ router.get(
         }),
       );
 
-      res.json({ characterId, arcs: arcsWithStates });
+      res.json({ entityId, arcs: arcsWithStates });
     } catch (error) {
       next(error);
     }
@@ -1270,7 +1267,7 @@ router.post(
 
       await documentsService.get(id, userId);
 
-      const threadId = await graphService.createNarrativeThread(id, userId, {
+      const threadId = await graphService.createThread(id, userId, {
         name: name || 'Untitled Thread',
         isPrimary: isPrimary ?? false,
         eventNames: [],

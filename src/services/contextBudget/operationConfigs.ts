@@ -12,8 +12,8 @@
  * Tier 3 = Model config (data only)
  */
 
-import { extractEntitiesPrompt } from '../../prompts/storyNodes/extractEntities';
-import { extractRelationshipsPrompt } from '../../prompts/storyNodes/extractRelationships';
+import { extractEntitiesPrompt } from '../../prompts/entities/extractEntities';
+import { extractRelationshipsPrompt } from '../../prompts/entities/extractRelationships';
 import type { Segment } from '../segments';
 import { batchCalibrator } from './calibrator';
 

@@ -34,7 +34,7 @@ class AuthorizationService {
   }
 
   async canAccessNode(userId: string, nodeId: string): Promise<boolean> {
-    const node = await graphService.getStoryNodeById(nodeId, userId);
+    const node = await graphService.getEntityById(nodeId, userId);
     return node !== null;
   }
 

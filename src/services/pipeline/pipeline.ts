@@ -8,7 +8,7 @@
  * Stage 5: Intra-Segment Relationships (LLM, parallel per segment)
  * Stage 6: Cross-Segment Relationships (LLM, sequential)
  * Stage 7: Higher-Order Analysis (LLM + algorithmic)
- * Stage 8: CharacterState Facet Attachment (algorithmic)
+ * Stage 8: Arc State Facet Attachment (algorithmic)
  * Stage 9: Conflict Detection (algorithmic)
  *
  * Note: Stage 4 (Text Grounding) was removed as it was a no-op placeholder.
@@ -25,11 +25,11 @@ import { getTextModelConfig } from '../../config/text-models';
 import { documents, reviewQueue } from '../../models/schema';
 import type {
   ArcType,
+  EdgeType,
   FacetInput,
   FacetType,
-  StoryEdgeType,
-  StoryNodeType,
-} from '../../types/storyNodes';
+  NodeType,
+} from '../../types/entities';
 import { generateRequestId, logger } from '../../utils/logger';
 import { logStageComplete, logStageStart } from '../../utils/logHelpers';
 // TODO: Re-enable when review queue UI is built and conflict detection is fixed
@@ -53,6 +53,10 @@ import {
 import { descriptionService } from '../descriptionGeneration';
 import { generateEmbedding, generateEmbeddings } from '../embeddings';
 import {
+  graphEntitiesRepository,
+  recomputeEntityEmbeddingWithMentionWeights,
+} from '../entities';
+import {
   analyzeHigherOrder,
   detectContradictionsInBatch,
   type EntityRegistryEntry,
@@ -69,16 +73,12 @@ import { getGeminiClient } from '../gemini/core';
 import { recomputeAndUpdatePrimaryName } from '../graph/entityNames.js';
 import { computeCausalOrder } from '../graph/graph.analysis';
 import { graphService } from '../graph/graph.service';
-import type { StoredFacet, StoredStoryNode } from '../graph/graph.types';
+import type { StoredEntity, StoredFacet } from '../graph/graph.types';
 import { mentionService } from '../mentions';
 import type { Segment } from '../segments';
 import { segmentService } from '../segments';
 import { sentenceService } from '../sentences';
 import { sseService } from '../sse';
-import {
-  graphStoryNodesRepository,
-  recomputeEntityEmbeddingWithMentionWeights,
-} from '../storyNodes';
 import {
   generateDocumentSummary,
   generateSegmentSummaryWithRetry,
@@ -177,7 +177,7 @@ export interface PipelineResult {
 interface ExtractedEntity {
   segmentId: string;
   name: string;
-  type: StoryNodeType;
+  type: NodeType;
   documentOrder?: number;
   facets: FacetInput[];
   mentions: Array<{ text: string }>;
@@ -798,7 +798,7 @@ export const multiStagePipeline = {
 
       // Load existing entities into registry if incremental
       if (!isInitialExtraction) {
-        const existingNodes = await graphStoryNodesRepository.getActiveNodes(
+        const existingNodes = await graphEntitiesRepository.getActiveNodes(
           documentId,
           userId,
         );
@@ -1176,7 +1176,7 @@ export const multiStagePipeline = {
               const extracted: ExtractedEntity = {
                 segmentId: segment.id,
                 name: entity.name,
-                type: entity.type as StoryNodeType,
+                type: entity.type as NodeType,
                 documentOrder: entity.documentOrder,
                 facets: entityFacets,
                 mentions: entityMentions,
@@ -1813,7 +1813,7 @@ export const multiStagePipeline = {
             entityWithSegments.push({
               id,
               name,
-              type: instances[0]?.type || 'other',
+              type: instances[0]?.type || 'concept',
               segmentIds,
               keyFacets,
               aliases: otherAliases.length > 0 ? otherAliases : undefined,
@@ -1920,7 +1920,7 @@ export const multiStagePipeline = {
           await createTrackedEdge(
             rel.fromId,
             rel.toId,
-            rel.edgeType as StoryEdgeType,
+            rel.edgeType as EdgeType,
             rel.description,
             { strength: rel.strength },
             { batchId: stage5And6BatchId },
@@ -1965,7 +1965,7 @@ export const multiStagePipeline = {
         id: string;
         name: string;
         documentOrder: number;
-        connectedCharacterIds: string[];
+        connectedEntityIds: string[];
         causalEdges: Array<{
           type: 'CAUSES' | 'ENABLES' | 'PREVENTS';
           targetId: string;
@@ -2004,16 +2004,16 @@ export const multiStagePipeline = {
           const participates = connections.filter(
             (c) => c.edgeType === 'PARTICIPATES_IN',
           );
-          const connectedCharacterIds = participates.map((c) => c.fromNodeId);
+          const connectedEntityIds = participates.map((c) => c.fromNodeId);
 
           events.push({
             id,
             name,
             documentOrder: instances[0]?.documentOrder || 0,
-            connectedCharacterIds,
+            connectedEntityIds,
             causalEdges,
           });
-        } else if (entityType === 'character') {
+        } else if (entityType === 'person') {
           // Get state facets by segment
           const stateFacetsBySegment: Array<{
             segmentIndex: number;
@@ -2033,7 +2033,7 @@ export const multiStagePipeline = {
             }
           }
 
-          // Get events this character participates in
+          // Get events this entity participates in
           const connections = await graphService.getConnectionsFromNode(id);
           const participatesIn = connections
             .filter((c) => c.edgeType === 'PARTICIPATES_IN')
@@ -2092,12 +2092,12 @@ export const multiStagePipeline = {
           }
         }
 
-        // Process character arcs from flattened arcPhases
+        // Process entity arcs from flattened arcPhases
         if (
           higherOrderResult.arcPhases &&
           higherOrderResult.arcPhases.length > 0
         ) {
-          await processCharacterArcs(
+          await processEntityArcs(
             higherOrderResult.arcPhases,
             documentId,
             userId,
@@ -2107,21 +2107,20 @@ export const multiStagePipeline = {
             analysisVersion,
           );
 
-          const arcCharacterIds = [
+          const arcEntityIds = [
             ...new Set(
               higherOrderResult.arcPhases.map((p) => {
-                const resolved = entityIdByName.get(p.characterId);
-                return resolved ?? p.characterId;
+                const resolved = entityIdByName.get(p.entityId);
+                return resolved ?? p.entityId;
               }),
             ),
           ].filter(Boolean);
 
-          if (arcCharacterIds.length > 0) {
-            sseService.broadcastToDocument(
+          if (arcEntityIds.length > 0) {
+            sseService.broadcastToDocument(documentId, 'entity-arc-updated', {
               documentId,
-              'character-arc-updated',
-              { documentId, characterIds: arcCharacterIds },
-            );
+              entityIds: arcEntityIds,
+            });
           }
         }
       }
@@ -2135,7 +2134,7 @@ export const multiStagePipeline = {
         {
           threadCount: higherOrderResult?.narrativeThreads.length || 0,
           arcCount: new Set(
-            (higherOrderResult?.arcPhases || []).map((p) => p.characterId),
+            (higherOrderResult?.arcPhases || []).map((p) => p.entityId),
           ).size,
           arcPhaseCount: higherOrderResult?.arcPhases?.length || 0,
         },
@@ -2146,13 +2145,13 @@ export const multiStagePipeline = {
       childLogger.info('Skipping Stage 7 (already completed)');
     }
 
-    // Stage 8: CharacterState facet attachment
+    // Stage 8: ArcState facet attachment
     const stage8BatchId = changeLogService.generateBatchId();
     if (shouldRunStage(checkpoint, 8)) {
       const stage8StartTime = Date.now();
       await checkForInterruption(documentId);
-      broadcast(8, entityIdByName.size, 'Processing character state facets...');
-      logStageStart(childLogger, 8, 'CharacterState Facet Attachment', {
+      broadcast(8, entityIdByName.size, 'Processing arc state facets...');
+      logStageStart(childLogger, 8, 'Arc State Facet Attachment', {
         entityCount: entityIdByName.size,
       });
 
@@ -2167,7 +2166,7 @@ export const multiStagePipeline = {
       logStageComplete(
         childLogger,
         8,
-        'CharacterState Facet Attachment',
+        'ArcState Facet Attachment',
         stage8DurationMs,
         {},
       );
@@ -2215,9 +2214,9 @@ export const multiStagePipeline = {
     // Clear checkpoint on successful completion
     await clearCheckpoint(documentId);
 
-    // Count unique characters with arcs
-    const uniqueCharactersWithArcs = new Set(
-      (higherOrderResult?.arcPhases || []).map((p) => p.characterId),
+    // Count unique entities with arcs
+    const uniqueEntitiesWithArcs = new Set(
+      (higherOrderResult?.arcPhases || []).map((p) => p.entityId),
     );
 
     const pipelineDurationMs = Date.now() - pipelineStartTime;
@@ -2227,7 +2226,7 @@ export const multiStagePipeline = {
         entityCount: entityIdByName.size,
         relationshipCount: allRelationships.length,
         threadCount: higherOrderResult?.narrativeThreads.length || 0,
-        arcCount: uniqueCharactersWithArcs.size,
+        arcCount: uniqueEntitiesWithArcs.size,
       },
       'Analysis pipeline completed',
     );
@@ -2236,7 +2235,7 @@ export const multiStagePipeline = {
       entityCount: entityIdByName.size,
       relationshipCount: allRelationships.length,
       threadCount: higherOrderResult?.narrativeThreads.length || 0,
-      arcCount: uniqueCharactersWithArcs.size,
+      arcCount: uniqueEntitiesWithArcs.size,
     };
   },
 };
@@ -2248,10 +2247,10 @@ function detectThreadCandidates(
   events: Array<{
     id: string;
     causalEdges: Array<{ targetId: string }>;
-    connectedCharacterIds: string[];
+    connectedEntityIds: string[];
   }>,
   _characters: Array<{ id: string; participatesInEventIds: string[] }>,
-): Array<{ eventIds: string[]; characterIds: string[] }> {
+): Array<{ eventIds: string[]; entityIds: string[] }> {
   if (events.length === 0) return [];
 
   // Build adjacency list for events via causal edges
@@ -2272,7 +2271,7 @@ function detectThreadCandidates(
 
   // Find connected components
   const visited = new Set<string>();
-  const components: Array<{ eventIds: string[]; characterIds: string[] }> = [];
+  const components: Array<{ eventIds: string[]; entityIds: string[] }> = [];
 
   for (const event of events) {
     if (visited.has(event.id)) continue;
@@ -2294,20 +2293,20 @@ function detectThreadCandidates(
       }
     }
 
-    // Find characters connected to events in this component
-    const componentCharacters = new Set<string>();
+    // Find entities connected to events in this component
+    const componentEntities = new Set<string>();
     for (const eventId of component) {
       const event = events.find((e) => e.id === eventId);
       if (event) {
-        for (const charId of event.connectedCharacterIds) {
-          componentCharacters.add(charId);
+        for (const charId of event.connectedEntityIds) {
+          componentEntities.add(charId);
         }
       }
     }
 
     components.push({
       eventIds: component,
-      characterIds: Array.from(componentCharacters),
+      entityIds: Array.from(componentEntities),
     });
   }
 
@@ -2315,10 +2314,10 @@ function detectThreadCandidates(
 }
 
 /**
- * Process character arcs from flattened arcPhases.
- * Groups by characterId, creates CharacterState nodes, Arc nodes, and edges.
+ * Process entity arcs from flattened arcPhases.
+ * Groups by entityId, creates ArcState nodes, Arc nodes, and edges.
  */
-async function processCharacterArcs(
+async function processEntityArcs(
   arcPhases: Stage5HigherOrderResult['arcPhases'],
   documentId: string,
   userId: string,
@@ -2327,33 +2326,33 @@ async function processCharacterArcs(
   batchId: string,
   analysisVersion: string,
 ): Promise<void> {
-  // Group phases by characterId (name from LLM)
-  const phasesByCharacter = new Map<string, typeof arcPhases>();
+  // Group phases by entityId (name from LLM)
+  const phasesByEntity = new Map<string, typeof arcPhases>();
   for (const phase of arcPhases) {
-    const existing = phasesByCharacter.get(phase.characterId) || [];
+    const existing = phasesByEntity.get(phase.entityId) || [];
     existing.push(phase);
-    phasesByCharacter.set(phase.characterId, existing);
+    phasesByEntity.set(phase.entityId, existing);
   }
 
   // Build reverse map (id → id) for direct UUID lookups
   const knownIds = new Set(entityIdByName.values());
 
-  // Process each character's arc
-  for (const [rawCharacterId, phases] of phasesByCharacter) {
+  // Process each entity's arc
+  for (const [rawEntityId, phases] of phasesByEntity) {
     // LLM may return either a name or a UUID — resolve to the actual node ID
-    let characterId: string;
-    if (knownIds.has(rawCharacterId)) {
-      characterId = rawCharacterId;
+    let entityId: string;
+    if (knownIds.has(rawEntityId)) {
+      entityId = rawEntityId;
     } else {
-      const resolved = entityIdByName.get(rawCharacterId);
+      const resolved = entityIdByName.get(rawEntityId);
       if (!resolved) {
         logger.warn(
-          { rawCharacterId, documentId },
-          'Character identifier from arc phase not resolved, skipping arc',
+          { rawEntityId, documentId },
+          'Entity identifier from arc phase not resolved, skipping arc',
         );
         continue;
       }
-      characterId = resolved;
+      entityId = resolved;
     }
 
     try {
@@ -2372,7 +2371,7 @@ async function processCharacterArcs(
         ).length;
         if (resolvedCount === 0) {
           logger.warn(
-            { characterId, documentId, phaseCount: phases.length },
+            { entityId, documentId, phaseCount: phases.length },
             'Skipping arc: no triggerEventIds resolved to known events, all states would have synthetic positions',
           );
           continue;
@@ -2384,7 +2383,7 @@ async function processCharacterArcs(
 
       // Create the Arc node
       const arcId = await createTrackedArc(
-        characterId,
+        entityId,
         documentId,
         userId,
         {
@@ -2393,7 +2392,7 @@ async function processCharacterArcs(
         { batchId },
       );
 
-      // Create CharacterState nodes for each phase
+      // Create arc state nodes for each phase
       const stateIds: string[] = [];
 
       for (const phase of phases) {
@@ -2411,9 +2410,9 @@ async function processCharacterArcs(
           }
         }
 
-        // Create CharacterState node
+        // Create arc state node
         const stateId = await createTrackedState(
-          characterId,
+          entityId,
           documentId,
           userId,
           {
@@ -2430,13 +2429,13 @@ async function processCharacterArcs(
         // Link state to arc
         await graphService.linkStateToArc(stateId, arcId, phase.phaseIndex);
 
-        // Link character to state
-        await graphService.linkCharacterToState(characterId, stateId);
+        // Link entity to state
+        await graphService.linkEntityToState(entityId, stateId);
 
         // Link state to facets mentioned in stateFacets
         // Find matching facets from the entity's existing facets
         const entityFacets = await graphService.getFacetsForEntity(
-          characterId,
+          entityId,
           analysisVersion,
         );
         for (const facetContent of phase.stateFacets) {
@@ -2465,7 +2464,7 @@ async function processCharacterArcs(
                 embeddings.reduce((sum, e) => sum + e[i], 0) /
                 embeddings.length,
             );
-            await graphService.setCharacterStateEmbedding(
+            await graphService.setArcStateEmbedding(
               stateId,
               sumEmbedding,
               analysisVersion,
@@ -2487,18 +2486,18 @@ async function processCharacterArcs(
             triggerEventId: toPhase.triggerEventId,
             gapDetected: toPhase.triggerEventId === null && i > 0,
           },
-          { batchId, characterId },
+          { batchId, entityId },
         );
       }
 
       logger.info(
-        { characterId, arcId, stateCount: stateIds.length, arcType },
-        'Character arc processed',
+        { entityId, arcId, stateCount: stateIds.length, arcType },
+        'Entity arc processed',
       );
     } catch (err) {
       logger.warn(
-        { characterId, documentId, err },
-        'Arc processing failed for character, skipping',
+        { entityId, documentId, err },
+        'Arc processing failed for entity, skipping',
       );
     }
   }
@@ -2507,18 +2506,18 @@ async function processCharacterArcs(
 /**
  * Stage 7: Process state facet attachment.
  *
- * For Character entities with `state` type facets:
- * 1. If no CharacterState exists, create a default one
- * 2. Move state facets from Entity to CharacterState based on position
+ * For Person entities with `state` type facets:
+ * 1. If no ArcState exists, create a default one
+ * 2. Move state facets from Entity to ArcState based on position
  *
- * Position-based assignment: Each state facet is assigned to the CharacterState
+ * Position-based assignment: Each state facet is assigned to the ArcState
  * whose validity window (documentOrder to next state's documentOrder) contains
  * the facet's estimated position. Since facets don't directly store position,
  * we use the entity's first mention position as a baseline estimate. For entities
  * with multiple states, we distribute facets based on state order when exact
  * position matching isn't possible.
  *
- * This ensures state facets are attached to CharacterState (phase-bounded)
+ * This ensures state facets are attached to ArcState (phase-bounded)
  * rather than Entity (permanent).
  */
 async function processStateFacetAttachment(
@@ -2536,50 +2535,48 @@ async function processStateFacetAttachment(
 
   const segments = (doc?.segmentSequence as Segment[]) || [];
 
-  // Get all character entities
-  const allNodes = await graphStoryNodesRepository.getActiveNodes(
+  // Get all person entities
+  const allNodes = await graphEntitiesRepository.getActiveNodes(
     documentId,
     userId,
   );
-  const characterNodes = allNodes.filter((n) => n.type === 'character');
+  const personNodes = allNodes.filter((n) => n.type === 'person');
 
   let movedFacetCount = 0;
   let createdStateCount = 0;
 
-  for (const character of characterNodes) {
-    // Get state facets attached to this character entity
-    const stateFacets = await graphService.getStateFacetsForEntity(
-      character.id,
-    );
+  for (const person of personNodes) {
+    // Get state facets attached to this entity
+    const stateFacets = await graphService.getStateFacetsForEntity(person.id);
 
     if (stateFacets.length === 0) {
       continue;
     }
 
-    // Check if character already has CharacterStates
-    const existingStates = await graphService.getCharacterStates(character.id);
+    // Check if entity already has ArcStates
+    const existingStates = await graphService.getArcStates(person.id);
 
     if (existingStates.length === 0) {
-      // No states exist - create a default CharacterState
+      // No states exist - create a default ArcState
       const stateId = await createTrackedState(
-        character.id,
+        person.id,
         documentId,
         userId,
         {
-          name: `${character.name}_initial_state`,
+          name: `${person.name}_initial_state`,
           phaseIndex: 0,
           documentOrder: 0,
           causalOrder: 0,
         },
-        { batchId, characterName: character.name },
+        { batchId, entityName: person.name },
       );
 
-      // Link character to this state
-      await graphService.linkCharacterToState(character.id, stateId);
+      // Link entity to this state
+      await graphService.linkEntityToState(person.id, stateId);
 
-      // Move all state facets to this CharacterState
+      // Move all state facets to this ArcState
       for (const facet of stateFacets) {
-        await graphService.moveFacetToState(character.id, facet.id, stateId);
+        await graphService.moveFacetToState(person.id, facet.id, stateId);
         movedFacetCount++;
       }
 
@@ -2587,33 +2584,29 @@ async function processStateFacetAttachment(
 
       logger.debug(
         {
-          characterId: character.id,
-          characterName: character.name,
+          entityId: person.id,
+          entityName: person.name,
           stateId,
           facetCount: stateFacets.length,
         },
-        'Created CharacterState and moved state facets',
+        'Created ArcState and moved state facets',
       );
     } else if (existingStates.length === 1) {
       // Single state - all facets go to it (simple case)
       const onlyState = existingStates[0];
       for (const facet of stateFacets) {
-        await graphService.moveFacetToState(
-          character.id,
-          facet.id,
-          onlyState.id,
-        );
+        await graphService.moveFacetToState(person.id, facet.id, onlyState.id);
         movedFacetCount++;
       }
 
       logger.debug(
         {
-          characterId: character.id,
-          characterName: character.name,
+          entityId: person.id,
+          entityName: person.name,
           stateId: onlyState.id,
           facetCount: stateFacets.length,
         },
-        'Moved state facets to single CharacterState',
+        'Moved state facets to single ArcState',
       );
     } else {
       // Multiple states exist - try position-based matching
@@ -2622,17 +2615,17 @@ async function processStateFacetAttachment(
         (a, b) => a.documentOrder - b.documentOrder,
       );
 
-      // Get character's mentions to estimate facet positions
-      const characterMentions =
+      // Get entity's mentions to estimate facet positions
+      const entityMentions =
         await mentionService.getByNodeIdWithAbsolutePositions(
-          character.id,
+          person.id,
           segments,
         );
 
       // For each state facet, find the appropriate state based on position
       for (const facet of stateFacets) {
         // Try to find a mention linked to this facet (if available)
-        const facetMentions = characterMentions.filter(
+        const facetMentions = entityMentions.filter(
           (m) => m.facetId === facet.id,
         );
 
@@ -2642,12 +2635,12 @@ async function processStateFacetAttachment(
           // Use the first facet mention's position
           const facetPosition = facetMentions[0].absoluteStart;
           targetState = findStateForPosition(sortedStates, facetPosition);
-        } else if (characterMentions.length > 0) {
-          // Fall back to character's first mention as a baseline
+        } else if (entityMentions.length > 0) {
+          // Fall back to entity's first mention as a baseline
           // This is imprecise but better than always using the last state
-          const firstMention = characterMentions.reduce(
+          const firstMention = entityMentions.reduce(
             (min, m) => (m.absoluteStart < min.absoluteStart ? m : min),
-            characterMentions[0],
+            entityMentions[0],
           );
 
           // Use first mention to at least get the initial state right
@@ -2660,7 +2653,7 @@ async function processStateFacetAttachment(
         }
 
         await graphService.moveFacetToState(
-          character.id,
+          person.id,
           facet.id,
           targetState.id,
         );
@@ -2669,12 +2662,12 @@ async function processStateFacetAttachment(
 
       logger.debug(
         {
-          characterId: character.id,
-          characterName: character.name,
+          entityId: person.id,
+          entityName: person.name,
           stateCount: sortedStates.length,
           facetCount: stateFacets.length,
         },
-        'Distributed state facets across CharacterStates by position',
+        'Distributed state facets across ArcStates by position',
       );
     }
   }
@@ -2682,7 +2675,7 @@ async function processStateFacetAttachment(
   logger.info(
     {
       documentId,
-      charactersProcessed: characterNodes.length,
+      entitiesProcessed: personNodes.length,
       statesCreated: createdStateCount,
       facetsMoved: movedFacetCount,
     },
@@ -2691,7 +2684,7 @@ async function processStateFacetAttachment(
 }
 
 /**
- * Find the CharacterState whose validity window contains the given position.
+ * Find the ArcState whose validity window contains the given position.
  * States are sorted by documentOrder. A state's validity window runs from
  * its documentOrder to the next state's documentOrder (or infinity for last state).
  */
@@ -2719,7 +2712,7 @@ function findStateForPosition<T extends { id: string; documentOrder: number }>(
  * Character context for facet conflict detection.
  * Provides state-centric fabula timeline with events, transitions, and edges.
  */
-interface CharacterContext {
+interface EntityContext {
   entityId: string;
   entityName: string;
   entityType: string;
@@ -2747,7 +2740,7 @@ interface CharacterContext {
       description: string | null;
       causalOrder: number;
       outgoingEdges: Array<{
-        type: StoryEdgeType;
+        type: EdgeType;
         toNodeName: string;
       }>;
     }>;
@@ -2790,7 +2783,7 @@ interface CharacterContext {
   }>;
 
   narrativeEdges: Array<{
-    edgeType: StoryEdgeType;
+    edgeType: EdgeType;
     toNodeName: string;
     description: string | null;
   }>;
@@ -2803,7 +2796,7 @@ interface CharacterContext {
  * Based on TDD 2026-02-23_temporal-state-design.md Section 6.
  */
 type ConflictType =
-  | 'temporal_change' // Has intervening event or CharacterState transition
+  | 'temporal_change' // Has intervening event or ArcState transition
   | 'arc_divergence' // Different arcs, not a conflict
   | 'true_inconsistency' // No explanation, route to review queue
   | 'perspective_difference'; // Different narrators (future)
@@ -2865,18 +2858,18 @@ function assessCausationQuality(description: string | null): {
 }
 
 /**
- * Build character context with state-centric fabula timeline.
+ * Build entity context with state-centric fabula timeline.
  */
-async function buildCharacterContext(
-  entity: StoredStoryNode,
+async function buildEntityContext(
+  entity: StoredEntity,
   segments: Segment[],
   causalOrderMap: Map<string, number>,
   documentId: string,
   userId: string,
-): Promise<CharacterContext> {
-  const states = await graphService.getCharacterStates(entity.id);
+): Promise<EntityContext> {
+  const states = await graphService.getArcStates(entity.id);
   const transitions = await graphService.getStateTransitions(entity.id);
-  const arcs = await graphService.getCharacterArcs(entity.id);
+  const arcs = await graphService.getEntityArcs(entity.id);
 
   if (states.length === 0) {
     return buildSimplifiedContext(
@@ -2890,7 +2883,7 @@ async function buildCharacterContext(
 
   const transitionMap = new Map(transitions.map((t) => [t.fromStateId, t]));
 
-  const allDocEvents = await graphStoryNodesRepository.getActiveNodes(
+  const allDocEvents = await graphEntitiesRepository.getActiveNodes(
     documentId,
     userId,
   );
@@ -3069,7 +3062,7 @@ async function buildCharacterContext(
 
   const arcsWithStates = await Promise.all(
     arcs.map(async (arc) => {
-      const arcStates = await graphService.getArcStates(arc.id);
+      const arcStates = await graphService.getArcStatesForArc(arc.id);
       const stateIndices = arcStates
         .map((s) => s.phaseIndex)
         .sort((a, b) => a - b);
@@ -3131,15 +3124,15 @@ async function buildCharacterContext(
 }
 
 /**
- * Build simplified context for entities without CharacterStates.
+ * Build simplified context for entities without ArcStates.
  */
 async function buildSimplifiedContext(
-  entity: StoredStoryNode,
+  entity: StoredEntity,
   segments: Segment[],
   _causalOrderMap: Map<string, number>,
   documentId: string,
   userId: string,
-): Promise<CharacterContext> {
+): Promise<EntityContext> {
   const allFacets = await graphService.getFacetsForEntity(entity.id);
 
   const facetsWithPositions = await Promise.all(
@@ -3165,7 +3158,7 @@ async function buildSimplifiedContext(
     }),
   );
 
-  const allDocEvents = await graphStoryNodesRepository.getActiveNodes(
+  const allDocEvents = await graphEntitiesRepository.getActiveNodes(
     documentId,
     userId,
   );
@@ -3230,7 +3223,7 @@ function buildContextPrompt(
   entityName: string,
   facetType: FacetType,
   facets: StoredFacet[],
-  context: CharacterContext,
+  context: EntityContext,
 ): string {
   if (context.states.length === 0 && context.permanentFacets.length === 0) {
     logger.warn(
@@ -3262,7 +3255,7 @@ function buildContextPrompt(
 
   if (context.states.length > 0) {
     prompt += `## CHARACTER ARC STRUCTURE\n`;
-    prompt += `This character has ${context.states.length} distinct states representing their evolution:\n`;
+    prompt += `This entity has ${context.states.length} distinct states representing their evolution:\n`;
 
     context.states.forEach((state) => {
       prompt += `  State ${state.phaseIndex + 1}: "${state.name}" (phase ${state.phaseIndex})\n`;
@@ -3284,7 +3277,7 @@ function buildContextPrompt(
           );
 
           if (overlaps.length > 0) {
-            prompt += `Note: States ${overlaps.map((i) => i + 1).join(', ')} belong to multiple arcs (character in simultaneous arcs)\n`;
+            prompt += `Note: States ${overlaps.map((i) => i + 1).join(', ')} belong to multiple arcs (entity in simultaneous arcs)\n`;
           }
         }
         prompt += `\n`;
@@ -3390,7 +3383,7 @@ function buildContextPrompt(
 
   if (context.permanentFacets.length > 0) {
     prompt += `## PERMANENT FACETS (span multiple states)\n`;
-    prompt += `These facets are attached to the character entity, not specific states. They remain valid across the entire narrative:\n`;
+    prompt += `These facets are attached to the entity, not specific states. They remain valid across the entire narrative:\n`;
 
     context.permanentFacets.forEach((facet) => {
       prompt += `  • ${facet.type}: "${facet.content}" (`;
@@ -3406,7 +3399,7 @@ function buildContextPrompt(
 
   if (context.causalEdges.length > 0) {
     prompt += `## CAUSAL EDGES FROM CHARACTER\n`;
-    prompt += `Edges showing how this character causes or enables other events:\n`;
+    prompt += `Edges showing how this entity causes or enables other events:\n`;
 
     context.causalEdges.forEach((edge) => {
       prompt += `  • ${entityName} ${edge.edgeType}→ "${edge.toNodeName}"`;
@@ -3422,7 +3415,7 @@ function buildContextPrompt(
     prompt += `## NARRATIVE EDGES\n`;
     prompt += `Non-causal relationships:\n`;
 
-    const edgesByType = new Map<StoryEdgeType, typeof context.narrativeEdges>();
+    const edgesByType = new Map<EdgeType, typeof context.narrativeEdges>();
     context.narrativeEdges.forEach((e) => {
       const existing = edgesByType.get(e.edgeType) || [];
       existing.push(e);
@@ -3507,10 +3500,10 @@ function buildContextPrompt(
 }
 
 /**
- * Optimize character context to fit within token budget.
+ * Optimize entity context to fit within token budget.
  * Applied in order until prompt fits.
  */
-function optimizeContextForTokens(context: CharacterContext): CharacterContext {
+function optimizeContextForTokens(context: EntityContext): EntityContext {
   const optimized = { ...context };
 
   optimized.narrativeEdges = optimized.narrativeEdges.map((e) => ({
@@ -3553,7 +3546,7 @@ function optimizeContextForTokens(context: CharacterContext): CharacterContext {
 async function persistConflicts(
   conflicts: DetectedConflict[],
   documentId: string,
-  contextMap: Map<string, CharacterContext>,
+  contextMap: Map<string, EntityContext>,
 ): Promise<void> {
   if (conflicts.length === 0) return;
 
@@ -3653,13 +3646,13 @@ async function persistConflicts(
 }
 
 /**
- * Detect contradictions with full character context.
+ * Detect contradictions with full entity context.
  */
 async function detectContradictionsWithContext(
   entityName: string,
   facetType: FacetType,
   facets: StoredFacet[],
-  context: CharacterContext,
+  context: EntityContext,
   userId: string,
   documentId: string,
 ): Promise<
@@ -3757,7 +3750,7 @@ async function detectFacetConflicts(
   documentId: string,
   userId: string,
 ): Promise<void> {
-  const allNodes = await graphStoryNodesRepository.getActiveNodes(
+  const allNodes = await graphEntitiesRepository.getActiveNodes(
     documentId,
     userId,
   );
@@ -3772,7 +3765,7 @@ async function detectFacetConflicts(
   // Process entities in parallel
   const entityResults = await Promise.all(
     allNodes.map(async (entity) => {
-      const context = await buildCharacterContext(
+      const context = await buildEntityContext(
         entity,
         segments,
         causalOrderMap,
@@ -3844,7 +3837,7 @@ async function detectFacetConflicts(
 
   // Flatten results
   const conflicts: DetectedConflict[] = [];
-  const contextMap = new Map<string, CharacterContext>();
+  const contextMap = new Map<string, EntityContext>();
 
   for (const result of entityResults) {
     contextMap.set(result.context.entityId, result.context);
@@ -4015,7 +4008,7 @@ async function generateEntityDescriptions(
   userId: string,
   _entityIdByName: Map<string, string>,
 ): Promise<void> {
-  const allNodes = await graphStoryNodesRepository.getActiveNodes(
+  const allNodes = await graphEntitiesRepository.getActiveNodes(
     documentId,
     userId,
   );
@@ -4061,7 +4054,7 @@ async function generateEntityDescriptions(
   const entities = await Promise.all(
     allNodes.map(async (node) => {
       const facets = await graphService.getFacetsForEntity(node.id);
-      const states = await graphService.getCharacterStates(node.id);
+      const states = await graphService.getArcStates(node.id);
       const currentState = states.length > 0 ? states[states.length - 1] : null;
 
       return {
@@ -4085,7 +4078,7 @@ async function generateEntityDescriptions(
     // Update entities with new descriptions
     for (const result of results) {
       if (result.method !== 'no_change' && result.description) {
-        await graphService.updateStoryNode(result.entityId, {
+        await graphService.updateEntity(result.entityId, {
           description: result.description,
         });
       }

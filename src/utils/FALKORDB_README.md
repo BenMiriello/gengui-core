@@ -22,7 +22,7 @@ import {
 } from '../utils/falkordb-cli';
 
 // Basic Cypher query
-const result = await queryGraph('MATCH (n:Character) RETURN n LIMIT 5');
+const result = await queryGraph('MATCH (n:Entity) RETURN n LIMIT 5');
 
 // Read-only query (faster, with fallback)
 const readResult = await queryGraphReadOnly('MATCH (n) RETURN count(n) as count');

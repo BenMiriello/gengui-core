@@ -8,7 +8,7 @@
  * Stage 5: Intra-Segment Relationships (LLM, parallel per segment)
  * Stage 6: Cross-Segment Relationships (LLM, sequential)
  * Stage 7: Higher-Order Analysis (LLM + algorithmic)
- * Stage 8: CharacterState Facet Attachment (algorithmic)
+ * Stage 8: Arc State Facet Attachment (algorithmic)
  * Stage 9: Conflict Detection (LLM batch analysis)
  */
 
@@ -77,10 +77,10 @@ export const ANALYSIS_STAGES: StageInfo[] = [
   },
   {
     number: 8,
-    name: 'Character State',
-    description: 'Tracking character state transitions',
-    genericLabel: 'Organizing character states...',
-    technicalLabel: 'Stage 8: CharacterState Facet Attachment',
+    name: 'Arc State',
+    description: 'Tracking arc state transitions',
+    genericLabel: 'Organizing arc states...',
+    technicalLabel: 'Stage 8: Arc State Facet Attachment',
   },
   {
     number: 9,

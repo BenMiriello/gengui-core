@@ -91,14 +91,14 @@ function generateSummary(input: CreateChangeLogInput): string {
       break;
     }
 
-    case 'character_state': {
+    case 'arc_state': {
       if (operation === 'create') {
         const created = changeData.created as { summary?: string };
         const summary = truncate(created?.summary || '', 50);
-        return `Added state '${summary}' to ${entityName || 'character'}`;
+        return `Added state '${summary}' to ${entityName || 'person'}`;
       }
       if (operation === 'delete') {
-        return `Removed state from ${entityName || 'character'}`;
+        return `Removed state from ${entityName || 'person'}`;
       }
       break;
     }
@@ -106,10 +106,10 @@ function generateSummary(input: CreateChangeLogInput): string {
     case 'arc': {
       if (operation === 'create') {
         const created = changeData.created as { arcType?: string };
-        return `Added ${created?.arcType || ''} arc to ${entityName || 'character'}`;
+        return `Added ${created?.arcType || ''} arc to ${entityName || 'person'}`;
       }
       if (operation === 'delete') {
-        return `Removed arc from ${entityName || 'character'}`;
+        return `Removed arc from ${entityName || 'person'}`;
       }
       break;
     }

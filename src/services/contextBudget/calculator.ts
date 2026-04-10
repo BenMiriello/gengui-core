@@ -13,7 +13,7 @@
  */
 
 import type { TextModelConfig } from '../../config/text-models';
-import type { FacetInput } from '../../types/storyNodes';
+import type { FacetInput } from '../../types/entities';
 import type { OperationBudgetConfig } from './operationConfigs';
 
 /**

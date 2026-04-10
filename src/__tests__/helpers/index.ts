@@ -47,12 +47,12 @@ export {
 export { closeDb, ensureSchema, getTestDb, truncateAll } from './setup';
 
 export {
-  clearMockStoryNodes,
+  clearMockEntitys,
   clearPrimaryEditors,
   clearRedisStore,
   clearStorageData,
+  mockEntities,
   mockStorageData,
-  mockStoryNodes,
-  setMockStoryNode,
+  setMockEntity,
   setPrimaryEditor,
 } from './testApp';

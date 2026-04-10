@@ -1,5 +1,5 @@
 export {
-  graphStoryNodesRepository,
+  graphEntitiesRepository,
   parsePassages,
   recomputeEntityEmbeddingWithMentionWeights,
   selectEntitiesForContext,

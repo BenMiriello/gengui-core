@@ -21,7 +21,7 @@ import { extractJson } from '../utils/llmUtils';
 import { logger } from '../utils/logger';
 import { activityService } from './activity.service';
 import { GeminiType, getGeminiClient } from './gemini/core';
-import { graphService, type StoredStoryNode } from './graph/graph.service';
+import { graphService, type StoredEntity } from './graph/graph.service';
 import type { StoredFacet } from './graph/graph.types';
 import {
   getImageProvider,
@@ -90,7 +90,7 @@ export const characterSheetService = {
     cursorPosition,
   }: GenerateCharacterSheetParams) {
     // Fetch node and verify ownership from FalkorDB
-    const node = await graphService.getStoryNodeById(nodeId, userId);
+    const node = await graphService.getEntityById(nodeId, userId);
 
     if (!node) {
       throw new Error('Node not found');
@@ -98,9 +98,9 @@ export const characterSheetService = {
 
     // Determine aspect ratio: explicit param > settings > default based on node type
     const defaultAR: AspectRatio =
-      node.type === 'character'
+      node.type === 'person'
         ? 'portrait'
-        : node.type === 'location'
+        : node.type === 'place'
           ? 'landscape'
           : 'square';
     const finalAR = aspectRatio ?? settings.aspectRatio ?? defaultAR;
@@ -243,9 +243,9 @@ export const characterSheetService = {
     let baseDescription: string;
     if (settings.manualEdit && settings.customDescription) {
       baseDescription = settings.customDescription;
-    } else if (node.type === 'character') {
+    } else if (node.type === 'person') {
       baseDescription = `Portrait of ${node.name}`;
-    } else if (node.type === 'location') {
+    } else if (node.type === 'place') {
       baseDescription = `View of ${node.name}`;
     } else {
       baseDescription = node.name;
@@ -254,7 +254,7 @@ export const characterSheetService = {
     parts.push(baseDescription);
 
     // Add framing for characters
-    if (node.type === 'character' && settings.framing) {
+    if (node.type === 'person' && settings.framing) {
       if (settings.framing === 'portrait') {
         parts.push('Portrait shot, head and shoulders, upper body only.');
       } else if (settings.framing === 'full_body') {
@@ -263,7 +263,7 @@ export const characterSheetService = {
     }
 
     // Add perspective for locations
-    if (node.type === 'location' && settings.perspective) {
+    if (node.type === 'place' && settings.perspective) {
       if (settings.perspective === 'exterior') {
         parts.push('Exterior view, seen from outside.');
       } else if (settings.perspective === 'interior') {
@@ -301,7 +301,7 @@ export const characterSheetService = {
    * which calls the LLM to infer visual relevance (the TDD-correct approach).
    */
   buildPromptWithFacets(
-    node: StoredStoryNode,
+    node: StoredEntity,
     settings: CharacterSheetSettings,
     stylePrompt: string | null | undefined,
     facets: StoredFacet[],
@@ -336,7 +336,7 @@ export const characterSheetService = {
    * @param position - Document position for context (used in LLM inference)
    */
   async buildPromptWithFacetsAsync(
-    node: StoredStoryNode,
+    node: StoredEntity,
     settings: CharacterSheetSettings,
     stylePrompt: string | null | undefined,
     facets: StoredFacet[],
@@ -386,7 +386,7 @@ export const characterSheetService = {
    * Shared between sync and async versions.
    */
   buildPromptFromVisualAttributes(
-    node: StoredStoryNode,
+    node: StoredEntity,
     settings: CharacterSheetSettings,
     stylePrompt: string | null | undefined,
     visualAttributes: string[],
@@ -408,9 +408,9 @@ export const characterSheetService = {
     } else {
       // Fall back to node name as subject (description may be document text, not visual)
       // Use type-appropriate phrasing
-      if (node.type === 'character') {
+      if (node.type === 'person') {
         parts.push(`Portrait of ${node.name}`);
-      } else if (node.type === 'location') {
+      } else if (node.type === 'place') {
         parts.push(`View of ${node.name}`);
       } else {
         parts.push(node.name);
@@ -421,7 +421,7 @@ export const characterSheetService = {
     // if we want to track when state facets were excluded
 
     // Add framing for characters
-    if (node.type === 'character' && settings.framing) {
+    if (node.type === 'person' && settings.framing) {
       if (settings.framing === 'portrait') {
         parts.push('Portrait shot, head and shoulders, upper body only.');
       } else if (settings.framing === 'full_body') {
@@ -430,7 +430,7 @@ export const characterSheetService = {
     }
 
     // Add perspective for locations
-    if (node.type === 'location' && settings.perspective) {
+    if (node.type === 'place' && settings.perspective) {
       if (settings.perspective === 'exterior') {
         parts.push('Exterior view, seen from outside.');
       } else if (settings.perspective === 'interior') {
@@ -492,7 +492,7 @@ export const characterSheetService = {
     mediaId: string | null,
     userId: string,
   ) {
-    const node = await graphService.getStoryNodeById(nodeId, userId);
+    const node = await graphService.getEntityById(nodeId, userId);
 
     if (!node) {
       throw new Error('Node not found');
@@ -516,7 +516,7 @@ export const characterSheetService = {
       }
     }
 
-    await graphService.updateStoryNodePrimaryMedia(nodeId, mediaId);
+    await graphService.updateEntityPrimaryMedia(nodeId, mediaId);
 
     logger.info({ nodeId, mediaId }, 'Primary media updated for node');
 
@@ -591,7 +591,7 @@ export const characterSheetService = {
    */
   async getNodeMedia(nodeId: string, userId: string) {
     // Verify node ownership from FalkorDB
-    const node = await graphService.getStoryNodeById(nodeId, userId);
+    const node = await graphService.getEntityById(nodeId, userId);
 
     if (!node) {
       throw new Error('Node not found');

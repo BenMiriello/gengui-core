@@ -231,13 +231,13 @@ class MediaStatusWorker extends JobWorker<MediaStatusPayload, JobProgress> {
         return;
       }
 
-      const node = await graphService.getStoryNodeByIdInternal(nodeMed.nodeId);
+      const node = await graphService.getEntityByIdInternal(nodeMed.nodeId);
 
       if (!node || node.primaryMediaId) {
         return;
       }
 
-      await graphService.updateStoryNodePrimaryMedia(nodeMed.nodeId, mediaId);
+      await graphService.updateEntityPrimaryMedia(nodeMed.nodeId, mediaId);
 
       logger.info(
         { nodeId: nodeMed.nodeId, mediaId },

@@ -16,10 +16,10 @@ import {
   truncateAll,
 } from '../helpers';
 import {
-  clearMockStoryNodes,
+  clearMockEntitys,
   clearRedisStore,
   clearStorageData,
-  setMockStoryNode,
+  setMockEntity,
   startTestServer,
   stopTestServer,
 } from '../helpers/testApp';
@@ -43,7 +43,7 @@ describe('Node CRUD', () => {
     resetDocumentCounter();
     clearRedisStore();
     clearStorageData();
-    clearMockStoryNodes();
+    clearMockEntitys();
   });
 
   describe('GET /nodes/:id', () => {
@@ -52,11 +52,11 @@ describe('Node CRUD', () => {
       const doc = await createTestDocument(user.id);
 
       const nodeId = randomUUID();
-      setMockStoryNode(nodeId, {
+      setMockEntity(nodeId, {
         id: nodeId,
         documentId: doc.id,
         userId: user.id,
-        type: 'character',
+        type: 'person',
         name: 'Test Character',
         description: 'A test character',
         aliases: [],
@@ -84,7 +84,7 @@ describe('Node CRUD', () => {
       const body = await res.json();
       expect(body.node.id).toBe(nodeId);
       expect(body.node.name).toBe('Test Character');
-      expect(body.node.type).toBe('character');
+      expect(body.node.type).toBe('person');
     });
 
     test('returns 404 for non-existent node', async () => {
@@ -111,11 +111,11 @@ describe('Node CRUD', () => {
       const doc = await createTestDocument(user2.id);
 
       const nodeId = randomUUID();
-      setMockStoryNode(nodeId, {
+      setMockEntity(nodeId, {
         id: nodeId,
         documentId: doc.id,
         userId: user2.id,
-        type: 'character',
+        type: 'person',
         name: 'Other Users Character',
         description: null,
         aliases: [],
@@ -157,11 +157,11 @@ describe('Node CRUD', () => {
       const doc = await createTestDocument(user.id);
 
       const nodeId = randomUUID();
-      setMockStoryNode(nodeId, {
+      setMockEntity(nodeId, {
         id: nodeId,
         documentId: doc.id,
         userId: user.id,
-        type: 'character',
+        type: 'person',
         name: 'Original Name',
         description: null,
         aliases: [],
@@ -197,11 +197,11 @@ describe('Node CRUD', () => {
       const doc = await createTestDocument(user.id);
 
       const nodeId = randomUUID();
-      setMockStoryNode(nodeId, {
+      setMockEntity(nodeId, {
         id: nodeId,
         documentId: doc.id,
         userId: user.id,
-        type: 'location',
+        type: 'place',
         name: 'Test Location',
         description: null,
         aliases: [],
@@ -235,11 +235,11 @@ describe('Node CRUD', () => {
       const doc = await createTestDocument(user.id);
 
       const nodeId = randomUUID();
-      setMockStoryNode(nodeId, {
+      setMockEntity(nodeId, {
         id: nodeId,
         documentId: doc.id,
         userId: user.id,
-        type: 'character',
+        type: 'person',
         name: 'Test Character',
         description: null,
         aliases: [],
@@ -273,11 +273,11 @@ describe('Node CRUD', () => {
       const doc = await createTestDocument(user.id);
 
       const nodeId = randomUUID();
-      setMockStoryNode(nodeId, {
+      setMockEntity(nodeId, {
         id: nodeId,
         documentId: doc.id,
         userId: user.id,
-        type: 'character',
+        type: 'person',
         name: 'Test Character',
         description: null,
         aliases: [],
@@ -342,11 +342,11 @@ describe('Node CRUD', () => {
       const doc = await createTestDocument(user.id);
 
       const nodeId = randomUUID();
-      setMockStoryNode(nodeId, {
+      setMockEntity(nodeId, {
         id: nodeId,
         documentId: doc.id,
         userId: user.id,
-        type: 'character',
+        type: 'person',
         name: 'Test Character',
         description: null,
         aliases: [],
@@ -387,11 +387,11 @@ describe('Node CRUD', () => {
       const doc = await createTestDocument(user.id);
 
       const nodeId = randomUUID();
-      setMockStoryNode(nodeId, {
+      setMockEntity(nodeId, {
         id: nodeId,
         documentId: doc.id,
         userId: user.id,
-        type: 'character',
+        type: 'person',
         name: 'Test Character',
         description: null,
         aliases: [],

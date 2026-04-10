@@ -19,7 +19,7 @@ export async function computeCausalOrder(
   const [edgeResult, nodeResult] = await Promise.all([
     graphService.query(
       `
-      MATCH (a:StoryNode)-[r${causalEdgePattern()}]->(b:StoryNode)
+      MATCH (a:Entity)-[r${causalEdgePattern()}]->(b:Entity)
       WHERE a.documentId = $documentId AND a.deletedAt IS NULL
         AND b.deletedAt IS NULL AND r.deletedAt IS NULL
       RETURN a.id, b.id
@@ -28,7 +28,7 @@ export async function computeCausalOrder(
     ),
     graphService.query(
       `
-      MATCH (n:StoryNode)
+      MATCH (n:Entity)
       WHERE n.documentId = $documentId AND n.userId = $userId AND n.deletedAt IS NULL
       RETURN n.id, n.documentOrder
       `,
@@ -136,7 +136,7 @@ export async function detectThreads(
   const [edgeResult, nodeResult] = await Promise.all([
     graphService.query(
       `
-      MATCH (a:StoryNode)-[r${causalEdgePattern()}]->(b:StoryNode)
+      MATCH (a:Entity)-[r${causalEdgePattern()}]->(b:Entity)
       WHERE a.documentId = $documentId AND a.deletedAt IS NULL
         AND b.deletedAt IS NULL AND r.deletedAt IS NULL
       RETURN a.id, b.id
@@ -145,7 +145,7 @@ export async function detectThreads(
     ),
     graphService.query(
       `
-      MATCH (n:StoryNode)
+      MATCH (n:Entity)
       WHERE n.documentId = $documentId AND n.userId = $userId AND n.deletedAt IS NULL
       RETURN n.id
       `,
@@ -226,7 +226,7 @@ export async function getDownstreamNodes(
 ): Promise<string[]> {
   const result = await graphService.query(
     `
-    MATCH (start:StoryNode)-[:CAUSES|ENABLES*1..50]->(downstream:StoryNode)
+    MATCH (start:Entity)-[:CAUSES|ENABLES*1..50]->(downstream:Entity)
     WHERE start.id = $nodeId AND start.documentId = $documentId
       AND downstream.deletedAt IS NULL
     RETURN DISTINCT downstream.id
@@ -249,7 +249,7 @@ export async function findPivotalNodes(
   const [edgeResult, nodeResult] = await Promise.all([
     graphService.query(
       `
-      MATCH (a:StoryNode)-[r${causalEdgePattern()}]->(b:StoryNode)
+      MATCH (a:Entity)-[r${causalEdgePattern()}]->(b:Entity)
       WHERE a.documentId = $documentId AND a.deletedAt IS NULL
         AND b.deletedAt IS NULL AND r.deletedAt IS NULL
       RETURN a.id, b.id
@@ -258,7 +258,7 @@ export async function findPivotalNodes(
     ),
     graphService.query(
       `
-      MATCH (n:StoryNode)
+      MATCH (n:Entity)
       WHERE n.documentId = $documentId AND n.userId = $userId AND n.deletedAt IS NULL
       RETURN n.id
       `,
@@ -333,11 +333,11 @@ export async function findCausalGaps(
 ): Promise<string[]> {
   const result = await graphService.query(
     `
-    MATCH (e:StoryNode)
+    MATCH (e:Entity)
     WHERE e.documentId = $documentId AND e.userId = $userId
       AND e.deletedAt IS NULL AND e.type = $eventType
       AND e.documentOrder > $minOrder
-    OPTIONAL MATCH (pred:StoryNode)-[r${causalEdgePattern()}]->(e)
+    OPTIONAL MATCH (pred:Entity)-[r${causalEdgePattern()}]->(e)
     WHERE pred.deletedAt IS NULL AND r.deletedAt IS NULL
     WITH e, pred
     WHERE pred IS NULL

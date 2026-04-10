@@ -11,7 +11,7 @@
  * - NO_CHANGE support to avoid unnecessary updates
  */
 
-import type { FacetType } from '../../types/storyNodes';
+import type { FacetType } from '../../types/entities';
 import { BATCH_CONFIG, EDIT_CHAIN_CONFIG } from '../../utils/constants';
 import {
   applyUnifiedDiff,
@@ -21,7 +21,7 @@ import {
 import { extractJson, isNoChangeResponse } from '../../utils/llmUtils';
 import { logger } from '../../utils/logger';
 import { graphService } from '../graph/graph.service';
-import type { StoredCharacterState, StoredFacet } from '../graph/graph.types';
+import type { StoredArcState, StoredFacet } from '../graph/graph.types';
 
 export interface EntityForDescription {
   id: string;
@@ -29,7 +29,7 @@ export interface EntityForDescription {
   type: string;
   permanentFacets: StoredFacet[];
   stateFacets: StoredFacet[];
-  currentState?: StoredCharacterState | null;
+  currentState?: StoredArcState | null;
   currentDescription?: string;
   editChainLength?: number;
 }

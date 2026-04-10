@@ -68,10 +68,7 @@ router.post(
         cursorPosition: validatedData.cursorPosition,
       });
 
-      const node = await graphService.getStoryNodeById(
-        id,
-        req.user?.id as string,
-      );
+      const node = await graphService.getEntityById(id, req.user?.id as string);
       if (node) {
         await sseService.broadcastToDocument(
           node.documentId,
@@ -184,7 +181,7 @@ router.patch('/nodes/:id/style', requireAuth, async (req, res, next) => {
     const validatedData = updateNodeStyleSchema.parse(req.body);
 
     // Verify ownership and update in FalkorDB
-    const updated = await graphService.updateStoryNodeStyle(
+    const updated = await graphService.updateEntityStyle(
       id,
       validatedData.stylePreset,
       validatedData.stylePrompt,
@@ -228,7 +225,7 @@ router.patch('/nodes/:id', requireAuth, async (req, res, next) => {
     const id = parseStringParam(req.params.id, 'id');
     const validatedData = updateNodeSchema.parse(req.body);
 
-    const existing = await graphService.getStoryNodeById(
+    const existing = await graphService.getEntityById(
       id,
       req.user?.id as string,
     );
@@ -239,7 +236,7 @@ router.patch('/nodes/:id', requireAuth, async (req, res, next) => {
       return;
     }
 
-    await graphService.updateStoryNode(id, validatedData);
+    await graphService.updateEntity(id, validatedData);
 
     await changeLogService.log({
       source: 'user',
@@ -254,7 +251,7 @@ router.patch('/nodes/:id', requireAuth, async (req, res, next) => {
       entityName: existing.name,
     });
 
-    const updated = await graphService.getStoryNodeById(
+    const updated = await graphService.getEntityById(
       id,
       req.user?.id as string,
     );
@@ -398,7 +395,7 @@ router.get('/nodes/:id/mentions', requireAuth, async (req, res, next) => {
     const segments = await segmentService.getDocumentSegments(documentId);
 
     // Get all event nodes for this document to find context for each mention
-    const allNodes = await graphService.getStoryNodesForDocument(
+    const allNodes = await graphService.getEntitiesForDocument(
       documentId,
       req.user?.id as string,
     );
@@ -610,10 +607,7 @@ router.get('/nodes/:id/facets', requireAuth, async (req, res, next) => {
     const id = parseStringParam(req.params.id, 'id');
 
     // Verify node exists and user has access
-    const node = await graphService.getStoryNodeById(
-      id,
-      req.user?.id as string,
-    );
+    const node = await graphService.getEntityById(id, req.user?.id as string);
     if (!node) {
       res
         .status(404)
@@ -658,10 +652,7 @@ router.get('/nodes/:id/arc', requireAuth, async (req, res, next) => {
     const id = parseStringParam(req.params.id, 'id');
 
     // Verify node exists and is a character
-    const node = await graphService.getStoryNodeById(
-      id,
-      req.user?.id as string,
-    );
+    const node = await graphService.getEntityById(id, req.user?.id as string);
     if (!node) {
       res
         .status(404)
@@ -669,7 +660,7 @@ router.get('/nodes/:id/arc', requireAuth, async (req, res, next) => {
       return;
     }
 
-    if (node.type !== 'character') {
+    if (node.type !== 'person') {
       res.status(400).json({
         error: {
           message: 'Arc data only available for characters',
@@ -680,10 +671,10 @@ router.get('/nodes/:id/arc', requireAuth, async (req, res, next) => {
     }
 
     // Get arc data
-    const arcs = await graphService.getCharacterArcs(id);
-    const states = await graphService.getCharacterStates(id);
+    const arcs = await graphService.getEntityArcs(id);
+    const states = await graphService.getArcStates(id);
     const transitions = await graphService.getStateTransitions(id);
-    const threads = await graphService.getCharacterThreadParticipation(id);
+    const threads = await graphService.getEntityThreadParticipation(id);
 
     // Get facets for each state
     const statesWithFacets = await Promise.all(
@@ -719,10 +710,7 @@ router.get('/nodes/:id/changelog', requireAuth, async (req, res, next) => {
     const offset = parseInt(req.query.offset as string, 10) || 0;
 
     // Verify node exists and user has access
-    const node = await graphService.getStoryNodeById(
-      id,
-      req.user?.id as string,
-    );
+    const node = await graphService.getEntityById(id, req.user?.id as string);
     if (!node) {
       res
         .status(404)

@@ -112,7 +112,7 @@ RESOLUTION RULES:
 1. Consider NARRATIVE CONTEXT - authors reveal identities progressively
 2. "Strange driver" appearing before "Count Dracula" = likely same character
 3. Shared distinctive appearance facets strongly suggest match
-4. Type mismatch (character vs location) = definitely different entities
+4. Type mismatch (person vs place) = definitely different entities
 5. When uncertain but >70% likely same: prefer MERGE over NEW
 6. When adding facets, include the name of extracted entity as a name facet
 

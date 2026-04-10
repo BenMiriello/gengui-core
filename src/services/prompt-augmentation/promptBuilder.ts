@@ -10,7 +10,7 @@ export interface EntityReferences {
 }
 
 export interface EntityDescription {
-  type: 'character' | 'location' | 'object';
+  type: 'person' | 'place' | 'object';
   name: string;
   description: string;
 }

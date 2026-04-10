@@ -10,7 +10,7 @@
  * - arc_divergence: Multiple valid interpretations (not a conflict)
  */
 
-import type { FacetType } from '../../types/storyNodes';
+import type { FacetType } from '../../types/entities';
 import type { PromptDefinition } from '../types';
 
 interface DetectContradictionsInput {

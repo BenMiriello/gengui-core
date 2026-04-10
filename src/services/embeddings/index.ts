@@ -1,5 +1,5 @@
 import { logger } from '../../utils/logger';
-import type { StoredStoryNode } from '../graph/graph.service';
+import type { StoredEntity } from '../graph/graph.service';
 import {
   getEmbeddingProvider,
   getEmbeddingProviderForVersion,
@@ -101,7 +101,7 @@ export async function generateEmbeddingsForVersion(
  * Mentions with source='extraction' should be passed separately if available.
  */
 export function buildEmbeddingText(
-  node: StoredStoryNode,
+  node: StoredEntity,
   extractionMentions?: Array<{ originalText: string }>,
 ): string {
   const name = node.name;

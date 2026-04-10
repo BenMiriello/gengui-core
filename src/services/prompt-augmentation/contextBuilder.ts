@@ -6,8 +6,8 @@ import { logger } from '../../utils/logger';
 import { generateEmbedding } from '../embeddings';
 import {
   graphService,
-  type StoredStoryConnection,
-  type StoredStoryNode,
+  type StoredConnection,
+  type StoredEntity,
 } from '../graph/graph.service';
 import type { PromptContext, PromptEnhancementSettings } from './promptBuilder';
 
@@ -25,7 +25,7 @@ export async function buildContext(
   };
 
   if (settings.useNarrativeContext) {
-    let nodes: StoredStoryNode[] = [];
+    let nodes: StoredEntity[] = [];
     try {
       const queryEmbedding = await generateEmbedding(selectedText);
       nodes = await graphService.findSimilarNodes(
@@ -39,12 +39,12 @@ export async function buildContext(
         { error: err },
         'Semantic retrieval failed, falling back to full node list',
       );
-      nodes = await graphService.getStoryNodesForDocument(documentId, userId);
+      nodes = await graphService.getEntitiesForDocument(documentId, userId);
     }
 
     if (nodes.length > 0) {
       const connections =
-        await graphService.getStoryConnectionsForDocument(documentId);
+        await graphService.getConnectionsForDocument(documentId);
       context.storyContext = convertNodeTreeToText(nodes, connections);
     }
   }
@@ -66,12 +66,12 @@ export async function buildContext(
 }
 
 function convertNodeTreeToText(
-  nodes: StoredStoryNode[],
-  connections: StoredStoryConnection[],
+  nodes: StoredEntity[],
+  connections: StoredConnection[],
 ): string {
   const sections: string[] = ['STORY CONTEXT:\n'];
 
-  const nodesByType: Record<string, StoredStoryNode[]> = {
+  const nodesByType: Record<string, StoredEntity[]> = {
     character: [],
     location: [],
     event: [],

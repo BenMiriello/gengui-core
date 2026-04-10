@@ -8,11 +8,11 @@
 
 import type {
   ArcType,
+  EdgeType,
+  EntityResult,
   FacetInput,
-  NarrativeThreadResult,
-  StoryEdgeType,
-  StoryNodeResult,
-} from '../../types/storyNodes';
+  ThreadResult,
+} from '../../types/entities';
 import { logger } from '../../utils/logger';
 import { graphService } from '../graph/graph.service';
 import type { ChangesToEdgeProps } from '../graph/graph.types';
@@ -40,7 +40,7 @@ async function safeLog(
 export async function createTrackedEntity(
   documentId: string,
   userId: string,
-  node: StoryNodeResult,
+  node: EntityResult,
   options?: {
     stylePreset?: string | null;
     stylePrompt?: string | null;
@@ -48,7 +48,7 @@ export async function createTrackedEntity(
   },
   trackingOptions?: TrackedMutationOptions,
 ): Promise<{ id: string; created: boolean }> {
-  const result = await graphService.createStoryNodeIdempotent(
+  const result = await graphService.createEntityIdempotent(
     documentId,
     userId,
     node,
@@ -131,7 +131,7 @@ export async function createTrackedFacet(
 export async function createTrackedEdge(
   fromId: string,
   toId: string,
-  edgeType: StoryEdgeType,
+  edgeType: EdgeType,
   description: string | null,
   properties?: { strength?: number },
   trackingOptions?: TrackedMutationOptions & {
@@ -139,7 +139,7 @@ export async function createTrackedEdge(
     toName?: string;
   },
 ): Promise<{ id: string; created: boolean }> {
-  const result = await graphService.createStoryConnectionIdempotent(
+  const result = await graphService.createConnectionIdempotent(
     fromId,
     toId,
     edgeType,
@@ -181,10 +181,10 @@ export async function createTrackedEdge(
 export async function createTrackedThread(
   documentId: string,
   userId: string,
-  thread: NarrativeThreadResult,
+  thread: ThreadResult,
   trackingOptions?: TrackedMutationOptions,
 ): Promise<{ id: string; created: boolean }> {
-  const result = await graphService.createNarrativeThreadIdempotent(
+  const result = await graphService.createThreadIdempotent(
     documentId,
     userId,
     thread,
@@ -220,7 +220,7 @@ export async function createTrackedThread(
  * Create arc with changelog tracking.
  */
 export async function createTrackedArc(
-  characterId: string,
+  entityId: string,
   documentId: string,
   userId: string,
   input: {
@@ -228,10 +228,10 @@ export async function createTrackedArc(
     name?: string;
     summary?: string;
   },
-  trackingOptions?: TrackedMutationOptions & { characterName?: string },
+  trackingOptions?: TrackedMutationOptions & { entityName?: string },
 ): Promise<string> {
   const arcId = await graphService.createArc(
-    characterId,
+    entityId,
     documentId,
     userId,
     input,
@@ -244,7 +244,7 @@ export async function createTrackedArc(
         targetType: 'arc',
         targetId: arcId,
         operation: 'create',
-        relatedEntityIds: [characterId],
+        relatedEntityIds: [entityId],
         changeData: {
           created: {
             arcType: input.arcType,
@@ -252,7 +252,7 @@ export async function createTrackedArc(
             summary: input.summary,
           },
         },
-        entityName: trackingOptions?.characterName,
+        entityName: trackingOptions?.entityName,
         batchId: trackingOptions?.batchId,
         reason: trackingOptions?.reason,
       }),
@@ -263,10 +263,10 @@ export async function createTrackedArc(
 }
 
 /**
- * Create character state with changelog tracking.
+ * Create arc state with changelog tracking.
  */
 export async function createTrackedState(
-  characterId: string,
+  entityId: string,
   documentId: string,
   userId: string,
   input: {
@@ -275,10 +275,10 @@ export async function createTrackedState(
     documentOrder: number;
     causalOrder: number;
   },
-  trackingOptions?: TrackedMutationOptions & { characterName?: string },
+  trackingOptions?: TrackedMutationOptions & { entityName?: string },
 ): Promise<string> {
-  const stateId = await graphService.createCharacterState(
-    characterId,
+  const stateId = await graphService.createArcState(
+    entityId,
     documentId,
     userId,
     input,
@@ -288,10 +288,10 @@ export async function createTrackedState(
     () =>
       changeLogService.log({
         source: 'system',
-        targetType: 'character_state',
+        targetType: 'arc_state',
         targetId: stateId,
         operation: 'create',
-        relatedEntityIds: [characterId],
+        relatedEntityIds: [entityId],
         changeData: {
           created: {
             name: input.name,
@@ -299,7 +299,7 @@ export async function createTrackedState(
             documentOrder: input.documentOrder,
           },
         },
-        entityName: trackingOptions?.characterName,
+        entityName: trackingOptions?.entityName,
         batchId: trackingOptions?.batchId,
         reason: trackingOptions?.reason,
       }),
@@ -316,7 +316,7 @@ export async function createTrackedStateTransition(
   fromStateId: string,
   toStateId: string,
   props: ChangesToEdgeProps,
-  trackingOptions?: TrackedMutationOptions & { characterId?: string },
+  trackingOptions?: TrackedMutationOptions & { entityId?: string },
 ): Promise<void> {
   await graphService.createChangesToEdge(fromStateId, toStateId, props);
 
@@ -327,8 +327,8 @@ export async function createTrackedStateTransition(
         targetType: 'edge',
         targetId: `${fromStateId}->${toStateId}`,
         operation: 'create',
-        relatedEntityIds: trackingOptions?.characterId
-          ? [trackingOptions.characterId]
+        relatedEntityIds: trackingOptions?.entityId
+          ? [trackingOptions.entityId]
           : [],
         changeData: {
           created: {

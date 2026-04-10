@@ -731,7 +731,7 @@ export const mentionService = {
 
     const uniqueNodeIds = Array.from(mentionMap.keys());
     const nodeInfoPromises = uniqueNodeIds.map(async (nodeId) => {
-      const node = await graphService.getStoryNodeByIdInternal(nodeId);
+      const node = await graphService.getEntityByIdInternal(nodeId);
       if (!node) return null;
       const mentionData = mentionMap.get(nodeId);
       if (!mentionData) return null;

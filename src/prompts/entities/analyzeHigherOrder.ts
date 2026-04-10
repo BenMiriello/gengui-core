@@ -14,14 +14,14 @@ interface AnalyzeHigherOrderInput {
     id: string;
     name: string;
     documentOrder: number;
-    connectedCharacterIds: string[];
+    connectedEntityIds: string[];
     causalEdges: Array<{
       type: 'CAUSES' | 'ENABLES' | 'PREVENTS';
       targetId: string;
       strength: number;
     }>;
   }>;
-  /** Characters with their appearances */
+  /** Person entities with their appearances */
   characters: Array<{
     id: string;
     name: string;
@@ -34,7 +34,7 @@ interface AnalyzeHigherOrderInput {
   /** Algorithmically detected thread candidates (connected components) */
   threadCandidates: Array<{
     eventIds: string[];
-    characterIds: string[];
+    entityIds: string[];
   }>;
   /** Document summary for context */
   documentSummary?: string;
@@ -58,7 +58,7 @@ export const analyzeHigherOrderPrompt: PromptDefinition<AnalyzeHigherOrderInput>
               ? `  Causal: ${e.causalEdges.map((c) => `${c.type}(${c.strength}) -> ${c.targetId}`).join(', ')}`
               : '';
           return `[${e.id}] #${e.documentOrder}: "${e.name}"
-  Characters: ${e.connectedCharacterIds.join(', ') || 'none'}${causalStr}`;
+  Characters: ${e.connectedEntityIds.join(', ') || 'none'}${causalStr}`;
         })
         .join('\n');
 
@@ -80,7 +80,7 @@ THREAD CANDIDATES (algorithmically detected connected components):
 ${threadCandidates
   .map(
     (t, i) =>
-      `  Candidate ${i + 1}: Events [${t.eventIds.join(', ')}], Characters [${t.characterIds.join(', ')}]`,
+      `  Candidate ${i + 1}: Events [${t.eventIds.join(', ')}], Characters [${t.entityIds.join(', ')}]`,
   )
   .join('\n')}
 `
@@ -122,12 +122,12 @@ Group events into named storylines:
 \`\`\`
 
 **2. ARC PHASES** (flattened for each character)
-Identify character development phases. Each phase is a separate object with characterId and phaseIndex:
+Identify character development phases. Each phase is a separate object with entityId and phaseIndex:
 \`\`\`json
 {
   "arcPhases": [
     {
-      "characterId": "char-1",
+      "entityId": "char-1",
       "phaseIndex": 0,
       "phaseName": "Initial state (e.g., 'naive', 'innocent')",
       "arcType": "transformation",
@@ -135,7 +135,7 @@ Identify character development phases. Each phase is a separate object with char
       "stateFacets": ["trusting", "optimistic"]
     },
     {
-      "characterId": "char-1",
+      "entityId": "char-1",
       "phaseIndex": 1,
       "phaseName": "After transformation (e.g., 'hardened')",
       "arcType": "transformation",
@@ -163,7 +163,7 @@ NARRATIVE THREAD RULES:
 
 ARC PHASE RULES:
 1. Only include characters with meaningful development
-2. Each phase is a separate entry with characterId and phaseIndex
+2. Each phase is a separate entry with entityId and phaseIndex
 3. phaseIndex starts at 0 for initial state, increments for each phase
 4. triggerEventId = the event that caused the transition TO this state (null for initial state)
 5. stateFacets should match extracted state facets when possible

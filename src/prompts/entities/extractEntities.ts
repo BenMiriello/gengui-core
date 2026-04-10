@@ -172,7 +172,7 @@ The same entity may appear with different names:
 
 When you find a match:
 - Set existingMatch.matchedName to the EXACT name from the registry (e.g., "Count Dracula")
-- Set existingMatch.matchedType to the EXACT type from the registry (e.g., "character")
+- Set existingMatch.matchedType to the EXACT type from the registry (e.g., "person")
 - Provide a reason explaining the evidence for the match
 
 When uncertain but suspicious, add to mergeSignals with registryName and registryType.
@@ -200,7 +200,7 @@ ${overlapSegmentText}
     const segmentIndices = segments.map((s) => s.index + 1).join(', ');
 
     return `You are extracting entities from ${segments.length} narrative text ${segmentWord}. Your primary goals:
-1. Extract narratively relevant entities (characters, locations, events, concepts, objects) from each segment
+1. Extract relevant entities (people, places, events, concepts, objects) from each segment
 2. Actively identify which extracted entities match existing ones
 3. Capture rich facets including INFERRED characteristics
 4. Track which segment each entity comes from using segmentId
@@ -220,12 +220,12 @@ ${formatSegments(segments, totalSegments)}
   "entities": [
     {
       "name": "Entity Name",
-      "type": "character|location|event|concept|object|other",
+      "type": "person|place|event|concept|object",
       "segmentId": "segment-uuid",
       "documentOrder": 1,
       "existingMatch": {
         "matchedName": "Exact Name From Registry",
-        "matchedType": "character|location|event|concept|object|other",
+        "matchedType": "person|place|event|concept|object",
         "confidence": "high|medium|low",
         "reason": "Why this matches the existing entity"
       }
@@ -241,7 +241,7 @@ ${formatSegments(segments, totalSegments)}
     {
       "extractedEntityName": "the driver",
       "registryName": "Count Dracula",
-      "registryType": "character",
+      "registryType": "person",
       "confidence": "medium",
       "evidence": "Described at same location, similar physical description"
     }
@@ -282,8 +282,8 @@ existingMatch confidence levels:
   Exclude: pronouns (he/she/they), generic descriptions (the man)
 
 ## ENTITY TYPES
-- **character**: People, sentient beings, animals with agency
-- **location**: Places, settings, environments, buildings
+- **person**: People, sentient beings, animals with agency
+- **place**: Places, settings, environments, buildings
 - **event**: Actions, occurrences, and happenings that drive the narrative forward
   Include: arrivals/departures, meetings, discoveries, battles, decisions, conversations, ceremonies, deaths, births
   Include events that drive the plot or mark meaningful transitions.
@@ -292,7 +292,6 @@ existingMatch confidence levels:
   Name events as noun phrases describing the action
 - **concept**: Themes, motifs, abstract forces
 - **object**: Physical items, artifacts, possessions, tools of narrative significance
-- **other**: Miscellaneous entities that don't fit above categories
 
 ## RULES
 1. Extract ONLY from the SEGMENTS provided (not from overlap context)

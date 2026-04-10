@@ -7,7 +7,7 @@
  */
 
 import { cpuPool } from '../../lib/cpu-pool';
-import type { FacetInput } from '../../types/storyNodes';
+import type { FacetInput } from '../../types/entities';
 import { cosineSimilarity, scoreNameSimilarity } from './scoring';
 import type {
   EntityCandidate,

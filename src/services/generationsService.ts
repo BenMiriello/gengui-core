@@ -113,7 +113,7 @@ export class GenerationsService {
       // Build featured entities from explicitly selected character references
       if (selectedNodeIds?.length) {
         const nodePromises = selectedNodeIds.map(async (nodeId) => {
-          const node = await graphService.getStoryNodeByIdInternal(nodeId);
+          const node = await graphService.getEntityByIdInternal(nodeId);
           if (!node) return null;
           return {
             nodeId,

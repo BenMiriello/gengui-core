@@ -107,7 +107,7 @@ class AnalysisVersionUpgradeWorker extends JobWorker<
           totalEntities: 0,
         });
 
-        const nodes = await graphService.getStoryNodesForDocument(
+        const nodes = await graphService.getEntitiesForDocument(
           documentId,
           userId,
         );

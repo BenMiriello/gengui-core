@@ -15,13 +15,13 @@ import {
   refineThreadsPrompt,
   resolveEntityPrompt,
   updateNodesPrompt,
-} from '../../prompts/storyNodes';
+} from '../../prompts/entities';
 import type {
+  EntityUpdatesResult,
   ExistingNode,
   FacetType,
-  NodeUpdatesResult,
-  StoryNodeType,
-} from '../../types/storyNodes';
+  NodeType,
+} from '../../types/entities';
 import { logger } from '../../utils/logger';
 import { logLLMCall } from '../../utils/logHelpers';
 import { trackedAI } from '../ai';
@@ -40,7 +40,7 @@ import {
   stage5RefineThreadsSchema,
   stage10DetectContradictionsSchema,
   updateNodesResponseSchema,
-} from './schemas/storyNodes';
+} from './schemas/entities';
 
 const MAX_RETRIES = 3;
 
@@ -74,7 +74,7 @@ export class MaxTokensError extends Error {
 export async function updateNodes(
   content: string,
   existingNodes: ExistingNode[],
-): Promise<NodeUpdatesResult> {
+): Promise<EntityUpdatesResult> {
   const client = await getGeminiClient();
   if (!client) {
     throw new Error(
@@ -108,7 +108,7 @@ export async function updateNodes(
       });
       const durationMs = Date.now() - callStartTime;
 
-      const parsed = parseResponse<NodeUpdatesResult>(result, 'updateNodes');
+      const parsed = parseResponse<EntityUpdatesResult>(result, 'updateNodes');
       validateUpdateResponse(parsed, existingNodes);
 
       const modelConfig = getTextModelConfig(updateNodesPrompt.model);
@@ -252,7 +252,7 @@ function parseResponse<T>(result: unknown, operation: string): T {
  * Validate that update response references valid node IDs.
  */
 function validateUpdateResponse(
-  parsed: NodeUpdatesResult,
+  parsed: EntityUpdatesResult,
   existingNodes: ExistingNode[],
 ): void {
   if (
@@ -362,7 +362,7 @@ export interface SegmentInput {
 export interface Stage2ExtractionResult {
   entities: Array<{
     name: string;
-    type: StoryNodeType;
+    type: NodeType;
     segmentId: string;
     documentOrder?: number;
     existingMatch?: ExistingMatch;
@@ -1065,7 +1065,6 @@ EDGE TYPES:
 - LOCATED_AT: Entity exists/occurs at location
 - PART_OF: Component of containing entity (chapter of book)
 - MEMBER_OF: Belongs to group while retaining identity
-- POSSESSES: Ownership or control
 - CONNECTED_TO: Social/professional connection between agents
 - OPPOSES: Conflict, antagonism, opposition
 - ABOUT: Entity relates to abstract concept/theme
@@ -1307,9 +1306,9 @@ export interface Stage5HigherOrderResult {
     eventIds: string[];
     description?: string;
   }>;
-  /** Flattened arc phases - grouped by characterId + phaseIndex */
+  /** Flattened arc phases - grouped by entityId + phaseIndex */
   arcPhases: Array<{
-    characterId: string;
+    entityId: string;
     phaseIndex: number;
     phaseName: string;
     arcType: 'transformation' | 'growth' | 'fall' | 'revelation' | 'static';
@@ -1326,7 +1325,7 @@ export async function analyzeHigherOrder(
     id: string;
     name: string;
     documentOrder: number;
-    connectedCharacterIds: string[];
+    connectedEntityIds: string[];
     causalEdges: Array<{
       type: 'CAUSES' | 'ENABLES' | 'PREVENTS';
       targetId: string;
@@ -1344,7 +1343,7 @@ export async function analyzeHigherOrder(
   }>,
   threadCandidates: Array<{
     eventIds: string[];
-    characterIds: string[];
+    entityIds: string[];
   }>,
   userId: string,
   documentId: string,
