@@ -253,7 +253,7 @@ export async function getPasswordResetTokensForUser(userId: string) {
 interface DocumentInsert {
   title?: string;
   content?: string;
-  narrativeModeEnabled?: boolean;
+  analysisModeEnabled?: boolean;
   mediaModeEnabled?: boolean;
 }
 
@@ -262,7 +262,7 @@ interface TestDocument {
   userId: string;
   title: string;
   content: string;
-  narrativeModeEnabled: boolean;
+  analysisModeEnabled: boolean;
   mediaModeEnabled: boolean;
   currentVersion: number;
   createdAt: Date;
@@ -281,13 +281,13 @@ export async function createTestDocument(
   const title = overrides.title ?? `Test Document ${uniqueId}`;
   const content =
     overrides.content ?? `This is test content for document ${uniqueId}.`;
-  const narrativeModeEnabled = overrides.narrativeModeEnabled ?? false;
+  const analysisModeEnabled = overrides.analysisModeEnabled ?? false;
   const mediaModeEnabled = overrides.mediaModeEnabled ?? false;
 
   const result = await db.execute(sql`
-    INSERT INTO documents (user_id, title, content, narrative_mode_enabled, media_mode_enabled, segment_sequence)
-    VALUES (${userId}, ${title}, ${content}, ${narrativeModeEnabled}, ${mediaModeEnabled}, '[]'::jsonb)
-    RETURNING id, user_id, title, content, narrative_mode_enabled, media_mode_enabled, current_version, created_at, updated_at
+    INSERT INTO documents (user_id, title, content, analysis_mode_enabled, media_mode_enabled, segment_sequence)
+    VALUES (${userId}, ${title}, ${content}, ${analysisModeEnabled}, ${mediaModeEnabled}, '[]'::jsonb)
+    RETURNING id, user_id, title, content, analysis_mode_enabled, media_mode_enabled, current_version, created_at, updated_at
   `);
 
   const row = result[0] as unknown;
@@ -297,7 +297,7 @@ export async function createTestDocument(
     userId: row.user_id,
     title: row.title,
     content: row.content,
-    narrativeModeEnabled: row.narrative_mode_enabled,
+    analysisModeEnabled: row.analysis_mode_enabled,
     mediaModeEnabled: row.media_mode_enabled,
     currentVersion: row.current_version,
     createdAt: row.created_at,

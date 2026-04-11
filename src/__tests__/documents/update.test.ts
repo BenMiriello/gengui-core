@@ -159,14 +159,14 @@ describe('Document Update', () => {
           'x-tab-id': sessionId,
         },
         body: JSON.stringify({
-          narrativeModeEnabled: true,
+          analysisModeEnabled: true,
           mediaModeEnabled: true,
         }),
       });
 
       expect(res.status).toBe(200);
       const body = await res.json();
-      expect(body.document.narrativeModeEnabled).toBe(true);
+      expect(body.document.analysisModeEnabled).toBe(true);
       expect(body.document.mediaModeEnabled).toBe(true);
     });
 
@@ -244,7 +244,7 @@ describe('Document Update', () => {
     test('updates narrative mode without presence check', async () => {
       const { user, password } = await createVerifiedUser();
       const doc = await createTestDocument(user.id, {
-        narrativeModeEnabled: false,
+        analysisModeEnabled: false,
       });
 
       const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
@@ -258,12 +258,12 @@ describe('Document Update', () => {
       const res = await fetch(`${baseUrl}/api/documents/${doc.id}/modes`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Cookie: cookie },
-        body: JSON.stringify({ narrativeModeEnabled: true }),
+        body: JSON.stringify({ analysisModeEnabled: true }),
       });
 
       expect(res.status).toBe(200);
       const body = await res.json();
-      expect(body.document.narrativeModeEnabled).toBe(true);
+      expect(body.document.analysisModeEnabled).toBe(true);
     });
 
     test('updates media mode', async () => {
@@ -307,14 +307,14 @@ describe('Document Update', () => {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Cookie: cookie },
         body: JSON.stringify({
-          narrativeModeEnabled: true,
+          analysisModeEnabled: true,
           mediaModeEnabled: true,
         }),
       });
 
       expect(res.status).toBe(200);
       const body = await res.json();
-      expect(body.document.narrativeModeEnabled).toBe(true);
+      expect(body.document.analysisModeEnabled).toBe(true);
       expect(body.document.mediaModeEnabled).toBe(true);
     });
 
@@ -334,7 +334,7 @@ describe('Document Update', () => {
         {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json', Cookie: cookie },
-          body: JSON.stringify({ narrativeModeEnabled: true }),
+          body: JSON.stringify({ analysisModeEnabled: true }),
         },
       );
 
@@ -345,7 +345,7 @@ describe('Document Update', () => {
       const res = await fetch(`${baseUrl}/api/documents/some-id/modes`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ narrativeModeEnabled: true }),
+        body: JSON.stringify({ analysisModeEnabled: true }),
       });
       expect(res.status).toBe(401);
     });

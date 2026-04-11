@@ -466,7 +466,7 @@ describe('Document CRUD', () => {
     test('resets mode flags on copy', async () => {
       const { user, password } = await createVerifiedUser();
       const original = await createTestDocument(user.id, {
-        narrativeModeEnabled: true,
+        analysisModeEnabled: true,
         mediaModeEnabled: true,
       });
 
@@ -485,7 +485,7 @@ describe('Document CRUD', () => {
       });
 
       const body = await res.json();
-      expect(body.document.narrativeModeEnabled).toBe(false);
+      expect(body.document.analysisModeEnabled).toBe(false);
       expect(body.document.mediaModeEnabled).toBe(false);
     });
 

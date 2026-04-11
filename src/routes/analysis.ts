@@ -1,8 +1,12 @@
-import { eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import { Router } from 'express';
 import { db } from '../config/database';
 import { requireAuth } from '../middleware/auth';
-import { documents } from '../models/schema';
+import {
+  analysisChatMessages,
+  analysisChats,
+  documents,
+} from '../models/schema';
 import { analysisClient } from '../services/analysisClient';
 import type { CreateMentionInput } from '../services/mentions';
 import { mentionService } from '../services/mentions';
@@ -22,7 +26,8 @@ router.post(
   async (req, res, next): Promise<void> => {
     try {
       const documentId = parseStringParam(req.params.id, 'id');
-      const userId = req.user?.id;
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
 
       const doc = await db.query.documents.findFirst({
         where: eq(documents.id, documentId),
@@ -65,6 +70,10 @@ router.post(
       }
 
       const domain = req.body.domain || null;
+      const settings = doc.analysisSettings as {
+        enabledLayers?: string[];
+      } | null;
+      const enabledLayers = settings?.enabledLayers || ['foundation'];
 
       const { run_id } = await analysisClient.startAnalysis({
         document_id: documentId,
@@ -76,6 +85,8 @@ router.post(
           order: i,
         })),
         domain,
+        enabled_layers: enabledLayers,
+        requested_stages: req.body.stages || undefined,
       });
 
       await redis.set(lockKey, run_id, 600);
@@ -130,6 +141,285 @@ router.put(
         .set({ analysisSettings: { domain, enabledLayers, automationLevel } })
         .where(eq(documents.id, documentId));
       res.json({ success: true });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+// --- Part 5: Chat CRUD ---
+
+router.post(
+  '/analysis/documents/:id/chats',
+  requireAuth,
+  async (req, res, next): Promise<void> => {
+    try {
+      const documentId = parseStringParam(req.params.id, 'id');
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
+
+      const doc = await db.query.documents.findFirst({
+        where: eq(documents.id, documentId),
+      });
+      if (!doc || doc.userId !== userId) {
+        res.status(404).json({ error: 'Document not found' });
+        return;
+      }
+
+      const [chat] = await db
+        .insert(analysisChats)
+        .values({
+          documentId,
+          userId,
+          title: req.body.title || null,
+        })
+        .returning();
+
+      res.status(201).json(chat);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.get(
+  '/analysis/documents/:id/chats',
+  requireAuth,
+  async (req, res, next): Promise<void> => {
+    try {
+      const documentId = parseStringParam(req.params.id, 'id');
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
+
+      const doc = await db.query.documents.findFirst({
+        where: eq(documents.id, documentId),
+      });
+      if (!doc || doc.userId !== userId) {
+        res.status(404).json({ error: 'Document not found' });
+        return;
+      }
+
+      const chats = await db.query.analysisChats.findMany({
+        where: and(
+          eq(analysisChats.documentId, documentId),
+          eq(analysisChats.userId, userId),
+        ),
+        orderBy: [asc(analysisChats.createdAt)],
+      });
+
+      res.json({ chats });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.get(
+  '/analysis/documents/:id/chats/:chatId',
+  requireAuth,
+  async (req, res, next): Promise<void> => {
+    try {
+      const documentId = parseStringParam(req.params.id, 'id');
+      const chatId = parseStringParam(req.params.chatId, 'chatId');
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
+
+      const chat = await db.query.analysisChats.findFirst({
+        where: and(
+          eq(analysisChats.id, chatId),
+          eq(analysisChats.documentId, documentId),
+          eq(analysisChats.userId, userId),
+        ),
+        with: {
+          messages: {
+            orderBy: [asc(analysisChatMessages.createdAt)],
+          },
+        },
+      });
+
+      if (!chat) {
+        res.status(404).json({ error: 'Chat not found' });
+        return;
+      }
+
+      res.json(chat);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.post(
+  '/analysis/documents/:id/chats/:chatId/messages',
+  requireAuth,
+  async (req, res, next): Promise<void> => {
+    try {
+      const documentId = parseStringParam(req.params.id, 'id');
+      const chatId = parseStringParam(req.params.chatId, 'chatId');
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
+
+      const chat = await db.query.analysisChats.findFirst({
+        where: and(
+          eq(analysisChats.id, chatId),
+          eq(analysisChats.documentId, documentId),
+          eq(analysisChats.userId, userId),
+        ),
+      });
+      if (!chat) {
+        res.status(404).json({ error: 'Chat not found' });
+        return;
+      }
+
+      const { role, content, metadata } = req.body;
+      if (!role || !content) {
+        res.status(400).json({ error: 'role and content are required' });
+        return;
+      }
+
+      const [message] = await db
+        .insert(analysisChatMessages)
+        .values({
+          chatId,
+          role,
+          content,
+          metadata: metadata || {},
+        })
+        .returning();
+
+      await db
+        .update(analysisChats)
+        .set({ updatedAt: new Date() })
+        .where(eq(analysisChats.id, chatId));
+
+      // For user messages, get a chat response from the analysis service
+      let assistantResponse: string | undefined;
+
+      if (role === 'user') {
+        const recentMessages = await db.query.analysisChatMessages.findMany({
+          where: eq(analysisChatMessages.chatId, chatId),
+          orderBy: [asc(analysisChatMessages.createdAt)],
+          limit: 20,
+        });
+
+        const chatHistory = recentMessages.map((m) => ({
+          role: m.role,
+          content: m.content,
+        }));
+
+        try {
+          const chatResult = await analysisClient.chat({
+            document_id: documentId,
+            user_id: userId,
+            message: content,
+            chat_history: chatHistory,
+          });
+          assistantResponse = chatResult.response;
+
+          if (assistantResponse) {
+            await db.insert(analysisChatMessages).values({
+              chatId,
+              role: 'assistant',
+              content: assistantResponse,
+              metadata: {},
+            });
+          }
+        } catch (e) {
+          logger.error({ e, documentId }, 'Chat request failed');
+        }
+      }
+
+      res.status(201).json({ ...message, assistantResponse });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.delete(
+  '/analysis/documents/:id/chats/:chatId',
+  requireAuth,
+  async (req, res, next): Promise<void> => {
+    try {
+      const documentId = parseStringParam(req.params.id, 'id');
+      const chatId = parseStringParam(req.params.chatId, 'chatId');
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
+
+      const chat = await db.query.analysisChats.findFirst({
+        where: and(
+          eq(analysisChats.id, chatId),
+          eq(analysisChats.documentId, documentId),
+          eq(analysisChats.userId, userId),
+        ),
+      });
+      if (!chat) {
+        res.status(404).json({ error: 'Chat not found' });
+        return;
+      }
+
+      await db.delete(analysisChats).where(eq(analysisChats.id, chatId));
+      res.json({ success: true });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+// --- Coverage endpoint ---
+
+router.get(
+  '/analysis/documents/:id/coverage',
+  requireAuth,
+  async (req, res, next): Promise<void> => {
+    try {
+      const documentId = parseStringParam(req.params.id, 'id');
+      const doc = await db.query.documents.findFirst({
+        where: eq(documents.id, documentId),
+      });
+      if (!doc || doc.userId !== req.user?.id) {
+        res.status(404).json({ error: 'Document not found' });
+        return;
+      }
+      const result = await analysisClient.getCoverage(documentId);
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+// --- Delete entities endpoint ---
+
+router.delete(
+  '/analysis/documents/:id/entities',
+  requireAuth,
+  async (req, res, next): Promise<void> => {
+    try {
+      const documentId = parseStringParam(req.params.id, 'id');
+      if (!req.user) throw new Error('User not authenticated');
+      const userId = req.user.id;
+
+      const doc = await db.query.documents.findFirst({
+        where: eq(documents.id, documentId),
+      });
+      if (!doc || doc.userId !== userId) {
+        res.status(404).json({ error: 'Document not found' });
+        return;
+      }
+
+      const result = await analysisClient.deleteEntities(documentId);
+
+      // Clear mentions from Postgres
+      await mentionService.deleteByDocumentId(documentId);
+
+      // Invalidate layout positions
+      await db
+        .update(documents)
+        .set({ layoutPositions: null })
+        .where(eq(documents.id, documentId));
+
+      res.json(result);
     } catch (error) {
       next(error);
     }
@@ -278,6 +568,12 @@ async function persistMentionsAfterAnalysis(documentId: string): Promise<void> {
       'Persisted mentions after analysis',
     );
   }
+
+  // Invalidate cached PCA layout so projection recomputes with new embeddings
+  await db
+    .update(documents)
+    .set({ layoutPositions: null })
+    .where(eq(documents.id, documentId));
 }
 
 export { router as analysisRouter };

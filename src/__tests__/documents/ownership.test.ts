@@ -180,7 +180,7 @@ describe('Document Ownership', () => {
       const res = await fetch(`${baseUrl}/api/documents/${doc.id}/modes`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Cookie: cookie },
-        body: JSON.stringify({ narrativeModeEnabled: true }),
+        body: JSON.stringify({ analysisModeEnabled: true }),
       });
 
       expect(res.status).toBe(403);

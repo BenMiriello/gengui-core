@@ -27,7 +27,7 @@ export class DocumentsService {
         userId: documents.userId,
         title: documents.title,
         content: documents.content,
-        narrativeModeEnabled: documents.narrativeModeEnabled,
+        analysisModeEnabled: documents.analysisModeEnabled,
         mediaModeEnabled: documents.mediaModeEnabled,
         createdAt: documents.createdAt,
         updatedAt: documents.updatedAt,
@@ -105,7 +105,7 @@ export class DocumentsService {
         defaultImageWidth: source.defaultImageWidth,
         defaultImageHeight: source.defaultImageHeight,
         mediaModeEnabled: false,
-        narrativeModeEnabled: false,
+        analysisModeEnabled: false,
       })
       .returning();
 
@@ -128,7 +128,7 @@ export class DocumentsService {
       defaultStylePrompt?: string | null;
       defaultImageWidth?: number;
       defaultImageHeight?: number;
-      narrativeModeEnabled?: boolean;
+      analysisModeEnabled?: boolean;
       mediaModeEnabled?: boolean;
       expectedVersion?: number;
       forceOverwrite?: boolean;
@@ -226,8 +226,8 @@ export class DocumentsService {
         ...(updates.defaultImageHeight !== undefined && {
           defaultImageHeight: updates.defaultImageHeight,
         }),
-        ...(updates.narrativeModeEnabled !== undefined && {
-          narrativeModeEnabled: updates.narrativeModeEnabled,
+        ...(updates.analysisModeEnabled !== undefined && {
+          analysisModeEnabled: updates.analysisModeEnabled,
         }),
         ...(updates.mediaModeEnabled !== undefined && {
           mediaModeEnabled: updates.mediaModeEnabled,
@@ -332,7 +332,7 @@ export class DocumentsService {
     // Count entities from FalkorDB
     let entityCount = 0;
     const hasAnalysis =
-      doc.narrativeModeEnabled && doc.lastAnalyzedVersion !== null;
+      doc.analysisModeEnabled && doc.lastAnalyzedVersion !== null;
     if (hasAnalysis) {
       const result = await graphService.query(
         `MATCH (n:Entity {documentId: $documentId}) RETURN count(n) as count`,
@@ -359,7 +359,7 @@ export class DocumentsService {
 
     // Delete FalkorDB nodes for this document
     const hasAnalysis =
-      doc.narrativeModeEnabled && doc.lastAnalyzedVersion !== null;
+      doc.analysisModeEnabled && doc.lastAnalyzedVersion !== null;
     if (hasAnalysis) {
       await graphService.deleteDocumentNodes(documentId);
     }

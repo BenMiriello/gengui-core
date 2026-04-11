@@ -227,7 +227,7 @@ export const documents = pgTable(
     defaultStylePrompt: text('default_style_prompt'),
     defaultImageWidth: integer('default_image_width').default(1024),
     defaultImageHeight: integer('default_image_height').default(1024),
-    narrativeModeEnabled: boolean('narrative_mode_enabled')
+    analysisModeEnabled: boolean('analysis_mode_enabled')
       .default(false)
       .notNull(),
     mediaModeEnabled: boolean('media_mode_enabled').default(false).notNull(),
@@ -1099,3 +1099,77 @@ export const activitiesRelations = relations(activities, ({ one }) => ({
     references: [documents.id],
   }),
 }));
+
+// ─── Analysis Chat ───
+
+export const analysisChats = pgTable(
+  'analysis_chats',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    documentId: uuid('document_id')
+      .notNull()
+      .references(() => documents.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    title: text('title'),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index('idx_analysis_chats_document').on(table.documentId),
+    index('idx_analysis_chats_user').on(table.userId),
+  ],
+);
+
+export const analysisChatsRelations = relations(
+  analysisChats,
+  ({ one, many }) => ({
+    document: one(documents, {
+      fields: [analysisChats.documentId],
+      references: [documents.id],
+    }),
+    user: one(users, {
+      fields: [analysisChats.userId],
+      references: [users.id],
+    }),
+    messages: many(analysisChatMessages),
+  }),
+);
+
+export const analysisChatMessages = pgTable(
+  'analysis_chat_messages',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    chatId: uuid('chat_id')
+      .notNull()
+      .references(() => analysisChats.id, { onDelete: 'cascade' }),
+    role: text('role').notNull(),
+    content: text('content').notNull(),
+    metadata: jsonb('metadata').default({}),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index('idx_analysis_chat_messages_chat').on(table.chatId),
+    index('idx_analysis_chat_messages_created').on(
+      table.chatId,
+      table.createdAt,
+    ),
+  ],
+);
+
+export const analysisChatMessagesRelations = relations(
+  analysisChatMessages,
+  ({ one }) => ({
+    chat: one(analysisChats, {
+      fields: [analysisChatMessages.chatId],
+      references: [analysisChats.id],
+    }),
+  }),
+);
