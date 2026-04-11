@@ -96,9 +96,7 @@ async function getEntity(entityId: string): Promise<EntityResponse | null> {
 async function getCoverage(
   documentId: string,
 ): Promise<{ coverage: Record<string, { total: number }> }> {
-  const res = await fetch(
-    `${ANALYSIS_SERVICE_URL}/api/coverage/${documentId}`,
-  );
+  const res = await fetch(`${ANALYSIS_SERVICE_URL}/api/coverage/${documentId}`);
   if (!res.ok) throw new Error(`Analysis service error: ${res.status}`);
   return (await res.json()) as { coverage: Record<string, { total: number }> };
 }
