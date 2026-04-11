@@ -240,6 +240,11 @@ export const documents = pgTable(
       withTimezone: true,
     }),
     analysisCheckpoint: jsonb('analysis_checkpoint'),
+    analysisSettings: jsonb('analysis_settings').default({}).notNull().$type<{
+      domain?: string | null;
+      enabledLayers?: string[];
+      automationLevel?: string;
+    }>(),
     segmentSequence: jsonb('segment_sequence').default([]).notNull(),
     yjsState: text('yjs_state'),
     summary: text('summary'),

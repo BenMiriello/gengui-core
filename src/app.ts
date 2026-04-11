@@ -9,6 +9,7 @@ import { errorHandler } from './middleware/errorHandler';
 import { requestLogger } from './middleware/requestLogger';
 import { activitiesRouter } from './routes/activities';
 import adminRoutes from './routes/admin';
+import { analysisRouter } from './routes/analysis';
 import authRoutes from './routes/auth';
 import conflictsRoutes from './routes/conflicts';
 import contactRoutes from './routes/contact';
@@ -106,6 +107,7 @@ export function createApp() {
   app.use('/api', exportRouter);
   app.use('/api', googleDriveRoutes);
   app.use('/api', activitiesRouter);
+  app.use('/api', analysisRouter);
   app.use('', sseRouter); // Unified SSE endpoints at /sse/*
 
   Sentry.setupExpressErrorHandler(app);

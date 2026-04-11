@@ -8,6 +8,8 @@ class RedisService {
   private messageHandler:
     | ((pattern: string, channel: string, message: string) => void)
     | null = null;
+  private channelHandlers: Map<string, (message: string) => void> = new Map();
+  private channelListenerAttached = false;
 
   constructor() {
     const redisUrl = process.env.REDIS_URL;
@@ -237,6 +239,27 @@ class RedisService {
       );
     }
     return result;
+  }
+
+  async subscribeChannel(
+    channel: string,
+    callback: (message: string) => void,
+  ): Promise<void> {
+    this.channelHandlers.set(channel, callback);
+    await this.subscriber.subscribe(channel);
+
+    if (!this.channelListenerAttached) {
+      this.subscriber.on('message', (ch, message) => {
+        const handler = this.channelHandlers.get(ch);
+        if (handler) handler(message);
+      });
+      this.channelListenerAttached = true;
+    }
+  }
+
+  async unsubscribeChannel(channel: string): Promise<void> {
+    this.channelHandlers.delete(channel);
+    await this.subscriber.unsubscribe(channel);
   }
 
   async disconnect(): Promise<void> {
