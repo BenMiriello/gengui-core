@@ -1,4 +1,4 @@
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, isNull } from 'drizzle-orm';
 import { Router } from 'express';
 import { db } from '../config/database';
 import { requireAuth } from '../middleware/auth';
@@ -87,6 +87,7 @@ router.post(
         domain,
         enabled_layers: enabledLayers,
         requested_stages: req.body.stages || undefined,
+        segment_ids: req.body.segment_ids || undefined,
       });
 
       await redis.set(lockKey, run_id, 600);
@@ -94,6 +95,32 @@ router.post(
       subscribeToAnalysisProgress(run_id, documentId);
 
       res.json({ runId: run_id });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+// --- Cancel endpoint ---
+
+router.post(
+  '/analysis/documents/:id/cancel',
+  requireAuth,
+  async (req, res, next): Promise<void> => {
+    try {
+      const documentId = parseStringParam(req.params.id, 'id');
+      if (!req.user) throw new Error('User not authenticated');
+
+      const lockKey = `analysis:lock:${documentId}`;
+      const runId = await redis.get(lockKey);
+      if (!runId) {
+        res.status(404).json({ error: 'No active analysis run' });
+        return;
+      }
+
+      await analysisClient.cancelRun(runId);
+      await redis.del(lockKey);
+      res.json({ cancelled: true });
     } catch (error) {
       next(error);
     }
@@ -296,16 +323,82 @@ router.post(
       let assistantResponse: string | undefined;
 
       if (role === 'user') {
-        const recentMessages = await db.query.analysisChatMessages.findMany({
-          where: eq(analysisChatMessages.chatId, chatId),
+        // Load non-compacted messages
+        const allMessages = await db.query.analysisChatMessages.findMany({
+          where: and(
+            eq(analysisChatMessages.chatId, chatId),
+            isNull(analysisChatMessages.compactedAt),
+          ),
           orderBy: [asc(analysisChatMessages.createdAt)],
-          limit: 20,
         });
 
-        const chatHistory = recentMessages.map((m) => ({
-          role: m.role,
-          content: m.content,
-        }));
+        const COMPACTION_THRESHOLD = 30;
+        const KEEP_RECENT = 20;
+
+        // Compact older messages if over threshold
+        if (allMessages.length > COMPACTION_THRESHOLD) {
+          const toCompact = allMessages.slice(0, allMessages.length - KEEP_RECENT);
+          const compactable = toCompact.filter(
+            (m) => m.role === 'user' || m.role === 'assistant',
+          );
+
+          if (compactable.length > 0) {
+            try {
+              const { summary } = await analysisClient.compactMessages(
+                compactable.map((m) => ({ role: m.role, content: m.content })),
+              );
+
+              // Store summary as a new message
+              await db.insert(analysisChatMessages).values({
+                chatId,
+                role: 'summary',
+                content: summary,
+                metadata: { compactedCount: toCompact.length },
+              });
+
+              // Mark compacted messages
+              const compactIds = toCompact.map((m) => m.id);
+              for (const id of compactIds) {
+                await db
+                  .update(analysisChatMessages)
+                  .set({ compactedAt: new Date() })
+                  .where(eq(analysisChatMessages.id, id));
+              }
+            } catch (e) {
+              logger.error({ e }, 'Chat compaction failed, continuing with full history');
+            }
+          }
+        }
+
+        // Build chat history: summary (if any) + recent non-compacted
+        const summaryMsg = await db.query.analysisChatMessages.findFirst({
+          where: and(
+            eq(analysisChatMessages.chatId, chatId),
+            eq(analysisChatMessages.role, 'summary'),
+          ),
+          orderBy: [asc(analysisChatMessages.createdAt)],
+        });
+
+        const recentMessages = await db.query.analysisChatMessages.findMany({
+          where: and(
+            eq(analysisChatMessages.chatId, chatId),
+            isNull(analysisChatMessages.compactedAt),
+          ),
+          orderBy: [asc(analysisChatMessages.createdAt)],
+          limit: KEEP_RECENT,
+        });
+
+        const chatHistory: Array<{ role: string; content: string }> = [];
+        if (summaryMsg) {
+          chatHistory.push({
+            role: 'system',
+            content: `Previous conversation summary:\n${summaryMsg.content}`,
+          });
+        }
+        for (const m of recentMessages) {
+          if (m.role === 'summary') continue;
+          chatHistory.push({ role: m.role, content: m.content });
+        }
 
         try {
           const chatResult = await analysisClient.chat({
@@ -316,14 +409,26 @@ router.post(
           });
           assistantResponse = chatResult.response;
 
+          const metadata: Record<string, unknown> = {};
+          if (chatResult.proposed_action) {
+            metadata.proposed_action = chatResult.proposed_action;
+          }
+
           if (assistantResponse) {
             await db.insert(analysisChatMessages).values({
               chatId,
               role: 'assistant',
               content: assistantResponse,
-              metadata: {},
+              metadata,
             });
           }
+
+          res.status(201).json({
+            ...message,
+            assistantResponse,
+            proposedAction: chatResult.proposed_action || null,
+          });
+          return;
         } catch (e) {
           logger.error({ e, documentId }, 'Chat request failed');
         }
@@ -506,7 +611,7 @@ function subscribeToAnalysisProgress(runId: string, documentId: string): void {
           ssePayload,
         );
 
-        if (data.stage === 'pipeline') {
+        if (data.stage === 'pipeline' || data.status === 'cancelled') {
           redis.unsubscribeChannel(channel);
           redis.del(lockKey);
           logger.debug(

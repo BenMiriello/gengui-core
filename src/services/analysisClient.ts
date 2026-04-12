@@ -12,6 +12,7 @@ interface AnalyzeRequest {
     metadata?: Record<string, unknown>;
   }>;
   requested_stages?: string[];
+  segment_ids?: string[];
 }
 
 interface AnalyzeResponse {
@@ -49,19 +50,31 @@ async function startAnalysis(params: AnalyzeRequest): Promise<AnalyzeResponse> {
   return (await res.json()) as AnalyzeResponse;
 }
 
+interface ChatActionResponse {
+  type: string;
+  stages?: string[] | null;
+  segment_ids?: string[] | null;
+  reason: string;
+}
+
+interface ChatResult {
+  response: string;
+  proposed_action?: ChatActionResponse | null;
+}
+
 async function chat(params: {
   document_id: string;
   user_id: string;
   message: string;
   chat_history?: Array<{ role: string; content: string }>;
-}): Promise<{ response: string }> {
+}): Promise<ChatResult> {
   const res = await fetch(`${ANALYSIS_SERVICE_URL}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params),
   });
   if (!res.ok) throw new Error(`Analysis service error: ${res.status}`);
-  return (await res.json()) as { response: string };
+  return (await res.json()) as ChatResult;
 }
 
 async function getEntities(
@@ -112,6 +125,27 @@ async function deleteEntities(
   return (await res.json()) as { deleted: number };
 }
 
+async function compactMessages(
+  messages: Array<{ role: string; content: string }>,
+): Promise<{ summary: string }> {
+  const res = await fetch(`${ANALYSIS_SERVICE_URL}/api/compact`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messages }),
+  });
+  if (!res.ok) throw new Error(`Analysis service error: ${res.status}`);
+  return (await res.json()) as { summary: string };
+}
+
+async function cancelRun(runId: string): Promise<{ cancelled: boolean }> {
+  const res = await fetch(`${ANALYSIS_SERVICE_URL}/api/analyze/${runId}/cancel`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!res.ok) throw new Error(`Analysis service error: ${res.status}`);
+  return (await res.json()) as { cancelled: boolean };
+}
+
 async function healthCheck(): Promise<boolean> {
   try {
     const res = await fetch(`${ANALYSIS_SERVICE_URL}/api/health`);
@@ -123,7 +157,9 @@ async function healthCheck(): Promise<boolean> {
 
 export const analysisClient = {
   chat,
+  compactMessages,
   startAnalysis,
+  cancelRun,
   getEntities,
   getConnections,
   getEntity,

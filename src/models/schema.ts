@@ -1154,6 +1154,7 @@ export const analysisChatMessages = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),
+    compactedAt: timestamp('compacted_at', { withTimezone: true }),
   },
   (table) => [
     index('idx_analysis_chat_messages_chat').on(table.chatId),
