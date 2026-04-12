@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull } from 'drizzle-orm';
 import { Router } from 'express';
 import { db } from '../config/database';
 import { requireAuth } from '../middleware/auth';
@@ -7,12 +7,14 @@ import {
   analysisChats,
   documents,
 } from '../models/schema';
+import { calculateLLMCost } from '../config/pricing';
 import { analysisClient } from '../services/analysisClient';
 import type { CreateMentionInput } from '../services/mentions';
 import { mentionService } from '../services/mentions';
 import { redis } from '../services/redis';
 import { segmentService } from '../services/segments';
 import { sseService } from '../services/sse';
+import { usageTrackingService } from '../services/usageTracking/usageTrackingService';
 import { logger } from '../utils/logger';
 import { parseStringParam } from '../utils/validation';
 
@@ -53,16 +55,30 @@ router.post(
         return;
       }
 
-      let segments = await segmentService.getDocumentSegments(documentId);
+      const existingSegments =
+        await segmentService.getDocumentSegments(documentId);
 
-      if (segments.length === 0 && doc.content?.length > 0) {
-        const computedSegments = segmentService.computeSegments(doc.content);
+      let segments = existingSegments;
+      if (doc.content?.length > 0) {
+        segments = segmentService.computeSegments(
+          doc.content,
+          existingSegments,
+        );
         await db
           .update(documents)
-          .set({ segmentSequence: computedSegments })
+          .set({ segmentSequence: segments })
           .where(eq(documents.id, documentId));
-        segments = computedSegments;
       }
+
+      logger.info(
+        {
+          documentId,
+          contentLength: doc.content?.length ?? 0,
+          existingSegmentCount: existingSegments.length,
+          newSegmentCount: segments.length,
+        },
+        'Analysis trigger: segment computation',
+      );
 
       if (segments.length === 0) {
         res.status(400).json({ error: 'Document has no content to analyze' });
@@ -337,7 +353,10 @@ router.post(
 
         // Compact older messages if over threshold
         if (allMessages.length > COMPACTION_THRESHOLD) {
-          const toCompact = allMessages.slice(0, allMessages.length - KEEP_RECENT);
+          const toCompact = allMessages.slice(
+            0,
+            allMessages.length - KEEP_RECENT,
+          );
           const compactable = toCompact.filter(
             (m) => m.role === 'user' || m.role === 'assistant',
           );
@@ -365,7 +384,10 @@ router.post(
                   .where(eq(analysisChatMessages.id, id));
               }
             } catch (e) {
-              logger.error({ e }, 'Chat compaction failed, continuing with full history');
+              logger.error(
+                { e },
+                'Chat compaction failed, continuing with full history',
+              );
             }
           }
         }
@@ -626,6 +648,30 @@ function subscribeToAnalysisProgress(runId: string, documentId: string): void {
                 'Failed to persist mentions after analysis',
               );
             });
+
+            if (data.chat_response) {
+              persistPipelineChatResponse(documentId, data.chat_response).catch(
+                (e) => {
+                  logger.error(
+                    { e, documentId },
+                    'Failed to persist pipeline chat response',
+                  );
+                },
+              );
+            }
+
+            if (data.llm_usage?.length) {
+              recordAnalysisUsageBatch(
+                documentId,
+                runId,
+                data.llm_usage,
+              ).catch((e) => {
+                logger.error(
+                  { e, documentId },
+                  'Failed to record analysis usage batch',
+                );
+              });
+            }
           }
         }
       } catch (e) {
@@ -679,6 +725,76 @@ async function persistMentionsAfterAnalysis(documentId: string): Promise<void> {
     .update(documents)
     .set({ layoutPositions: null })
     .where(eq(documents.id, documentId));
+}
+
+async function persistPipelineChatResponse(
+  documentId: string,
+  response: string,
+): Promise<void> {
+  const chat = await db.query.analysisChats.findFirst({
+    where: eq(analysisChats.documentId, documentId),
+    orderBy: [desc(analysisChats.updatedAt)],
+  });
+  if (!chat) return;
+
+  await db.insert(analysisChatMessages).values({
+    chatId: chat.id,
+    role: 'assistant',
+    content: response,
+    metadata: { source: 'pipeline' },
+  });
+
+  await db
+    .update(analysisChats)
+    .set({ updatedAt: new Date() })
+    .where(eq(analysisChats.id, chat.id));
+}
+
+interface AnalysisUsageRecord {
+  operation: string;
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  latency_ms: number;
+}
+
+async function recordAnalysisUsageBatch(
+  documentId: string,
+  runId: string,
+  records: AnalysisUsageRecord[],
+): Promise<void> {
+  const doc = await db.query.documents.findFirst({
+    where: eq(documents.id, documentId),
+  });
+  if (!doc) return;
+
+  for (const record of records) {
+    let costUsd = 0;
+    try {
+      ({ apiCostUsd: costUsd } = calculateLLMCost({
+        model: record.model,
+        inputTokens: record.input_tokens,
+        outputTokens: record.output_tokens,
+      }));
+    } catch {
+      logger.warn(
+        { model: record.model },
+        'Unknown model for cost calculation, recording with zero cost',
+      );
+    }
+
+    await usageTrackingService.recordLLMUsage({
+      userId: doc.userId,
+      documentId,
+      requestId: runId,
+      operation: `analysis:${record.operation}`,
+      model: record.model,
+      inputTokens: record.input_tokens,
+      outputTokens: record.output_tokens,
+      costUsd,
+      durationMs: Math.round(record.latency_ms),
+    });
+  }
 }
 
 export { router as analysisRouter };
