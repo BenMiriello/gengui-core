@@ -14,6 +14,7 @@ interface AnalyzeRequest {
   requested_stages?: string[];
   segment_ids?: string[];
   automation_level?: string;
+  confidence_threshold?: number;
 }
 
 interface AnalyzeResponse {
@@ -40,6 +41,21 @@ interface EntityResponse {
 
 const ANALYSIS_SERVICE_URL =
   process.env.ANALYSIS_SERVICE_URL || 'http://localhost:8001';
+
+interface ClassifyResult {
+  domain: string;
+  confidence: number;
+}
+
+async function classify(params: { document_id: string; sample_text: string }): Promise<ClassifyResult> {
+  const res = await fetch(`${ANALYSIS_SERVICE_URL}/api/classify`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) throw new Error(`Analysis service error: ${res.status}`);
+  return (await res.json()) as ClassifyResult;
+}
 
 async function startAnalysis(params: AnalyzeRequest): Promise<AnalyzeResponse> {
   const res = await fetch(`${ANALYSIS_SERVICE_URL}/api/analyze`, {
@@ -218,6 +234,7 @@ async function healthCheck(): Promise<boolean> {
 
 export const analysisClient = {
   chat,
+  classify,
   compactMessages,
   startAnalysis,
   cancelRun,

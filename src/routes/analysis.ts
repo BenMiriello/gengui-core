@@ -89,9 +89,11 @@ router.post(
       const settings = doc.analysisSettings as {
         enabledLayers?: string[];
         automationLevel?: string;
+        confidenceThreshold?: number;
       } | null;
-      const enabledLayers = settings?.enabledLayers || ['foundation'];
-      const automationLevel = settings?.automationLevel || 'full_auto';
+      const enabledLayers = req.body.enabledLayers || settings?.enabledLayers || ['foundation'];
+      const automationLevel = req.body.automationLevel || settings?.automationLevel || 'full_auto';
+      const confidenceThreshold = req.body.confidenceThreshold ?? settings?.confidenceThreshold ?? 0.75;
 
       const { run_id } = await analysisClient.startAnalysis({
         document_id: documentId,
@@ -107,6 +109,7 @@ router.post(
         requested_stages: req.body.stages || undefined,
         segment_ids: req.body.segment_ids || undefined,
         automation_level: automationLevel,
+        confidence_threshold: confidenceThreshold,
       });
 
       await redis.set(lockKey, run_id, 600);
@@ -181,12 +184,70 @@ router.put(
         res.status(404).json({ error: 'Document not found' });
         return;
       }
-      const { domain, enabledLayers, automationLevel } = req.body;
+      const { domain, enabledLayers, automationLevel, confidenceThreshold, retriggerSizePct } = req.body;
       await db
         .update(documents)
-        .set({ analysisSettings: { domain, enabledLayers, automationLevel } })
+        .set({ analysisSettings: { domain, enabledLayers, automationLevel, confidenceThreshold, retriggerSizePct } })
         .where(eq(documents.id, documentId));
       res.json({ success: true });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+// --- Part 4b: Domain classification ---
+
+router.post(
+  '/analysis/documents/:id/classify',
+  requireAuth,
+  async (req, res, next): Promise<void> => {
+    try {
+      const documentId = parseStringParam(req.params.id, 'id');
+      if (!req.user) throw new Error('User not authenticated');
+
+      const doc = await db.query.documents.findFirst({
+        where: eq(documents.id, documentId),
+      });
+      if (!doc || doc.userId !== req.user.id) {
+        res.status(404).json({ error: 'Document not found' });
+        return;
+      }
+
+      const settings = doc.analysisSettings as {
+        classifiedDomain?: string;
+        classifiedAt?: string;
+      } | null;
+
+      // Return cached result unless explicitly forced
+      const forceRefresh = req.body?.force === true;
+      if (!forceRefresh && settings?.classifiedDomain) {
+        res.json({ domain: settings.classifiedDomain, cached: true });
+        return;
+      }
+
+      const sampleText = doc.content?.slice(0, 2000) || '';
+      if (!sampleText.trim()) {
+        res.json({ domain: null, cached: false });
+        return;
+      }
+
+      const result = await analysisClient.classify({ document_id: documentId, sample_text: sampleText });
+
+      // Persist classification result alongside existing settings
+      const existing = (doc.analysisSettings as Record<string, unknown> | null) ?? {};
+      await db
+        .update(documents)
+        .set({
+          analysisSettings: {
+            ...existing,
+            classifiedDomain: result.domain,
+            classifiedAt: new Date().toISOString(),
+          },
+        })
+        .where(eq(documents.id, documentId));
+
+      res.json({ ...result, cached: false });
     } catch (error) {
       next(error);
     }

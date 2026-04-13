@@ -244,6 +244,10 @@ export const documents = pgTable(
       domain?: string | null;
       enabledLayers?: string[];
       automationLevel?: string;
+      confidenceThreshold?: number;
+      retriggerSizePct?: number;
+      classifiedDomain?: string;
+      classifiedAt?: string;
     }>(),
     segmentSequence: jsonb('segment_sequence').default([]).notNull(),
     yjsState: text('yjs_state'),
