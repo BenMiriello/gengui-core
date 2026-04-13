@@ -88,8 +88,10 @@ router.post(
       const domain = req.body.domain || null;
       const settings = doc.analysisSettings as {
         enabledLayers?: string[];
+        automationLevel?: string;
       } | null;
       const enabledLayers = settings?.enabledLayers || ['foundation'];
+      const automationLevel = settings?.automationLevel || 'full_auto';
 
       const { run_id } = await analysisClient.startAnalysis({
         document_id: documentId,
@@ -104,6 +106,7 @@ router.post(
         enabled_layers: enabledLayers,
         requested_stages: req.body.stages || undefined,
         segment_ids: req.body.segment_ids || undefined,
+        automation_level: automationLevel,
       });
 
       await redis.set(lockKey, run_id, 600);
@@ -823,5 +826,56 @@ async function recordAnalysisUsageBatch(
     });
   }
 }
+
+// --- Proposals proxy ---
+
+router.get(
+  '/analysis/proposals/:documentId',
+  requireAuth,
+  async (req, res, next): Promise<void> => {
+    try {
+      const documentId = parseStringParam(req.params.documentId, 'documentId');
+      const doc = await db.query.documents.findFirst({
+        where: eq(documents.id, documentId),
+      });
+      if (!doc || doc.userId !== req.user?.id) {
+        res.status(404).json({ error: 'Document not found' });
+        return;
+      }
+      const result = await analysisClient.getProposals(documentId);
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.post(
+  '/analysis/proposals/:proposalId/approve',
+  requireAuth,
+  async (req, res, next): Promise<void> => {
+    try {
+      const proposalId = parseStringParam(req.params.proposalId, 'proposalId');
+      const result = await analysisClient.approveProposal(proposalId);
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.post(
+  '/analysis/proposals/:proposalId/dismiss',
+  requireAuth,
+  async (req, res, next): Promise<void> => {
+    try {
+      const proposalId = parseStringParam(req.params.proposalId, 'proposalId');
+      const result = await analysisClient.dismissProposal(proposalId);
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
 export { router as analysisRouter };

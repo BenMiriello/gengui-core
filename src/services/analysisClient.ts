@@ -13,6 +13,7 @@ interface AnalyzeRequest {
   }>;
   requested_stages?: string[];
   segment_ids?: string[];
+  automation_level?: string;
 }
 
 interface AnalyzeResponse {
@@ -171,6 +172,41 @@ async function getEvents(
   return (await res.json()) as { events: Record<string, unknown>[] };
 }
 
+async function getProposals(
+  documentId: string,
+): Promise<{ proposals: Record<string, unknown[]>; total: number }> {
+  const res = await fetch(
+    `${ANALYSIS_SERVICE_URL}/api/proposals/${documentId}`,
+  );
+  if (!res.ok) throw new Error(`Analysis service error: ${res.status}`);
+  return (await res.json()) as {
+    proposals: Record<string, unknown[]>;
+    total: number;
+  };
+}
+
+async function approveProposal(
+  proposalId: string,
+): Promise<{ approved: boolean; proposal_id: string }> {
+  const res = await fetch(
+    `${ANALYSIS_SERVICE_URL}/api/proposals/${proposalId}/approve`,
+    { method: 'POST' },
+  );
+  if (!res.ok) throw new Error(`Analysis service error: ${res.status}`);
+  return (await res.json()) as { approved: boolean; proposal_id: string };
+}
+
+async function dismissProposal(
+  proposalId: string,
+): Promise<{ dismissed: boolean; proposal_id: string }> {
+  const res = await fetch(
+    `${ANALYSIS_SERVICE_URL}/api/proposals/${proposalId}/dismiss`,
+    { method: 'POST' },
+  );
+  if (!res.ok) throw new Error(`Analysis service error: ${res.status}`);
+  return (await res.json()) as { dismissed: boolean; proposal_id: string };
+}
+
 async function healthCheck(): Promise<boolean> {
   try {
     const res = await fetch(`${ANALYSIS_SERVICE_URL}/api/health`);
@@ -191,6 +227,9 @@ export const analysisClient = {
   getCoverage,
   getEvents,
   deleteEntities,
+  getProposals,
+  approveProposal,
+  dismissProposal,
   healthCheck,
 };
 
