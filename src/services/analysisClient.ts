@@ -108,10 +108,20 @@ async function getEntity(entityId: string): Promise<EntityResponse | null> {
 
 async function getCoverage(
   documentId: string,
-): Promise<{ coverage: Record<string, { total: number }> }> {
-  const res = await fetch(`${ANALYSIS_SERVICE_URL}/api/coverage/${documentId}`);
+  totalSegments?: number,
+): Promise<{
+  coverage: Record<string, { total: number }>;
+  percentage?: { percent: number; analyzed: number; total: number };
+}> {
+  const params = totalSegments ? `?total_segments=${totalSegments}` : '';
+  const res = await fetch(
+    `${ANALYSIS_SERVICE_URL}/api/coverage/${documentId}${params}`,
+  );
   if (!res.ok) throw new Error(`Analysis service error: ${res.status}`);
-  return (await res.json()) as { coverage: Record<string, { total: number }> };
+  return (await res.json()) as {
+    coverage: Record<string, { total: number }>;
+    percentage?: { percent: number; analyzed: number; total: number };
+  };
 }
 
 async function deleteEntities(
@@ -138,12 +148,27 @@ async function compactMessages(
 }
 
 async function cancelRun(runId: string): Promise<{ cancelled: boolean }> {
-  const res = await fetch(`${ANALYSIS_SERVICE_URL}/api/analyze/${runId}/cancel`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-  });
+  const res = await fetch(
+    `${ANALYSIS_SERVICE_URL}/api/analyze/${runId}/cancel`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    },
+  );
   if (!res.ok) throw new Error(`Analysis service error: ${res.status}`);
   return (await res.json()) as { cancelled: boolean };
+}
+
+async function getEvents(
+  documentId: string,
+  limit = 100,
+  offset = 0,
+): Promise<{ events: Record<string, unknown>[] }> {
+  const res = await fetch(
+    `${ANALYSIS_SERVICE_URL}/api/events/${documentId}?limit=${limit}&offset=${offset}`,
+  );
+  if (!res.ok) throw new Error(`Analysis service error: ${res.status}`);
+  return (await res.json()) as { events: Record<string, unknown>[] };
 }
 
 async function healthCheck(): Promise<boolean> {
@@ -164,6 +189,7 @@ export const analysisClient = {
   getConnections,
   getEntity,
   getCoverage,
+  getEvents,
   deleteEntities,
   healthCheck,
 };

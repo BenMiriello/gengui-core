@@ -1,13 +1,13 @@
 import { and, asc, desc, eq, isNull } from 'drizzle-orm';
 import { Router } from 'express';
 import { db } from '../config/database';
+import { calculateLLMCost } from '../config/pricing';
 import { requireAuth } from '../middleware/auth';
 import {
   analysisChatMessages,
   analysisChats,
   documents,
 } from '../models/schema';
-import { calculateLLMCost } from '../config/pricing';
 import { analysisClient } from '../services/analysisClient';
 import type { CreateMentionInput } from '../services/mentions';
 import { mentionService } from '../services/mentions';
@@ -508,7 +508,36 @@ router.get(
         res.status(404).json({ error: 'Document not found' });
         return;
       }
-      const result = await analysisClient.getCoverage(documentId);
+      const segmentSequence = (doc.segmentSequence as string[]) || [];
+      const result = await analysisClient.getCoverage(
+        documentId,
+        segmentSequence.length,
+      );
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+// --- Events endpoint ---
+
+router.get(
+  '/analysis/documents/:id/events',
+  requireAuth,
+  async (req, res, next): Promise<void> => {
+    try {
+      const documentId = parseStringParam(req.params.id, 'id');
+      const doc = await db.query.documents.findFirst({
+        where: eq(documents.id, documentId),
+      });
+      if (!doc || doc.userId !== req.user?.id) {
+        res.status(404).json({ error: 'Document not found' });
+        return;
+      }
+      const limit = parseInt(req.query.limit as string, 10) || 100;
+      const offset = parseInt(req.query.offset as string, 10) || 0;
+      const result = await analysisClient.getEvents(documentId, limit, offset);
       res.json(result);
     } catch (error) {
       next(error);
@@ -661,16 +690,14 @@ function subscribeToAnalysisProgress(runId: string, documentId: string): void {
             }
 
             if (data.llm_usage?.length) {
-              recordAnalysisUsageBatch(
-                documentId,
-                runId,
-                data.llm_usage,
-              ).catch((e) => {
-                logger.error(
-                  { e, documentId },
-                  'Failed to record analysis usage batch',
-                );
-              });
+              recordAnalysisUsageBatch(documentId, runId, data.llm_usage).catch(
+                (e) => {
+                  logger.error(
+                    { e, documentId },
+                    'Failed to record analysis usage batch',
+                  );
+                },
+              );
             }
           }
         }
