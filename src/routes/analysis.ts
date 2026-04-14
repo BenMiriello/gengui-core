@@ -91,9 +91,12 @@ router.post(
         automationLevel?: string;
         confidenceThreshold?: number;
       } | null;
-      const enabledLayers = req.body.enabledLayers || settings?.enabledLayers || ['foundation'];
-      const automationLevel = req.body.automationLevel || settings?.automationLevel || 'full_auto';
-      const confidenceThreshold = req.body.confidenceThreshold ?? settings?.confidenceThreshold ?? 0.75;
+      const enabledLayers = req.body.enabledLayers ||
+        settings?.enabledLayers || ['foundation'];
+      const automationLevel =
+        req.body.automationLevel || settings?.automationLevel || 'full_auto';
+      const confidenceThreshold =
+        req.body.confidenceThreshold ?? settings?.confidenceThreshold ?? 0.75;
 
       const { run_id } = await analysisClient.startAnalysis({
         document_id: documentId,
@@ -123,6 +126,37 @@ router.post(
   },
 );
 
+// --- Resume endpoint (HITL) ---
+
+router.post(
+  '/analysis/documents/:id/runs/:runId/resume',
+  requireAuth,
+  async (req, res, next): Promise<void> => {
+    try {
+      const documentId = parseStringParam(req.params.id, 'id');
+      const runId = parseStringParam(req.params.runId, 'runId');
+      if (!req.user) throw new Error('User not authenticated');
+
+      const doc = await db.query.documents.findFirst({
+        where: eq(documents.id, documentId),
+      });
+      if (!doc || doc.userId !== req.user.id) {
+        res.status(404).json({ error: 'Document not found' });
+        return;
+      }
+
+      const { approved_ids = [], dismissed_ids = [] } = req.body;
+      const result = await analysisClient.resumeRun(runId, documentId, {
+        approved_ids,
+        dismissed_ids,
+      });
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
 // --- Cancel endpoint ---
 
 router.post(
@@ -140,9 +174,46 @@ router.post(
         return;
       }
 
-      await analysisClient.cancelRun(runId);
+      await analysisClient.cancelRun(runId, documentId);
       await redis.del(lockKey);
       res.json({ cancelled: true });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.get(
+  '/analysis/documents/:id/run-state',
+  requireAuth,
+  async (req, res, next): Promise<void> => {
+    try {
+      const documentId = parseStringParam(req.params.id, 'id');
+      if (!req.user) throw new Error('User not authenticated');
+
+      const doc = await db.query.documents.findFirst({
+        where: eq(documents.id, documentId),
+      });
+      if (!doc || doc.userId !== req.user.id) {
+        res.status(404).json({ error: 'Document not found' });
+        return;
+      }
+
+      const lockKey = `analysis:lock:${documentId}`;
+      const runId = await redis.get(lockKey);
+      if (!runId) {
+        res.json({ runId: null, status: null });
+        return;
+      }
+
+      const isInterrupted = await redis.get(`analysis:interrupted:${runId}`);
+      const status = isInterrupted ? 'interrupted' : 'running';
+
+      // Re-establish the Redis subscription in case core restarted since the run began.
+      // subscribeChannel is idempotent — safe to call if already subscribed.
+      subscribeToAnalysisProgress(runId, documentId);
+
+      res.json({ runId, status });
     } catch (error) {
       next(error);
     }
@@ -184,10 +255,29 @@ router.put(
         res.status(404).json({ error: 'Document not found' });
         return;
       }
-      const { domain, enabledLayers, automationLevel, confidenceThreshold, retriggerSizePct } = req.body;
+      const {
+        domain,
+        enabledLayers,
+        automationLevel,
+        confidenceThreshold,
+        retriggerSizePct,
+      } = req.body;
+      // Merge rather than replace — preserves classifiedDomain/classifiedAt and any other
+      // fields written by other endpoints (e.g. the classify endpoint).
+      const existing =
+        (doc.analysisSettings as Record<string, unknown> | null) ?? {};
       await db
         .update(documents)
-        .set({ analysisSettings: { domain, enabledLayers, automationLevel, confidenceThreshold, retriggerSizePct } })
+        .set({
+          analysisSettings: {
+            ...existing,
+            domain,
+            enabledLayers,
+            automationLevel,
+            ...(confidenceThreshold !== undefined && { confidenceThreshold }),
+            ...(retriggerSizePct !== undefined && { retriggerSizePct }),
+          },
+        })
         .where(eq(documents.id, documentId));
       res.json({ success: true });
     } catch (error) {
@@ -232,10 +322,14 @@ router.post(
         return;
       }
 
-      const result = await analysisClient.classify({ document_id: documentId, sample_text: sampleText });
+      const result = await analysisClient.classify({
+        document_id: documentId,
+        sample_text: sampleText,
+      });
 
       // Persist classification result alongside existing settings
-      const existing = (doc.analysisSettings as Record<string, unknown> | null) ?? {};
+      const existing =
+        (doc.analysisSettings as Record<string, unknown> | null) ?? {};
       await db
         .update(documents)
         .set({
@@ -486,12 +580,20 @@ router.post(
           chatHistory.push({ role: m.role, content: m.content });
         }
 
+        const doc = await db.query.documents.findFirst({
+          where: eq(documents.id, documentId),
+        });
+        const totalSegments = doc?.segmentSequence
+          ? (doc.segmentSequence as string[]).length
+          : undefined;
+
         try {
           const chatResult = await analysisClient.chat({
             document_id: documentId,
             user_id: userId,
             message: content,
             chat_history: chatHistory,
+            total_segments: totalSegments,
           });
           assistantResponse = chatResult.response;
 
@@ -630,6 +732,8 @@ router.delete(
 
       const result = await analysisClient.deleteEntities(documentId);
 
+      await redis.del(`analysis:lock:${documentId}`);
+
       // Clear mentions from Postgres
       await mentionService.deleteByDocumentId(documentId);
 
@@ -726,7 +830,11 @@ function subscribeToAnalysisProgress(runId: string, documentId: string): void {
           ssePayload,
         );
 
-        if (data.stage === 'pipeline' || data.status === 'cancelled') {
+        if (data.status === 'interrupted') {
+          // Pipeline paused for HITL review — extend lock to match interrupt TTL (1 hour)
+          // so a new analysis cannot start while proposals are pending.
+          redis.expire(lockKey, 3600).catch(() => {});
+        } else if (data.stage === 'pipeline' || data.status === 'cancelled') {
           redis.unsubscribeChannel(channel);
           redis.del(lockKey);
           logger.debug(
@@ -904,34 +1012,6 @@ router.get(
         return;
       }
       const result = await analysisClient.getProposals(documentId);
-      res.json(result);
-    } catch (error) {
-      next(error);
-    }
-  },
-);
-
-router.post(
-  '/analysis/proposals/:proposalId/approve',
-  requireAuth,
-  async (req, res, next): Promise<void> => {
-    try {
-      const proposalId = parseStringParam(req.params.proposalId, 'proposalId');
-      const result = await analysisClient.approveProposal(proposalId);
-      res.json(result);
-    } catch (error) {
-      next(error);
-    }
-  },
-);
-
-router.post(
-  '/analysis/proposals/:proposalId/dismiss',
-  requireAuth,
-  async (req, res, next): Promise<void> => {
-    try {
-      const proposalId = parseStringParam(req.params.proposalId, 'proposalId');
-      const result = await analysisClient.dismissProposal(proposalId);
       res.json(result);
     } catch (error) {
       next(error);

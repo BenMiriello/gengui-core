@@ -47,7 +47,10 @@ interface ClassifyResult {
   confidence: number;
 }
 
-async function classify(params: { document_id: string; sample_text: string }): Promise<ClassifyResult> {
+async function classify(params: {
+  document_id: string;
+  sample_text: string;
+}): Promise<ClassifyResult> {
   const res = await fetch(`${ANALYSIS_SERVICE_URL}/api/classify`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -84,6 +87,7 @@ async function chat(params: {
   user_id: string;
   message: string;
   chat_history?: Array<{ role: string; content: string }>;
+  total_segments?: number;
 }): Promise<ChatResult> {
   const res = await fetch(`${ANALYSIS_SERVICE_URL}/api/chat`, {
     method: 'POST',
@@ -164,16 +168,34 @@ async function compactMessages(
   return (await res.json()) as { summary: string };
 }
 
-async function cancelRun(runId: string): Promise<{ cancelled: boolean }> {
+async function cancelRun(runId: string, documentId?: string): Promise<{ cancelled: boolean }> {
   const res = await fetch(
     `${ANALYSIS_SERVICE_URL}/api/analyze/${runId}/cancel`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ document_id: documentId ?? null }),
     },
   );
   if (!res.ok) throw new Error(`Analysis service error: ${res.status}`);
   return (await res.json()) as { cancelled: boolean };
+}
+
+async function resumeRun(
+  runId: string,
+  documentId: string,
+  body: { approved_ids: string[]; dismissed_ids: string[] },
+): Promise<{ resumed: boolean; run_id: string }> {
+  const res = await fetch(
+    `${ANALYSIS_SERVICE_URL}/api/analyze/${runId}/resume`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...body, document_id: documentId }),
+    },
+  );
+  if (!res.ok) throw new Error(`Analysis service error: ${res.status}`);
+  return (await res.json()) as { resumed: boolean; run_id: string };
 }
 
 async function getEvents(
@@ -201,28 +223,6 @@ async function getProposals(
   };
 }
 
-async function approveProposal(
-  proposalId: string,
-): Promise<{ approved: boolean; proposal_id: string }> {
-  const res = await fetch(
-    `${ANALYSIS_SERVICE_URL}/api/proposals/${proposalId}/approve`,
-    { method: 'POST' },
-  );
-  if (!res.ok) throw new Error(`Analysis service error: ${res.status}`);
-  return (await res.json()) as { approved: boolean; proposal_id: string };
-}
-
-async function dismissProposal(
-  proposalId: string,
-): Promise<{ dismissed: boolean; proposal_id: string }> {
-  const res = await fetch(
-    `${ANALYSIS_SERVICE_URL}/api/proposals/${proposalId}/dismiss`,
-    { method: 'POST' },
-  );
-  if (!res.ok) throw new Error(`Analysis service error: ${res.status}`);
-  return (await res.json()) as { dismissed: boolean; proposal_id: string };
-}
-
 async function healthCheck(): Promise<boolean> {
   try {
     const res = await fetch(`${ANALYSIS_SERVICE_URL}/api/health`);
@@ -238,6 +238,7 @@ export const analysisClient = {
   compactMessages,
   startAnalysis,
   cancelRun,
+  resumeRun,
   getEntities,
   getConnections,
   getEntity,
@@ -245,8 +246,6 @@ export const analysisClient = {
   getEvents,
   deleteEntities,
   getProposals,
-  approveProposal,
-  dismissProposal,
   healthCheck,
 };
 
