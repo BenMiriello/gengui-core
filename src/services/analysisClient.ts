@@ -168,7 +168,10 @@ async function compactMessages(
   return (await res.json()) as { summary: string };
 }
 
-async function cancelRun(runId: string, documentId?: string): Promise<{ cancelled: boolean }> {
+async function cancelRun(
+  runId: string,
+  documentId?: string,
+): Promise<{ cancelled: boolean }> {
   const res = await fetch(
     `${ANALYSIS_SERVICE_URL}/api/analyze/${runId}/cancel`,
     {
