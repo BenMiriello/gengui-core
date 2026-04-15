@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { and, asc, desc, eq, isNull } from 'drizzle-orm';
 import { Router } from 'express';
 import { db } from '../config/database';
@@ -674,11 +675,41 @@ router.get(
         res.status(404).json({ error: 'Document not found' });
         return;
       }
-      const segmentSequence = (doc.segmentSequence as string[]) || [];
+      const segments =
+        (doc.segmentSequence as Array<{
+          id: string;
+          start: number;
+          end: number;
+        }>) || [];
       const result = await analysisClient.getCoverage(
         documentId,
-        segmentSequence.length,
+        segments.length,
       );
+
+      if (result.percentage && segments.length > 0 && doc.content) {
+        try {
+          const storedHashes =
+            await analysisClient.getCoverageHashes(documentId);
+          let stale = 0;
+          for (const seg of segments) {
+            const storedHash = storedHashes[seg.id];
+            if (!storedHash) continue;
+            const currentText = doc.content.slice(seg.start, seg.end);
+            const currentHash = createHash('sha256')
+              .update(currentText)
+              .digest('hex')
+              .slice(0, 16);
+            if (currentHash !== storedHash) stale++;
+          }
+          result.percentage.stale = stale;
+        } catch {
+          logger.warn(
+            { documentId },
+            'Failed to fetch coverage hashes for staleness detection',
+          );
+        }
+      }
+
       res.json(result);
     } catch (error) {
       next(error);

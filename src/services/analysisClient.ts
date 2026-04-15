@@ -132,7 +132,12 @@ async function getCoverage(
   totalSegments?: number,
 ): Promise<{
   coverage: Record<string, { total: number }>;
-  percentage?: { percent: number; analyzed: number; total: number };
+  percentage?: {
+    percent: number;
+    analyzed: number;
+    total: number;
+    stale?: number;
+  };
 }> {
   const params = totalSegments ? `?total_segments=${totalSegments}` : '';
   const res = await fetch(
@@ -141,8 +146,24 @@ async function getCoverage(
   if (!res.ok) throw new Error(`Analysis service error: ${res.status}`);
   return (await res.json()) as {
     coverage: Record<string, { total: number }>;
-    percentage?: { percent: number; analyzed: number; total: number };
+    percentage?: {
+      percent: number;
+      analyzed: number;
+      total: number;
+      stale?: number;
+    };
   };
+}
+
+async function getCoverageHashes(
+  documentId: string,
+): Promise<Record<string, string>> {
+  const res = await fetch(
+    `${ANALYSIS_SERVICE_URL}/api/coverage/${documentId}/hashes`,
+  );
+  if (!res.ok) throw new Error(`Analysis service error: ${res.status}`);
+  const data = (await res.json()) as { hashes: Record<string, string> };
+  return data.hashes;
 }
 
 async function deleteEntities(
@@ -246,6 +267,7 @@ export const analysisClient = {
   getConnections,
   getEntity,
   getCoverage,
+  getCoverageHashes,
   getEvents,
   deleteEntities,
   getProposals,
