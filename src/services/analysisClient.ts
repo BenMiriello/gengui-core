@@ -166,6 +166,22 @@ async function getCoverageHashes(
   return data.hashes;
 }
 
+async function softDeleteConnectionsByTypes(
+  documentId: string,
+  relationshipTypes: string[],
+): Promise<{ deleted: number }> {
+  const res = await fetch(
+    `${ANALYSIS_SERVICE_URL}/api/graph/${documentId}/soft-delete-connections`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ relationship_types: relationshipTypes }),
+    },
+  );
+  if (!res.ok) throw new Error(`Analysis service error: ${res.status}`);
+  return (await res.json()) as { deleted: number };
+}
+
 async function deleteEntities(
   documentId: string,
 ): Promise<{ deleted: number }> {
@@ -268,6 +284,7 @@ export const analysisClient = {
   getEntity,
   getCoverage,
   getCoverageHashes,
+  softDeleteConnectionsByTypes,
   getEvents,
   deleteEntities,
   getProposals,

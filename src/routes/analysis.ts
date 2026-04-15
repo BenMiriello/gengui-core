@@ -717,6 +717,79 @@ router.get(
   },
 );
 
+// --- Domain change endpoint ---
+
+const SOCIAL_TYPES = ['CONNECTED_TO', 'OPPOSES'];
+
+const DOMAIN_LAYER_TYPES: Record<string, string[]> = {
+  narrative: SOCIAL_TYPES,
+};
+
+function getTypesToRemove(fromDomain: string, toDomain: string): string[] {
+  const fromTypes = DOMAIN_LAYER_TYPES[fromDomain] ?? [];
+  const toTypes = DOMAIN_LAYER_TYPES[toDomain] ?? [];
+  const toSet = new Set(toTypes);
+  return fromTypes.filter((t) => !toSet.has(t));
+}
+
+router.post(
+  '/analysis/documents/:id/change-domain',
+  requireAuth,
+  async (req, res, next): Promise<void> => {
+    try {
+      const documentId = parseStringParam(req.params.id, 'id');
+      if (!req.user) throw new Error('User not authenticated');
+
+      const doc = await db.query.documents.findFirst({
+        where: eq(documents.id, documentId),
+      });
+      if (!doc || doc.userId !== req.user.id) {
+        res.status(404).json({ error: 'Document not found' });
+        return;
+      }
+
+      const { targetDomain } = req.body;
+      if (!targetDomain) {
+        res.status(400).json({ error: 'targetDomain required' });
+        return;
+      }
+
+      const existing =
+        (doc.analysisSettings as Record<string, unknown> | null) ?? {};
+      const currentDomain = (existing.domain as string) ?? 'general';
+      const typesToRemove = getTypesToRemove(currentDomain, targetDomain);
+
+      let deletedCount = 0;
+      if (typesToRemove.length > 0) {
+        const result = await analysisClient.softDeleteConnectionsByTypes(
+          documentId,
+          typesToRemove,
+        );
+        deletedCount = result.deleted;
+      }
+
+      await db
+        .update(documents)
+        .set({
+          analysisSettings: {
+            ...existing,
+            domain: targetDomain,
+          },
+        })
+        .where(eq(documents.id, documentId));
+
+      res.json({
+        previousDomain: currentDomain,
+        newDomain: targetDomain,
+        deletedConnections: deletedCount,
+        removedTypes: typesToRemove,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
 // --- Events endpoint ---
 
 router.get(
