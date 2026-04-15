@@ -8,6 +8,7 @@ import {
   analysisChatMessages,
   analysisChats,
   documents,
+  textTypeAnnotations,
 } from '../models/schema';
 import { analysisClient } from '../services/analysisClient';
 import type { CreateMentionInput } from '../services/mentions';
@@ -954,6 +955,13 @@ function subscribeToAnalysisProgress(runId: string, documentId: string): void {
               );
             });
 
+            persistTextTypesAfterAnalysis(documentId).catch((e) => {
+              logger.error(
+                { e, documentId },
+                'Failed to persist text types after analysis',
+              );
+            });
+
             if (data.chat_response) {
               persistPipelineChatResponse(documentId, data.chat_response).catch(
                 (e) => {
@@ -1078,6 +1086,52 @@ async function persistMentionsAfterAnalysis(documentId: string): Promise<void> {
     .update(documents)
     .set({ layoutPositions: null })
     .where(eq(documents.id, documentId));
+}
+
+async function persistTextTypesAfterAnalysis(
+  documentId: string,
+): Promise<void> {
+  const { annotations } = await analysisClient.getTextTypes(documentId);
+  if (!annotations.length) return;
+
+  // Collect affected segment IDs for delete-then-insert idempotency
+  const segmentIds = [...new Set(annotations.map((a) => a.segment_id))];
+
+  // Delete existing annotations for affected segments
+  for (const segId of segmentIds) {
+    await db
+      .delete(textTypeAnnotations)
+      .where(
+        and(
+          eq(textTypeAnnotations.documentId, documentId),
+          eq(textTypeAnnotations.segmentId, segId),
+        ),
+      );
+  }
+
+  // Insert new annotations
+  const doc = await db.query.documents.findFirst({
+    where: eq(documents.id, documentId),
+  });
+
+  const rows = annotations.map((a) => ({
+    documentId,
+    segmentId: a.segment_id,
+    textType: a.text_type,
+    relativeStart: a.char_start,
+    relativeEnd: a.char_end,
+    boundaryText: a.boundary_text || '',
+    textHash: a.text_hash,
+    confidence: a.confidence,
+    versionNumber: doc?.currentVersion ?? 1,
+  }));
+
+  await db.insert(textTypeAnnotations).values(rows);
+
+  logger.info(
+    { documentId, annotationCount: rows.length, segments: segmentIds.length },
+    'Persisted text type annotations after analysis',
+  );
 }
 
 async function persistPipelineChatResponse(

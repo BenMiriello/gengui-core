@@ -155,6 +155,28 @@ async function getCoverage(
   };
 }
 
+interface TextTypeAnnotation {
+  segment_id: string;
+  text_hash: string;
+  text_type: string;
+  char_start: number;
+  char_end: number;
+  boundary_text: string;
+  confidence: number | null;
+  start_sentence: number;
+  end_sentence: number;
+}
+
+async function getTextTypes(
+  documentId: string,
+): Promise<{ annotations: TextTypeAnnotation[] }> {
+  const res = await fetch(
+    `${ANALYSIS_SERVICE_URL}/api/coverage/${documentId}/text-types`,
+  );
+  if (!res.ok) throw new Error(`Analysis service error: ${res.status}`);
+  return (await res.json()) as { annotations: TextTypeAnnotation[] };
+}
+
 async function getCoverageHashes(
   documentId: string,
 ): Promise<Record<string, string>> {
@@ -284,6 +306,7 @@ export const analysisClient = {
   getEntity,
   getCoverage,
   getCoverageHashes,
+  getTextTypes,
   softDeleteConnectionsByTypes,
   getEvents,
   deleteEntities,
@@ -296,4 +319,5 @@ export type {
   AnalyzeResponse,
   EntityResponse,
   MentionResponse,
+  TextTypeAnnotation,
 };

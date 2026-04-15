@@ -10,6 +10,7 @@ import {
   pgEnum,
   pgTable,
   primaryKey,
+  real,
   text,
   timestamp,
   uniqueIndex,
@@ -453,6 +454,7 @@ export const documentsRelations = relations(documents, ({ one, many }) => ({
   documentMedia: many(documentMedia),
   versions: many(documentVersions),
   mentions: many(mentions),
+  textTypeAnnotations: many(textTypeAnnotations),
 }));
 
 export const userStylePrompts = pgTable(
@@ -1175,6 +1177,45 @@ export const analysisChatMessagesRelations = relations(
     chat: one(analysisChats, {
       fields: [analysisChatMessages.chatId],
       references: [analysisChats.id],
+    }),
+  }),
+);
+
+export const textTypeAnnotations = pgTable(
+  'text_type_annotations',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    documentId: uuid('document_id')
+      .notNull()
+      .references(() => documents.id, { onDelete: 'cascade' }),
+    segmentId: text('segment_id').notNull(),
+    textType: text('text_type').notNull(),
+    relativeStart: integer('relative_start').notNull(),
+    relativeEnd: integer('relative_end').notNull(),
+    boundaryText: text('boundary_text').notNull().default(''),
+    textHash: varchar('text_hash', { length: 64 }).notNull(),
+    confidence: real('confidence'),
+    runId: uuid('run_id'),
+    versionNumber: integer('version_number').notNull().default(1),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index('idx_text_type_doc').on(table.documentId),
+    index('idx_text_type_segment').on(table.documentId, table.segmentId),
+  ],
+);
+
+export const textTypeAnnotationsRelations = relations(
+  textTypeAnnotations,
+  ({ one }) => ({
+    document: one(documents, {
+      fields: [textTypeAnnotations.documentId],
+      references: [documents.id],
     }),
   }),
 );
