@@ -11,7 +11,7 @@ import {
 } from '../models/schema';
 import { analysisClient } from '../services/analysisClient';
 import type { CreateMentionInput } from '../services/mentions';
-import { mentionService } from '../services/mentions';
+import { fuzzyFindTextInSegment, mentionService } from '../services/mentions';
 import { redis } from '../services/redis';
 import { segmentService } from '../services/segments';
 import { sseService } from '../services/sse';
@@ -923,18 +923,68 @@ async function persistMentionsAfterAnalysis(documentId: string): Promise<void> {
   if (!doc) return;
 
   const { entities } = await analysisClient.getEntities(documentId);
+  const segments =
+    (doc.segmentSequence as Array<{
+      id: string;
+      start: number;
+      end: number;
+    }>) || [];
 
   const inputs: CreateMentionInput[] = [];
+  let recovered = 0;
   for (const entity of entities) {
     if (!entity.mentions?.length) continue;
     for (const m of entity.mentions) {
-      if (!m.segment_id || m.start == null || m.end == null) continue;
+      if (!m.segment_id || !m.text) continue;
+
+      let relativeStart = m.start;
+      let relativeEnd = m.end;
+
+      if (relativeStart == null || relativeEnd == null) {
+        const segment = segments.find((s) => s.id === m.segment_id);
+        if (!segment || !doc.content) continue;
+        const segmentText = doc.content.slice(segment.start, segment.end);
+
+        const exactIdx = segmentText.indexOf(m.text);
+        if (exactIdx !== -1) {
+          relativeStart = exactIdx;
+          relativeEnd = exactIdx + m.text.length;
+          recovered++;
+        } else {
+          const fuzzyResult = fuzzyFindTextInSegment(
+            doc.content,
+            {
+              sourceText: m.text,
+              originalStart: segment.start,
+              originalEnd: segment.end,
+            },
+            segments,
+            m.segment_id,
+          );
+          if (fuzzyResult && fuzzyResult.confidence >= 0.7) {
+            relativeStart = fuzzyResult.start - segment.start;
+            relativeEnd = fuzzyResult.end - segment.start;
+            recovered++;
+          } else {
+            logger.debug(
+              {
+                entityId: entity.id,
+                mentionText: m.text,
+                segmentId: m.segment_id,
+              },
+              'Could not recover mention offset',
+            );
+            continue;
+          }
+        }
+      }
+
       inputs.push({
         nodeId: entity.id,
         documentId,
         segmentId: m.segment_id,
-        relativeStart: m.start,
-        relativeEnd: m.end,
+        relativeStart,
+        relativeEnd,
         originalText: m.text,
         versionNumber: doc.currentVersion,
         source: 'extraction',
@@ -945,7 +995,7 @@ async function persistMentionsAfterAnalysis(documentId: string): Promise<void> {
   if (inputs.length > 0) {
     await mentionService.createBatch(inputs);
     logger.info(
-      { documentId, mentionCount: inputs.length },
+      { documentId, mentionCount: inputs.length, recoveredOffsets: recovered },
       'Persisted mentions after analysis',
     );
   }
