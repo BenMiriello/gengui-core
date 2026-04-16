@@ -479,3 +479,33 @@ For production deployment:
 5. **Optional Optimizations:**
    - Consider moving thumbnail generation to Lambda
    - Scale Core API horizontally (job reconciliation is safe for multi-instance)
+
+## Testing
+
+Test runner: `bun:test`. Run with `bun test`.
+
+Tests live in `src/__tests__/<feature>/<name>.test.ts` (feature-grouped integration tests) or `src/<path>/__tests__/` (utilities colocated with source). Helpers live in `src/__tests__/helpers/`.
+
+### Style
+
+Core tests are integration tests. They start a real HTTP server via `startTestServer()` and drive it through `fetch`, against a real Postgres instance. The database is not mocked.
+
+The DB is the thing most likely to drift between mocked tests and production — schema changes, migration bugs, transaction interactions. A real-DB test catches these before release. Redis, email, and external provider clients (LLM, image generation) are mocked at the boundary, since they are not owned by this service.
+
+Each test truncates tables in `beforeEach` via `truncateAll()` and clears Redis via `clearRedisStore()`. Email is captured by `emailMock`. Cleanup is explicit — `mock.restore()` or `restoreAllMocks()` in `afterEach` prevents bleed between tests.
+
+### Running
+
+```bash
+bun test                         # all tests
+bun test src/__tests__/auth      # one feature
+bun test --watch                 # watch mode
+```
+
+### What belongs
+
+Endpoint contracts (request shape to response shape, status codes), auth boundaries, authorization paths, schema and migration behavior exercised against real DB, non-obvious regression cases.
+
+Not: refactors that preserve behavior, thin wrappers, type-checked guarantees, implementation internals.
+
+Pre-push hook runs the full suite. Failures are blocking in CI. Fix flaky tests; do not retry to pass.
