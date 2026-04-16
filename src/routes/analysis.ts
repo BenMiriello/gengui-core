@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { and, asc, desc, eq, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { Router } from 'express';
 import { db } from '../config/database';
 import { calculateLLMCost } from '../config/pricing';
@@ -1094,42 +1094,43 @@ async function persistTextTypesAfterAnalysis(
   const { annotations } = await analysisClient.getTextTypes(documentId);
   if (!annotations.length) return;
 
-  // Collect affected segment IDs for delete-then-insert idempotency
   const segmentIds = [...new Set(annotations.map((a) => a.segment_id))];
 
-  // Delete existing annotations for affected segments
-  for (const segId of segmentIds) {
-    await db
+  await db.transaction(async (tx) => {
+    const doc = await tx.query.documents.findFirst({
+      where: eq(documents.id, documentId),
+    });
+
+    await tx
       .delete(textTypeAnnotations)
       .where(
         and(
           eq(textTypeAnnotations.documentId, documentId),
-          eq(textTypeAnnotations.segmentId, segId),
+          inArray(textTypeAnnotations.segmentId, segmentIds),
         ),
       );
-  }
 
-  // Insert new annotations
-  const doc = await db.query.documents.findFirst({
-    where: eq(documents.id, documentId),
+    const rows = annotations.map((a) => ({
+      documentId,
+      segmentId: a.segment_id,
+      textType: a.text_type,
+      relativeStart: a.char_start,
+      relativeEnd: a.char_end,
+      boundaryText: a.boundary_text || '',
+      textHash: a.text_hash,
+      confidence: a.confidence,
+      versionNumber: doc?.currentVersion ?? 1,
+    }));
+
+    await tx.insert(textTypeAnnotations).values(rows);
   });
 
-  const rows = annotations.map((a) => ({
-    documentId,
-    segmentId: a.segment_id,
-    textType: a.text_type,
-    relativeStart: a.char_start,
-    relativeEnd: a.char_end,
-    boundaryText: a.boundary_text || '',
-    textHash: a.text_hash,
-    confidence: a.confidence,
-    versionNumber: doc?.currentVersion ?? 1,
-  }));
-
-  await db.insert(textTypeAnnotations).values(rows);
-
   logger.info(
-    { documentId, annotationCount: rows.length, segments: segmentIds.length },
+    {
+      documentId,
+      annotationCount: annotations.length,
+      segments: segmentIds.length,
+    },
     'Persisted text type annotations after analysis',
   );
 }
