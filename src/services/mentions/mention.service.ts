@@ -5,7 +5,7 @@
 
 import { createHash } from 'node:crypto';
 import { and, eq, inArray, sql } from 'drizzle-orm';
-import { db } from '../../config/database';
+import { type DbTransaction, db } from '../../config/database';
 import { mentions } from '../../models/schema';
 import { logger } from '../../utils/logger';
 import { graphService } from '../graph/graph.service';
@@ -159,8 +159,12 @@ export const mentionService = {
   /**
    * Create multiple mentions in a batch.
    */
-  async createBatch(inputs: CreateMentionInput[]): Promise<Mention[]> {
+  async createBatch(
+    inputs: CreateMentionInput[],
+    tx?: DbTransaction,
+  ): Promise<Mention[]> {
     if (inputs.length === 0) return [];
+    const client = tx ?? db;
 
     const values = inputs.map((input) => ({
       nodeId: input.nodeId,
@@ -177,7 +181,7 @@ export const mentionService = {
       isKeyPassage: input.source === 'extraction',
     }));
 
-    const rows = await db.insert(mentions).values(values).returning();
+    const rows = await client.insert(mentions).values(values).returning();
     return rows.map(rowToMention);
   },
 
@@ -412,8 +416,12 @@ export const mentionService = {
   /**
    * Delete all mentions for a document.
    */
-  async deleteByDocumentId(documentId: string): Promise<void> {
-    await db.delete(mentions).where(eq(mentions.documentId, documentId));
+  async deleteByDocumentId(
+    documentId: string,
+    tx?: DbTransaction,
+  ): Promise<void> {
+    const client = tx ?? db;
+    await client.delete(mentions).where(eq(mentions.documentId, documentId));
   },
 
   /**

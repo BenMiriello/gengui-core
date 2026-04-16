@@ -17,6 +17,7 @@ import {
   analysisChats,
   documents,
 } from '../models/schema';
+import type { AnalysisEntity } from '../types/analysisTypes';
 import { logger } from '../utils/logger';
 import { persistMentionsFromEntities } from './analysisReconciliation';
 import { redis } from './redis';
@@ -27,19 +28,8 @@ const CONSUMER_GROUP = 'core-persistence';
 const CONSUMER_NAME = 'worker-1';
 const BLOCK_TIMEOUT_MS = 5000;
 
-interface EntityMention {
-  segment_id: string;
-  text: string;
-  start: number | null;
-  end: number | null;
-}
-
-interface AnalysisEntity {
-  id: string;
-  mentions?: EntityMention[];
-}
-
 interface LLMUsageRecord {
+  id: string;
   operation: string;
   model: string;
   input_tokens: number;
@@ -224,93 +214,94 @@ async function persistCompletionData(
       end: number;
     }>) ?? [];
 
-  // Mentions — delete existing for this document then reinsert from the stream payload
-  if (event.entities?.length) {
-    const result = await persistMentionsFromEntities({
-      documentId,
-      entities: event.entities,
-      documentContent: doc.content,
-      currentVersion: doc.currentVersion,
-      segments,
-    });
-    if (result.count > 0) {
-      logger.info(
-        {
-          documentId,
-          mentionCount: result.count,
-          recoveredOffsets: result.recovered,
-        },
-        'Persisted mentions from completion stream',
-      );
-    }
-    // Invalidate layout so projection recomputes with new embeddings
-    await db
-      .update(documents)
-      .set({ layoutPositions: null })
-      .where(eq(documents.id, documentId));
-  }
-
-  // Document summary
-  if (event.documentSummary) {
-    await db
-      .update(documents)
-      .set({ summary: event.documentSummary })
-      .where(eq(documents.id, documentId));
-  }
-
-  // LLM usage
-  if (event.llmUsage?.length) {
-    for (const record of event.llmUsage) {
-      let costUsd = 0;
-      try {
-        ({ apiCostUsd: costUsd } = calculateLLMCost({
-          model: record.model,
-          inputTokens: record.input_tokens,
-          outputTokens: record.output_tokens,
-        }));
-      } catch {
-        logger.warn(
-          { model: record.model },
-          'Unknown model for cost calculation, using zero',
+  await db.transaction(async (tx) => {
+    if (event.entities?.length) {
+      const result = await persistMentionsFromEntities({
+        documentId,
+        entities: event.entities,
+        documentContent: doc.content,
+        currentVersion: doc.currentVersion,
+        segments,
+        tx,
+      });
+      if (result.count > 0) {
+        logger.info(
+          {
+            documentId,
+            mentionCount: result.count,
+            recoveredOffsets: result.recovered,
+          },
+          'Persisted mentions from completion stream',
         );
       }
-      await usageTrackingService.recordLLMUsage({
-        userId: doc.userId,
-        documentId,
-        requestId: runId,
-        operation: `analysis:${record.operation}`,
-        model: record.model,
-        inputTokens: record.input_tokens,
-        outputTokens: record.output_tokens,
-        costUsd,
-        durationMs: Math.round(record.latency_ms),
-      });
+      await tx
+        .update(documents)
+        .set({ layoutPositions: null })
+        .where(eq(documents.id, documentId));
     }
-  }
 
-  // Chat response
-  if (event.chatResponse) {
-    const chat = await db.query.analysisChats.findFirst({
-      where: eq(analysisChats.documentId, documentId),
-      orderBy: [desc(analysisChats.updatedAt)],
-    });
-    if (chat) {
-      await db.insert(analysisChatMessages).values({
-        chatId: chat.id,
-        role: 'assistant',
-        content: event.chatResponse,
-        metadata: { source: 'pipeline' },
-      });
-      await db
-        .update(analysisChats)
-        .set({ updatedAt: new Date() })
-        .where(eq(analysisChats.id, chat.id));
+    if (event.documentSummary) {
+      await tx
+        .update(documents)
+        .set({ summary: event.documentSummary })
+        .where(eq(documents.id, documentId));
     }
-  }
 
-  // Advance reconciliation watermark only after all persistence succeeds
-  await db
-    .update(documents)
-    .set({ lastCompletionSeenAt: new Date(event.completedAt) })
-    .where(eq(documents.id, documentId));
+    if (event.llmUsage?.length) {
+      for (const record of event.llmUsage) {
+        let costUsd = 0;
+        try {
+          ({ apiCostUsd: costUsd } = calculateLLMCost({
+            model: record.model,
+            inputTokens: record.input_tokens,
+            outputTokens: record.output_tokens,
+          }));
+        } catch {
+          logger.warn(
+            { model: record.model },
+            'Unknown model for cost calculation, using zero',
+          );
+        }
+        await usageTrackingService.recordLLMUsage(
+          {
+            id: record.id,
+            userId: doc.userId,
+            documentId,
+            requestId: runId,
+            operation: `analysis:${record.operation}`,
+            model: record.model,
+            inputTokens: record.input_tokens,
+            outputTokens: record.output_tokens,
+            costUsd,
+            durationMs: Math.round(record.latency_ms),
+          },
+          tx,
+        );
+      }
+    }
+
+    if (event.chatResponse) {
+      const chat = await tx.query.analysisChats.findFirst({
+        where: eq(analysisChats.documentId, documentId),
+        orderBy: [desc(analysisChats.updatedAt)],
+      });
+      if (chat) {
+        await tx.insert(analysisChatMessages).values({
+          chatId: chat.id,
+          role: 'assistant',
+          content: event.chatResponse,
+          metadata: { source: 'pipeline' },
+        });
+        await tx
+          .update(analysisChats)
+          .set({ updatedAt: new Date() })
+          .where(eq(analysisChats.id, chat.id));
+      }
+    }
+
+    await tx
+      .update(documents)
+      .set({ lastCompletionSeenAt: new Date(event.completedAt) })
+      .where(eq(documents.id, documentId));
+  });
 }

@@ -4,11 +4,12 @@
  */
 
 import { and, eq, sql } from 'drizzle-orm';
-import { db } from '../../config/database';
+import { type DbTransaction, db } from '../../config/database';
 import { llmUsage, llmUsageDaily } from '../../models/schema';
 import { logger } from '../../utils/logger';
 
 export interface RecordUsageParams {
+  id?: string;
   userId: string;
   documentId?: string;
   requestId?: string;
@@ -27,9 +28,14 @@ export class UsageTrackingService {
    * Writes to llm_usage table and updates daily rollup.
    * Uses async fire-and-forget pattern (errors logged but not thrown).
    */
-  async recordLLMUsage(params: RecordUsageParams): Promise<void> {
+  async recordLLMUsage(
+    params: RecordUsageParams,
+    tx?: DbTransaction,
+  ): Promise<void> {
+    const client = tx ?? db;
     try {
       const {
+        id,
         userId,
         documentId,
         requestId,
@@ -42,7 +48,7 @@ export class UsageTrackingService {
         stage,
       } = params;
 
-      await db.insert(llmUsage).values({
+      const values: Record<string, unknown> = {
         userId,
         documentId,
         requestId,
@@ -53,19 +59,31 @@ export class UsageTrackingService {
         costUsd: costUsd.toFixed(6),
         durationMs,
         stage,
-      });
+      };
+      if (id) values.id = id;
+
+      const inserted = await client
+        .insert(llmUsage)
+        .values(values as typeof llmUsage.$inferInsert)
+        .onConflictDoNothing({ target: llmUsage.id })
+        .returning({ id: llmUsage.id });
+
+      if (inserted.length === 0) return;
 
       const today = new Date().toISOString().split('T')[0];
-      await this.updateDailyRollup({
-        userId,
-        date: today,
-        operations: 1,
-        inputTokens,
-        outputTokens,
-        costUsd,
-        operation,
-        model,
-      });
+      await this.updateDailyRollup(
+        {
+          userId,
+          date: today,
+          operations: 1,
+          inputTokens,
+          outputTokens,
+          costUsd,
+          operation,
+          model,
+        },
+        tx,
+      );
 
       logger.debug(
         {
@@ -78,6 +96,7 @@ export class UsageTrackingService {
         'LLM usage recorded',
       );
     } catch (error) {
+      if (tx) throw error;
       logger.error(
         {
           error: (error as Error).message,
@@ -93,16 +112,19 @@ export class UsageTrackingService {
    * Update daily rollup for a user (incremental upsert).
    * Updates both user-specific and global rollups.
    */
-  private async updateDailyRollup(params: {
-    userId: string;
-    date: string;
-    operations: number;
-    inputTokens: number;
-    outputTokens: number;
-    costUsd: number;
-    operation: string;
-    model: string;
-  }): Promise<void> {
+  private async updateDailyRollup(
+    params: {
+      userId: string;
+      date: string;
+      operations: number;
+      inputTokens: number;
+      outputTokens: number;
+      costUsd: number;
+      operation: string;
+      model: string;
+    },
+    tx?: DbTransaction,
+  ): Promise<void> {
     const {
       userId,
       date,
@@ -114,42 +136,52 @@ export class UsageTrackingService {
       model,
     } = params;
 
-    await this.upsertRollup({
-      userId,
-      date,
-      operations,
-      inputTokens,
-      outputTokens,
-      costUsd,
-      operation,
-      model,
-    });
+    await this.upsertRollup(
+      {
+        userId,
+        date,
+        operations,
+        inputTokens,
+        outputTokens,
+        costUsd,
+        operation,
+        model,
+      },
+      tx,
+    );
 
-    await this.upsertRollup({
-      userId: null,
-      date,
-      operations,
-      inputTokens,
-      outputTokens,
-      costUsd,
-      operation,
-      model,
-    });
+    await this.upsertRollup(
+      {
+        userId: null,
+        date,
+        operations,
+        inputTokens,
+        outputTokens,
+        costUsd,
+        operation,
+        model,
+      },
+      tx,
+    );
   }
 
   /**
    * Upsert rollup row (insert or increment).
    */
-  private async upsertRollup(params: {
-    userId: string | null;
-    date: string;
-    operations: number;
-    inputTokens: number;
-    outputTokens: number;
-    costUsd: number;
-    operation: string;
-    model: string;
-  }): Promise<void> {
+  private async upsertRollup(
+    params: {
+      userId: string | null;
+      date: string;
+      operations: number;
+      inputTokens: number;
+      outputTokens: number;
+      costUsd: number;
+      operation: string;
+      model: string;
+    },
+    tx?: DbTransaction,
+  ): Promise<void> {
+    const client = tx ?? db;
     const {
       userId,
       date,
@@ -161,7 +193,7 @@ export class UsageTrackingService {
       model,
     } = params;
 
-    const existing = await db
+    const existing = await client
       .select()
       .from(llmUsageDaily)
       .where(
@@ -185,7 +217,7 @@ export class UsageTrackingService {
         (operationBreakdown[operation] || 0) + operations;
       modelBreakdown[model] = (modelBreakdown[model] || 0) + operations;
 
-      await db
+      await client
         .update(llmUsageDaily)
         .set({
           totalOperations: row.totalOperations + operations,
@@ -198,7 +230,7 @@ export class UsageTrackingService {
         })
         .where(eq(llmUsageDaily.id, row.id));
     } else {
-      await db.insert(llmUsageDaily).values({
+      await client.insert(llmUsageDaily).values({
         userId,
         date,
         totalOperations: operations,

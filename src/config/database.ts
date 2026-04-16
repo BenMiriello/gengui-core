@@ -1,8 +1,17 @@
+import type { ExtractTablesWithRelations } from 'drizzle-orm';
+import type { PgTransaction } from 'drizzle-orm/pg-core';
+import type { PostgresJsQueryResultHKT } from 'drizzle-orm/postgres-js';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import * as schema from '../models/schema.js';
 import { logger } from '../utils/logger';
 import { env } from './env';
+
+export type DbTransaction = PgTransaction<
+  PostgresJsQueryResultHKT,
+  typeof schema,
+  ExtractTablesWithRelations<typeof schema>
+>;
 
 const isProd = env.NODE_ENV === 'production';
 const isDev = env.NODE_ENV === 'development';
