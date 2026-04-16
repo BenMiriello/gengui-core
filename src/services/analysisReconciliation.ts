@@ -6,8 +6,9 @@
  */
 
 import { eq } from 'drizzle-orm';
-import { db } from '../config/database';
+import { type DbTransaction, db } from '../config/database';
 import { documents } from '../models/schema';
+import type { AnalysisEntity } from '../types/analysisTypes';
 import { logger } from '../utils/logger';
 import { analysisClient } from './analysisClient';
 import {
@@ -15,18 +16,6 @@ import {
   fuzzyFindTextInSegment,
   mentionService,
 } from './mentions';
-
-interface EntityMention {
-  segment_id: string;
-  text: string;
-  start: number | null;
-  end: number | null;
-}
-
-interface AnalysisEntity {
-  id: string;
-  mentions?: EntityMention[];
-}
 
 interface Segment {
   id: string;
@@ -40,6 +29,7 @@ interface PersistMentionsParams {
   documentContent: string;
   currentVersion: number;
   segments: Segment[];
+  tx?: DbTransaction;
 }
 
 /**
@@ -51,12 +41,20 @@ interface PersistMentionsParams {
 export async function persistMentionsFromEntities(
   params: PersistMentionsParams,
 ): Promise<{ count: number; recovered: number }> {
-  const { documentId, entities, documentContent, currentVersion, segments } =
-    params;
+  const {
+    documentId,
+    entities,
+    documentContent,
+    currentVersion,
+    segments,
+    tx,
+  } = params;
 
-  await mentionService.deleteByDocumentId(documentId);
+  await mentionService.deleteByDocumentId(documentId, tx);
   const inputs: CreateMentionInput[] = [];
   let recovered = 0;
+
+  const segmentMap = new Map(segments.map((s) => [s.id, s]));
 
   for (const entity of entities) {
     if (!entity.mentions?.length) continue;
@@ -67,7 +65,7 @@ export async function persistMentionsFromEntities(
       let relativeEnd = m.end;
 
       if (relativeStart == null || relativeEnd == null) {
-        const segment = segments.find((s) => s.id === m.segment_id);
+        const segment = segmentMap.get(m.segment_id);
         if (!segment || !documentContent) continue;
         const segmentText = documentContent.slice(segment.start, segment.end);
 
@@ -119,7 +117,7 @@ export async function persistMentionsFromEntities(
   }
 
   if (inputs.length > 0) {
-    await mentionService.createBatch(inputs);
+    await mentionService.createBatch(inputs, tx);
   }
 
   return { count: inputs.length, recovered };
