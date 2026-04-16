@@ -715,6 +715,29 @@ router.get(
   },
 );
 
+// --- Text types proxy ---
+
+router.get(
+  '/analysis/documents/:id/text-types',
+  requireAuth,
+  async (req, res, next): Promise<void> => {
+    try {
+      const documentId = parseStringParam(req.params.id, 'id');
+      const doc = await db.query.documents.findFirst({
+        where: eq(documents.id, documentId),
+      });
+      if (!doc || doc.userId !== req.user?.id) {
+        res.status(404).json({ error: 'Document not found' });
+        return;
+      }
+      const result = await analysisClient.getTextTypes(documentId);
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
 // --- Domain change endpoint ---
 
 const SOCIAL_TYPES = ['CONNECTED_TO', 'OPPOSES'];
