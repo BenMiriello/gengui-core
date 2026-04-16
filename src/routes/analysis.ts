@@ -1,8 +1,7 @@
 import { createHash } from 'node:crypto';
-import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import { Router } from 'express';
 import { db } from '../config/database';
-import { calculateLLMCost } from '../config/pricing';
 import { requireAuth } from '../middleware/auth';
 import {
   analysisChatMessages,
@@ -11,12 +10,10 @@ import {
   textTypeAnnotations,
 } from '../models/schema';
 import { analysisClient } from '../services/analysisClient';
-import type { CreateMentionInput } from '../services/mentions';
-import { fuzzyFindTextInSegment, mentionService } from '../services/mentions';
+import { mentionService } from '../services/mentions';
 import { redis } from '../services/redis';
 import { segmentService } from '../services/segments';
 import { sseService } from '../services/sse';
-import { usageTrackingService } from '../services/usageTracking/usageTrackingService';
 import { logger } from '../utils/logger';
 import { parseStringParam } from '../utils/validation';
 
@@ -947,42 +944,16 @@ function subscribeToAnalysisProgress(runId: string, documentId: string): void {
             'Analysis progress subscription ended, lock released',
           );
 
+          // Mentions, document summary, LLM usage, and chat response are now
+          // persisted by the Redis Streams consumer (completionStreamConsumer.ts).
+          // Text type annotations stay here until B5 removes the table.
           if (data.status === 'complete') {
-            persistMentionsAfterAnalysis(documentId).catch((e) => {
-              logger.error(
-                { e, documentId },
-                'Failed to persist mentions after analysis',
-              );
-            });
-
             persistTextTypesAfterAnalysis(documentId).catch((e) => {
               logger.error(
                 { e, documentId },
                 'Failed to persist text types after analysis',
               );
             });
-
-            if (data.chat_response) {
-              persistPipelineChatResponse(documentId, data.chat_response).catch(
-                (e) => {
-                  logger.error(
-                    { e, documentId },
-                    'Failed to persist pipeline chat response',
-                  );
-                },
-              );
-            }
-
-            if (data.llm_usage?.length) {
-              recordAnalysisUsageBatch(documentId, runId, data.llm_usage).catch(
-                (e) => {
-                  logger.error(
-                    { e, documentId },
-                    'Failed to record analysis usage batch',
-                  );
-                },
-              );
-            }
           }
         }
       } catch (e) {
@@ -995,97 +966,6 @@ function subscribeToAnalysisProgress(runId: string, documentId: string): void {
     .catch((err) => {
       logger.error({ err, runId }, 'Failed to subscribe to analysis progress');
     });
-}
-
-async function persistMentionsAfterAnalysis(documentId: string): Promise<void> {
-  const doc = await db.query.documents.findFirst({
-    where: eq(documents.id, documentId),
-  });
-  if (!doc) return;
-
-  const { entities } = await analysisClient.getEntities(documentId);
-  const segments =
-    (doc.segmentSequence as Array<{
-      id: string;
-      start: number;
-      end: number;
-    }>) || [];
-
-  const inputs: CreateMentionInput[] = [];
-  let recovered = 0;
-  for (const entity of entities) {
-    if (!entity.mentions?.length) continue;
-    for (const m of entity.mentions) {
-      if (!m.segment_id || !m.text) continue;
-
-      let relativeStart = m.start;
-      let relativeEnd = m.end;
-
-      if (relativeStart == null || relativeEnd == null) {
-        const segment = segments.find((s) => s.id === m.segment_id);
-        if (!segment || !doc.content) continue;
-        const segmentText = doc.content.slice(segment.start, segment.end);
-
-        const exactIdx = segmentText.indexOf(m.text);
-        if (exactIdx !== -1) {
-          relativeStart = exactIdx;
-          relativeEnd = exactIdx + m.text.length;
-          recovered++;
-        } else {
-          const fuzzyResult = fuzzyFindTextInSegment(
-            doc.content,
-            {
-              sourceText: m.text,
-              originalStart: segment.start,
-              originalEnd: segment.end,
-            },
-            segments,
-            m.segment_id,
-          );
-          if (fuzzyResult && fuzzyResult.confidence >= 0.7) {
-            relativeStart = fuzzyResult.start - segment.start;
-            relativeEnd = fuzzyResult.end - segment.start;
-            recovered++;
-          } else {
-            logger.debug(
-              {
-                entityId: entity.id,
-                mentionText: m.text,
-                segmentId: m.segment_id,
-              },
-              'Could not recover mention offset',
-            );
-            continue;
-          }
-        }
-      }
-
-      inputs.push({
-        nodeId: entity.id,
-        documentId,
-        segmentId: m.segment_id,
-        relativeStart,
-        relativeEnd,
-        originalText: m.text,
-        versionNumber: doc.currentVersion,
-        source: 'extraction',
-      });
-    }
-  }
-
-  if (inputs.length > 0) {
-    await mentionService.createBatch(inputs);
-    logger.info(
-      { documentId, mentionCount: inputs.length, recoveredOffsets: recovered },
-      'Persisted mentions after analysis',
-    );
-  }
-
-  // Invalidate cached PCA layout so projection recomputes with new embeddings
-  await db
-    .update(documents)
-    .set({ layoutPositions: null })
-    .where(eq(documents.id, documentId));
 }
 
 async function persistTextTypesAfterAnalysis(
@@ -1133,76 +1013,6 @@ async function persistTextTypesAfterAnalysis(
     },
     'Persisted text type annotations after analysis',
   );
-}
-
-async function persistPipelineChatResponse(
-  documentId: string,
-  response: string,
-): Promise<void> {
-  const chat = await db.query.analysisChats.findFirst({
-    where: eq(analysisChats.documentId, documentId),
-    orderBy: [desc(analysisChats.updatedAt)],
-  });
-  if (!chat) return;
-
-  await db.insert(analysisChatMessages).values({
-    chatId: chat.id,
-    role: 'assistant',
-    content: response,
-    metadata: { source: 'pipeline' },
-  });
-
-  await db
-    .update(analysisChats)
-    .set({ updatedAt: new Date() })
-    .where(eq(analysisChats.id, chat.id));
-}
-
-interface AnalysisUsageRecord {
-  operation: string;
-  model: string;
-  input_tokens: number;
-  output_tokens: number;
-  latency_ms: number;
-}
-
-async function recordAnalysisUsageBatch(
-  documentId: string,
-  runId: string,
-  records: AnalysisUsageRecord[],
-): Promise<void> {
-  const doc = await db.query.documents.findFirst({
-    where: eq(documents.id, documentId),
-  });
-  if (!doc) return;
-
-  for (const record of records) {
-    let costUsd = 0;
-    try {
-      ({ apiCostUsd: costUsd } = calculateLLMCost({
-        model: record.model,
-        inputTokens: record.input_tokens,
-        outputTokens: record.output_tokens,
-      }));
-    } catch {
-      logger.warn(
-        { model: record.model },
-        'Unknown model for cost calculation, recording with zero cost',
-      );
-    }
-
-    await usageTrackingService.recordLLMUsage({
-      userId: doc.userId,
-      documentId,
-      requestId: runId,
-      operation: `analysis:${record.operation}`,
-      model: record.model,
-      inputTokens: record.input_tokens,
-      outputTokens: record.output_tokens,
-      costUsd,
-      durationMs: Math.round(record.latency_ms),
-    });
-  }
 }
 
 // --- Proposals proxy ---

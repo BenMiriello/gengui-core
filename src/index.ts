@@ -13,6 +13,7 @@ import { startJobWorkers, stopJobWorkers } from './jobs/index';
 import { startReconciliationJob } from './jobs/reconcileGenerations';
 import { cpuPool } from './lib/cpu-pool';
 import { analytics } from './services/analytics';
+import { startCompletionStreamConsumer } from './services/completionStreamConsumer';
 import { graphService } from './services/graph/graph.service';
 import { puppeteerPool } from './services/puppeteerPool';
 import { redis } from './services/redis';
@@ -37,6 +38,7 @@ let reconciliationTask: ScheduledTask;
 let cleanupTask: ScheduledTask;
 let cleanupReservationsTask: { stop: () => void };
 let cleanupActivitiesTask: ScheduledTask;
+let stopCompletionConsumer: (() => void) | undefined;
 
 async function verifyDatabase() {
   for (let attempt = 1; attempt <= 3; attempt++) {
@@ -67,6 +69,7 @@ async function start() {
       cleanupReservationsTask = startCleanupReservationsJob();
       cleanupActivitiesTask = startCleanupActivitiesJob();
       await graphService.initializeIndexes();
+      stopCompletionConsumer = startCompletionStreamConsumer();
     } catch (error) {
       logger.error({ error }, 'Failed to start generation services');
     }
@@ -96,6 +99,7 @@ const shutdown = async (signal: string) => {
     if (cleanupTask) cleanupTask.stop();
     if (cleanupReservationsTask) cleanupReservationsTask.stop();
     if (cleanupActivitiesTask) cleanupActivitiesTask.stop();
+    if (stopCompletionConsumer) stopCompletionConsumer();
 
     await cpuPool.shutdown();
 
