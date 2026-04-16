@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, eq, isNull } from 'drizzle-orm';
 import { Router } from 'express';
 import { db } from '../config/database';
 import { requireAuth } from '../middleware/auth';
@@ -7,7 +7,6 @@ import {
   analysisChatMessages,
   analysisChats,
   documents,
-  textTypeAnnotations,
 } from '../models/schema';
 import { analysisClient } from '../services/analysisClient';
 import { mentionService } from '../services/mentions';
@@ -967,17 +966,9 @@ function subscribeToAnalysisProgress(runId: string, documentId: string): void {
             'Analysis progress subscription ended, lock released',
           );
 
-          // Mentions, document summary, LLM usage, and chat response are now
-          // persisted by the Redis Streams consumer (completionStreamConsumer.ts).
-          // Text type annotations stay here until B5 removes the table.
-          if (data.status === 'complete') {
-            persistTextTypesAfterAnalysis(documentId).catch((e) => {
-              logger.error(
-                { e, documentId },
-                'Failed to persist text types after analysis',
-              );
-            });
-          }
+          // Completion persistence (mentions, document summary, LLM usage,
+          // chat response, text types) is handled by the Redis Streams consumer
+          // and reconciliation-on-load. No further pub/sub-driven persistence.
         }
       } catch (e) {
         logger.error(
@@ -989,53 +980,6 @@ function subscribeToAnalysisProgress(runId: string, documentId: string): void {
     .catch((err) => {
       logger.error({ err, runId }, 'Failed to subscribe to analysis progress');
     });
-}
-
-async function persistTextTypesAfterAnalysis(
-  documentId: string,
-): Promise<void> {
-  const { annotations } = await analysisClient.getTextTypes(documentId);
-  if (!annotations.length) return;
-
-  const segmentIds = [...new Set(annotations.map((a) => a.segment_id))];
-
-  await db.transaction(async (tx) => {
-    const doc = await tx.query.documents.findFirst({
-      where: eq(documents.id, documentId),
-    });
-
-    await tx
-      .delete(textTypeAnnotations)
-      .where(
-        and(
-          eq(textTypeAnnotations.documentId, documentId),
-          inArray(textTypeAnnotations.segmentId, segmentIds),
-        ),
-      );
-
-    const rows = annotations.map((a) => ({
-      documentId,
-      segmentId: a.segment_id,
-      textType: a.text_type,
-      relativeStart: a.char_start,
-      relativeEnd: a.char_end,
-      boundaryText: a.boundary_text || '',
-      textHash: a.text_hash,
-      confidence: a.confidence,
-      versionNumber: doc?.currentVersion ?? 1,
-    }));
-
-    await tx.insert(textTypeAnnotations).values(rows);
-  });
-
-  logger.info(
-    {
-      documentId,
-      annotationCount: annotations.length,
-      segments: segmentIds.length,
-    },
-    'Persisted text type annotations after analysis',
-  );
 }
 
 // --- Proposals proxy ---
