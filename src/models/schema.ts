@@ -257,6 +257,9 @@ export const documents = pgTable(
       .default(0)
       .notNull(),
     summaryUpdatedAt: timestamp('summary_updated_at', { withTimezone: true }),
+    lastCompletionSeenAt: timestamp('last_completion_seen_at', {
+      withTimezone: true,
+    }),
     layoutPositions:
       jsonb('layout_positions').$type<
         Array<{ nodeId: string; x: number; y: number }>

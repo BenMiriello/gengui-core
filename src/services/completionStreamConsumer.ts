@@ -18,8 +18,7 @@ import {
   documents,
 } from '../models/schema';
 import { logger } from '../utils/logger';
-import { fuzzyFindTextInSegment, mentionService } from './mentions';
-import type { CreateMentionInput } from './mentions/mention.types';
+import { persistMentionsFromEntities } from './analysisReconciliation';
 import { redis } from './redis';
 import { usageTrackingService } from './usageTracking/usageTrackingService';
 
@@ -227,82 +226,23 @@ async function persistCompletionData(
 
   // Mentions — delete existing for this document then reinsert from the stream payload
   if (event.entities?.length) {
-    await mentionService.deleteByDocumentId(documentId);
-    const inputs: CreateMentionInput[] = [];
-    let recovered = 0;
-
-    for (const entity of event.entities) {
-      if (!entity.mentions?.length) continue;
-      for (const m of entity.mentions) {
-        if (!m.segment_id || !m.text) continue;
-
-        let relativeStart = m.start;
-        let relativeEnd = m.end;
-
-        if (relativeStart == null || relativeEnd == null) {
-          const segment = segments.find((s) => s.id === m.segment_id);
-          if (!segment || !doc.content) continue;
-          const segmentText = doc.content.slice(segment.start, segment.end);
-
-          const exactIdx = segmentText.indexOf(m.text);
-          if (exactIdx !== -1) {
-            relativeStart = exactIdx;
-            relativeEnd = exactIdx + m.text.length;
-            recovered++;
-          } else {
-            const fuzzyResult = fuzzyFindTextInSegment(
-              doc.content,
-              {
-                sourceText: m.text,
-                originalStart: segment.start,
-                originalEnd: segment.end,
-              },
-              segments,
-              m.segment_id,
-            );
-            if (fuzzyResult && fuzzyResult.confidence >= 0.7) {
-              relativeStart = fuzzyResult.start - segment.start;
-              relativeEnd = fuzzyResult.end - segment.start;
-              recovered++;
-            } else {
-              logger.debug(
-                {
-                  entityId: entity.id,
-                  mentionText: m.text,
-                  segmentId: m.segment_id,
-                },
-                'Could not recover mention offset',
-              );
-              continue;
-            }
-          }
-        }
-
-        inputs.push({
-          nodeId: entity.id,
-          documentId,
-          segmentId: m.segment_id,
-          relativeStart,
-          relativeEnd,
-          originalText: m.text,
-          versionNumber: doc.currentVersion,
-          source: 'extraction',
-        });
-      }
-    }
-
-    if (inputs.length > 0) {
-      await mentionService.createBatch(inputs);
+    const result = await persistMentionsFromEntities({
+      documentId,
+      entities: event.entities,
+      documentContent: doc.content,
+      currentVersion: doc.currentVersion,
+      segments,
+    });
+    if (result.count > 0) {
       logger.info(
         {
           documentId,
-          mentionCount: inputs.length,
-          recoveredOffsets: recovered,
+          mentionCount: result.count,
+          recoveredOffsets: result.recovered,
         },
         'Persisted mentions from completion stream',
       );
     }
-
     // Invalidate layout so projection recomputes with new embeddings
     await db
       .update(documents)
@@ -367,4 +307,10 @@ async function persistCompletionData(
         .where(eq(analysisChats.id, chat.id));
     }
   }
+
+  // Advance reconciliation watermark only after all persistence succeeds
+  await db
+    .update(documents)
+    .set({ lastCompletionSeenAt: new Date(event.completedAt) })
+    .where(eq(documents.id, documentId));
 }

@@ -188,6 +188,21 @@ async function getCoverageHashes(
   return data.hashes;
 }
 
+interface AnalysisStatus {
+  document_id: string;
+  last_pipeline_finish_at: string | null;
+  domain: string | null;
+  document_summary: string | null;
+}
+
+async function getAnalysisStatus(documentId: string): Promise<AnalysisStatus> {
+  const res = await fetch(
+    `${ANALYSIS_SERVICE_URL}/api/documents/${documentId}/analysis-status`,
+  );
+  if (!res.ok) throw new Error(`Analysis service error: ${res.status}`);
+  return (await res.json()) as AnalysisStatus;
+}
+
 async function softDeleteConnectionsByTypes(
   documentId: string,
   relationshipTypes: string[],
@@ -306,6 +321,7 @@ export const analysisClient = {
   getEntity,
   getCoverage,
   getCoverageHashes,
+  getAnalysisStatus,
   getTextTypes,
   softDeleteConnectionsByTypes,
   getEvents,

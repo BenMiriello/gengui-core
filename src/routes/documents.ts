@@ -6,6 +6,7 @@ import {
 } from 'express';
 import { jobService } from '../jobs/service';
 import { requireAuth } from '../middleware/auth';
+import { reconcileDocumentOnLoad } from '../services/analysisReconciliation';
 import { documentsService } from '../services/documents';
 import {
   computeCausalOrder,
@@ -64,6 +65,11 @@ router.get(
       const userId = req.user.id;
       const id = parseStringParam(req.params.id, 'id');
       const document = await documentsService.get(id, userId);
+
+      // Fire-and-forget drift check against analysis service; never blocks
+      // document open even if the analysis service is unavailable
+      reconcileDocumentOnLoad(id).catch(() => {});
+
       res.json({ document });
     } catch (error) {
       next(error);
