@@ -60,7 +60,10 @@ export function resolveAnchor(
       if (currentHash === textHash) {
         return { absoluteStart, absoluteEnd, confidence: 1.0, status: 'exact' };
       }
-    } else if (currentText === searchText) {
+    } else if (
+      currentText === searchText ||
+      (searchText && currentText.startsWith(searchText))
+    ) {
       return { absoluteStart, absoluteEnd, confidence: 1.0, status: 'exact' };
     }
 
@@ -108,8 +111,11 @@ export function resolveAnchor(
 
 /**
  * Resolve a text type annotation's position.
- * Uses boundary_text for fuzzy matching; end position is derived from
- * relocated start + original region length.
+ *
+ * text_hash from coverage is the segment hash (not a region hash), so we
+ * don't pass it to resolveAnchor. Layer 1 uses startsWith(boundaryText)
+ * instead. For non-exact results (fuzzy match on ~30-char boundary_text),
+ * the end position is extended using the original region length.
  */
 export function resolveTextTypeAnchor(
   content: string,
@@ -124,23 +130,18 @@ export function resolveTextTypeAnchor(
 ): AnchorResult | null {
   const regionLength = annotation.char_end - annotation.char_start;
 
-  const result = resolveAnchor(
-    content,
-    segments,
-    {
-      segmentId: annotation.segment_id,
-      relativeStart: annotation.char_start,
-      relativeEnd: annotation.char_end,
-      boundaryText: annotation.boundary_text,
-    },
-    annotation.text_hash,
-  );
+  const result = resolveAnchor(content, segments, {
+    segmentId: annotation.segment_id,
+    relativeStart: annotation.char_start,
+    relativeEnd: annotation.char_end,
+    boundaryText: annotation.boundary_text,
+  });
 
   if (!result) return null;
 
-  // For boundary_text matches, the fuzzy match found the start of the region.
-  // Extend end position using the original region length.
-  if (annotation.boundary_text && !annotation.text_hash) {
+  // Layer 1 exact match returns correct full-region positions.
+  // Fuzzy match found only the boundary_text start — extend to full region.
+  if (result.status !== 'exact') {
     return {
       ...result,
       absoluteEnd: result.absoluteStart + regionLength,
