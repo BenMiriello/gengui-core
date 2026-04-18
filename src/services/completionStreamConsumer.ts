@@ -301,7 +301,10 @@ async function persistCompletionData(
 
     await tx
       .update(documents)
-      .set({ lastCompletionSeenAt: new Date(event.completedAt) })
+      .set({
+        lastAnalyzedVersion: doc.currentVersion,
+        lastCompletionSeenAt: new Date(event.completedAt),
+      })
       .where(eq(documents.id, documentId));
   });
 }

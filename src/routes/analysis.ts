@@ -9,9 +9,11 @@ import {
   documents,
 } from '../models/schema';
 import { analysisClient } from '../services/analysisClient';
+import { resolveTextTypeAnchor } from '../services/anchorRelocation';
 import { mentionService } from '../services/mentions';
 import { redis } from '../services/redis';
 import { segmentService } from '../services/segments';
+import type { Segment } from '../services/segments/segment.types';
 import { sseService } from '../services/sse';
 import { logger } from '../utils/logger';
 import { parseStringParam } from '../utils/validation';
@@ -738,8 +740,28 @@ router.get(
         res.status(404).json({ error: 'Document not found' });
         return;
       }
+
       const result = await analysisClient.getTextTypes(documentId);
-      res.json(result);
+      if (!result.annotations.length) {
+        res.json({ annotations: [] });
+        return;
+      }
+
+      const segments = (doc.segmentSequence as Segment[]) ?? [];
+      const content = doc.content ?? '';
+
+      const resolved = result.annotations.map((annotation) => {
+        const anchor = resolveTextTypeAnchor(content, segments, annotation);
+        return {
+          ...annotation,
+          absoluteStart: anchor?.absoluteStart ?? null,
+          absoluteEnd: anchor?.absoluteEnd ?? null,
+          confidence: anchor?.confidence ?? 0,
+          status: anchor?.status ?? 'stale',
+        };
+      });
+
+      res.json({ annotations: resolved });
     } catch (error) {
       next(error);
     }
