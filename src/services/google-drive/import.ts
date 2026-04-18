@@ -3,6 +3,7 @@ import { documents } from '../../models/schema';
 import { logger } from '../../utils/logger';
 import { activityService } from '../activity.service';
 import type { ActivityProgress } from '../activity.types';
+import { importPdfDocument } from '../pdf/pdfImport.service';
 import { segmentService } from '../segments';
 import { GoogleDriveClient } from './client';
 import { DriveConnectionExpiredError, mapDriveErrorToMessage } from './errors';
@@ -94,6 +95,26 @@ export async function importFromDrive(
       totalStages: 3,
       stageName: 'converting',
     } as ActivityProgress);
+
+    // PDFs are imported as native PDF documents (not converted to text)
+    if (mimeType === 'application/pdf') {
+      await activityService.updateProgress(activity.id, {
+        stage: 3,
+        totalStages: 3,
+        stageName: 'creating',
+      } as ActivityProgress);
+
+      const buffer = Buffer.from(content);
+      const result = await importPdfDocument(userId, buffer, metadata.name);
+      await activityService.updateStatus(activity.id, 'completed');
+
+      logger.info(
+        { userId, documentId: result.documentId, driveFileId: fileId },
+        'PDF imported from Google Drive as native PDF document',
+      );
+
+      return { documentId: result.documentId, title: result.title };
+    }
 
     const converted = await convertToEditorFormat(
       content,

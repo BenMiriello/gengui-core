@@ -249,6 +249,11 @@ export const documents = pgTable(
       classifiedDomain?: string;
       classifiedAt?: string;
     }>(),
+    documentType: varchar('document_type', { length: 20 })
+      .notNull()
+      .default('text'),
+    fileKey: text('file_key'),
+    pageCount: integer('page_count'),
     segmentSequence: jsonb('segment_sequence').default([]).notNull(),
     yjsState: text('yjs_state'),
     summary: text('summary'),

@@ -12,6 +12,7 @@ export interface Segment {
   summary?: string; // 100-word summary
   summaryVersion?: number; // for cache invalidation
   summaryUpdatedAt?: string; // ISO timestamp
+  page?: number; // 1-based; set only for PDF documents
 }
 
 export interface SegmentBoundary {

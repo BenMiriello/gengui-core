@@ -76,6 +76,22 @@ export class S3StorageProvider implements StorageProvider {
     return key;
   }
 
+  async uploadFile(
+    key: string,
+    buffer: Buffer,
+    mimeType: string,
+  ): Promise<void> {
+    const command = new PutObjectCommand({
+      Bucket: this.bucket,
+      Key: key,
+      Body: buffer,
+      ContentType: mimeType,
+    });
+
+    await this.client.send(command);
+    logger.info({ key, size: buffer.length }, 'Uploaded file to S3');
+  }
+
   async delete(key: string): Promise<void> {
     const command = new DeleteObjectCommand({
       Bucket: this.bucket,

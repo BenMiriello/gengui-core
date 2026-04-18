@@ -4,6 +4,7 @@ import {
   type Response,
   Router,
 } from 'express';
+import multer from 'multer';
 import { jobService } from '../jobs/service';
 import { requireAuth } from '../middleware/auth';
 import { reconcileDocumentOnLoad } from '../services/analysisReconciliation';
@@ -17,10 +18,26 @@ import {
 import { graphService } from '../services/graph/graph.service';
 import { graphThreads } from '../services/graph/graph.threads';
 import { mediaService } from '../services/mediaService';
+import {
+  getPdfSignedUrl,
+  importPdfDocument,
+} from '../services/pdf/pdfImport.service';
 import { entityDocumentSimilarityService } from '../services/semantics/entityDocumentSimilarity.service';
 import { sseService } from '../services/sse';
 import { versioningService } from '../services/versioning';
 import { parseStringParam } from '../utils/validation';
+
+const pdfUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype === 'application/pdf') {
+      cb(null, true);
+    } else {
+      cb(new Error('Only PDF files are accepted'));
+    }
+  },
+});
 
 const router = Router();
 
@@ -134,6 +151,72 @@ router.post(
       });
 
       res.status(201).json({ document });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.post(
+  '/documents/import/pdf',
+  requireAuth,
+  pdfUpload.single('file'),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) throw new Error('User not authenticated');
+      if (!req.file) {
+        res.status(400).json({
+          error: { message: 'No PDF file provided', code: 'INVALID_INPUT' },
+        });
+        return;
+      }
+
+      const result = await importPdfDocument(
+        req.user.id,
+        req.file.buffer,
+        req.file.originalname,
+      );
+
+      await sseService.broadcastToUser(req.user.id, 'document-updated', {
+        documentId: result.documentId,
+        currentVersion: 0,
+        updatedAt: new Date().toISOString(),
+      });
+
+      res.status(201).json({
+        document: {
+          id: result.documentId,
+          title: result.title,
+          pageCount: result.pageCount,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.get(
+  '/documents/:id/file-url',
+  requireAuth,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) throw new Error('User not authenticated');
+      const id = parseStringParam(req.params.id, 'id');
+      const document = await documentsService.get(id, req.user.id);
+
+      if (document.documentType !== 'pdf' || !document.fileKey) {
+        res.status(404).json({
+          error: {
+            message: 'Document has no associated file',
+            code: 'NOT_FOUND',
+          },
+        });
+        return;
+      }
+
+      const url = await getPdfSignedUrl(document.fileKey);
+      res.json({ url });
     } catch (error) {
       next(error);
     }

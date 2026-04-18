@@ -34,6 +34,16 @@ export class MinIOStorageProvider implements StorageProvider {
     return key;
   }
 
+  async uploadFile(
+    key: string,
+    buffer: Buffer,
+    mimeType: string,
+  ): Promise<void> {
+    await this.client.putObject(this.bucket, key, buffer, buffer.length, {
+      'Content-Type': mimeType,
+    });
+  }
+
   async delete(key: string): Promise<void> {
     await this.client.removeObject(this.bucket, key);
   }
