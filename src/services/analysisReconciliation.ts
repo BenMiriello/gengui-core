@@ -201,6 +201,18 @@ export async function reconcileDocumentOnLoad(
       updates.layoutPositions = null;
     }
 
+    if (status.domain) {
+      const existing =
+        (doc.analysisSettings as Record<string, unknown> | null) ?? {};
+      const storedDomain = existing.domain as string | undefined;
+      if (storedDomain !== status.domain) {
+        updates.analysisSettings = {
+          ...existing,
+          domain: status.domain,
+        };
+      }
+    }
+
     await db.update(documents).set(updates).where(eq(documents.id, documentId));
 
     logger.info(

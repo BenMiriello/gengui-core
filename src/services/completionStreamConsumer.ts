@@ -46,6 +46,8 @@ interface AnalysisCompletionEvent {
   documentSummary?: string | null;
   chatResponse?: string | null;
   llmUsage?: LLMUsageRecord[];
+  domain?: string | null;
+  domainConfidence?: number | null;
 }
 
 export function startCompletionStreamConsumer(): () => void {
@@ -244,6 +246,21 @@ async function persistCompletionData(
       await tx
         .update(documents)
         .set({ summary: event.documentSummary })
+        .where(eq(documents.id, documentId));
+    }
+
+    if (event.domain) {
+      const existing =
+        (doc.analysisSettings as Record<string, unknown> | null) ?? {};
+      await tx
+        .update(documents)
+        .set({
+          analysisSettings: {
+            ...existing,
+            domain: event.domain,
+            domainConfidence: event.domainConfidence ?? null,
+          },
+        })
         .where(eq(documents.id, documentId));
     }
 

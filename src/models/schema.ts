@@ -242,6 +242,7 @@ export const documents = pgTable(
     analysisCheckpoint: jsonb('analysis_checkpoint'),
     analysisSettings: jsonb('analysis_settings').default({}).notNull().$type<{
       domain?: string | null;
+      domainConfidence?: number | null;
       enabledLayers?: string[];
       automationLevel?: string;
       confidenceThreshold?: number;
