@@ -4,6 +4,7 @@ import { logger } from '../utils/logger';
 class RedisService {
   private client: Redis;
   private subscriber: Redis;
+  private streamConsumer: Redis | null = null;
   private monitorInterval: NodeJS.Timeout | null = null;
   private messageHandler:
     | ((pattern: string, channel: string, message: string) => void)
@@ -269,6 +270,9 @@ class RedisService {
     }
     await this.client.quit();
     await this.subscriber.quit();
+    if (this.streamConsumer) {
+      await this.streamConsumer.quit();
+    }
     logger.info('Redis connections closed');
   }
 
@@ -280,6 +284,34 @@ class RedisService {
 
   getClient(): Redis {
     return this.client;
+  }
+
+  /**
+   * Get a dedicated client for blocking stream operations (XREADGROUP BLOCK).
+   * Must never share a connection with non-blocking operations — a BLOCK command
+   * holds the connection for its full timeout, queuing all other commands behind it.
+   */
+  getStreamConsumerClient(): Redis {
+    if (!this.streamConsumer) {
+      const redisUrl = process.env.REDIS_URL;
+      if (!redisUrl)
+        throw new Error('REDIS_URL environment variable is not set');
+      this.streamConsumer = new Redis(redisUrl, {
+        maxRetriesPerRequest: 3,
+        retryStrategy: (times) => Math.min(times * 500, 5000),
+        commandTimeout: 15000,
+        connectTimeout: 10000,
+        enableReadyCheck: true,
+        lazyConnect: false,
+        enableOfflineQueue: true,
+        keepAlive: 30000,
+        family: 4,
+        enableAutoPipelining: false,
+        blockingTimeout: 30000,
+        autoResubscribe: true,
+      });
+    }
+    return this.streamConsumer;
   }
 
   /**

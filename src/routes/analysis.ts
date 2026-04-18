@@ -204,6 +204,15 @@ router.get(
         return;
       }
 
+      // If the analysis service already completed but core missed the SSE event
+      // (restart, dropped subscription), clear the orphaned lock and return null.
+      const isFinished = await redis.get(`analysis:finished:${runId}`);
+      if (isFinished) {
+        await redis.del(lockKey);
+        res.json({ runId: null, status: null });
+        return;
+      }
+
       const isInterrupted = await redis.get(`analysis:interrupted:${runId}`);
       const status = isInterrupted ? 'interrupted' : 'running';
 

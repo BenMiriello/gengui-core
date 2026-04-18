@@ -49,7 +49,7 @@ interface AnalysisCompletionEvent {
 }
 
 export function startCompletionStreamConsumer(): () => void {
-  const client = redis.getClient();
+  const client = redis.getStreamConsumerClient();
   let running = true;
 
   async function ensureConsumerGroup(): Promise<void> {
