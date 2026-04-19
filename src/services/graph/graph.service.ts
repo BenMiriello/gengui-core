@@ -207,6 +207,7 @@ class GraphService {
   async query(
     cypher: string,
     params?: Record<string, unknown>,
+    options?: { timeoutMs?: number },
   ): Promise<QueryResult> {
     const client = await this.ensureConnected();
 
@@ -218,11 +219,12 @@ class GraphService {
       queryString = cypherParams + cypher;
     }
 
-    const result = (await client.call(
-      'GRAPH.QUERY',
-      GRAPH_NAME,
-      queryString,
-    )) as unknown[];
+    const args: (string | number)[] = [GRAPH_NAME, queryString];
+    if (options?.timeoutMs) {
+      args.push('--timeout', options.timeoutMs);
+    }
+
+    const result = (await client.call('GRAPH.QUERY', ...args)) as unknown[];
 
     return this.parseResult(result);
   }
@@ -1228,16 +1230,26 @@ class GraphService {
   async getExistingNodeIds(nodeIds: string[]): Promise<Set<string>> {
     if (nodeIds.length === 0) return new Set();
 
-    const result = await this.query(
-      `
-      UNWIND $nodeIds AS nodeId
-      MATCH (n:Entity {id: nodeId})
-      WHERE n.deletedAt IS NULL
-      RETURN n.id as id
-      `,
-      { nodeIds },
-    );
-    return new Set(result.data.map((row) => row[0] as string));
+    const BATCH_SIZE = 100;
+    const existing = new Set<string>();
+
+    for (let i = 0; i < nodeIds.length; i += BATCH_SIZE) {
+      const batch = nodeIds.slice(i, i + BATCH_SIZE);
+      const result = await this.query(
+        `
+        UNWIND $nodeIds AS nodeId
+        MATCH (n:Entity {id: nodeId})
+        WHERE n.deletedAt IS NULL
+        RETURN n.id as id
+        `,
+        { nodeIds: batch },
+      );
+      for (const row of result.data) {
+        existing.add(row[0] as string);
+      }
+    }
+
+    return existing;
   }
 
   /**
