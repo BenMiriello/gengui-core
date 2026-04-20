@@ -85,14 +85,15 @@ router.post(
         return;
       }
 
-      const domain = req.body.domain || null;
       const settings = doc.analysisSettings as {
+        domain?: string;
         enabledLayers?: string[];
         automationLevel?: string;
         confidenceThreshold?: number;
       } | null;
+      const domain = req.body.domain || settings?.domain || null;
       const enabledLayers = req.body.enabledLayers ||
-        settings?.enabledLayers || ['foundation'];
+        settings?.enabledLayers || undefined;
       const automationLevel =
         req.body.automationLevel || settings?.automationLevel || 'full_auto';
       const confidenceThreshold =
