@@ -770,19 +770,6 @@ router.get(
 
 // --- Domain change endpoint ---
 
-const SOCIAL_TYPES = ['CONNECTED_TO', 'OPPOSES'];
-
-const DOMAIN_LAYER_TYPES: Record<string, string[]> = {
-  narrative: SOCIAL_TYPES,
-};
-
-function getTypesToRemove(fromDomain: string, toDomain: string): string[] {
-  const fromTypes = DOMAIN_LAYER_TYPES[fromDomain] ?? [];
-  const toTypes = DOMAIN_LAYER_TYPES[toDomain] ?? [];
-  const toSet = new Set(toTypes);
-  return fromTypes.filter((t) => !toSet.has(t));
-}
-
 router.post(
   '/analysis/documents/:id/change-domain',
   requireAuth,
@@ -808,7 +795,10 @@ router.post(
       const existing =
         (doc.analysisSettings as Record<string, unknown> | null) ?? {};
       const currentDomain = (existing.domain as string) ?? 'general';
-      const typesToRemove = getTypesToRemove(currentDomain, targetDomain);
+      const typesToRemove = await analysisClient.getTypesToRemove(
+        currentDomain,
+        targetDomain,
+      );
 
       let deletedCount = 0;
       if (typesToRemove.length > 0) {

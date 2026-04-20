@@ -203,6 +203,22 @@ async function getAnalysisStatus(documentId: string): Promise<AnalysisStatus> {
   return (await res.json()) as AnalysisStatus;
 }
 
+async function getTypesToRemove(
+  fromDomain: string,
+  toDomain: string,
+): Promise<string[]> {
+  const params = new URLSearchParams({
+    from_domain: fromDomain,
+    to_domain: toDomain,
+  });
+  const res = await fetch(
+    `${ANALYSIS_SERVICE_URL}/api/domain/types-to-remove?${params}`,
+  );
+  if (!res.ok) return [];
+  const data = (await res.json()) as { types: string[] };
+  return data.types;
+}
+
 async function softDeleteConnectionsByTypes(
   documentId: string,
   relationshipTypes: string[],
@@ -323,6 +339,7 @@ export const analysisClient = {
   getCoverageHashes,
   getAnalysisStatus,
   getTextTypes,
+  getTypesToRemove,
   softDeleteConnectionsByTypes,
   getEvents,
   deleteEntities,
